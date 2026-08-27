@@ -1,0 +1,100 @@
+{% extends "layout.html" %}
+
+{% block title %}
+    · 资源关联
+{% endblock %}
+
+{% block main %}
+    <div class="text-start">
+        <div class="mb-4">
+            <h1 class="h3 mb-1">电影资源关联</h1>
+            <p class="text-body-secondary mb-0">查询 TMDB 电影信息并关联本地 AList 文件。</p>
+        </div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% for category, message in messages %}
+                <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
+                    {{ message }}
+                    <button class="btn-close" type="button" data-bs-dismiss="alert" aria-label="关闭"></button>
+                </div>
+            {% endfor %}
+        {% endwith %}
+
+        <div class="card mb-5">
+            <div class="card-body">
+                <form action="{{ url_for('index') }}" method="post">
+                    <div class="row g-3 align-items-end">
+                        <div class="col-md-4">
+                            <label class="form-label" for="movie-name">电影名称</label>
+                            <input
+                                class="form-control"
+                                id="movie-name"
+                                name="movie_name"
+                                type="text"
+                                placeholder="例如：星际穿越"
+                                required
+                            >
+                        </div>
+                        <div class="col-md-6">
+                            <label class="form-label" for="alist-url">AList 视频直链</label>
+                            <input
+                                class="form-control"
+                                id="alist-url"
+                                name="alist_url"
+                                type="url"
+                                placeholder="{{ alist_origin }}/d/...?sign=..."
+                                required
+                            >
+                        </div>
+                        <div class="col-md-2 d-grid">
+                            <button class="btn btn-primary" type="submit">查询并关联</button>
+                        </div>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div class="d-flex align-items-center justify-content-between mb-3">
+            <h2 class="h5 mb-0">已有对应关系</h2>
+            <span class="badge text-bg-secondary">{{ movie_mappings|length }}</span>
+        </div>
+
+        <div class="table-responsive">
+            <table class="table table-striped table-hover align-middle">
+                <thead>
+                    <tr>
+                        <th scope="col">电影</th>
+                        <th scope="col">上映日期</th>
+                        <th scope="col">TMDB ID</th>
+                        <th scope="col">AList 文件</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for mapping in movie_mappings %}
+                        <tr>
+                            <td>
+                                <div class="fw-semibold">{{ mapping.title }}</div>
+                                {% if mapping.original_title != mapping.title %}
+                                    <div class="small text-body-secondary">{{ mapping.original_title }}</div>
+                                {% endif %}
+                            </td>
+                            <td class="text-nowrap">{{ mapping.release_date or "—" }}</td>
+                            <td>{{ mapping.movie_id }}</td>
+                            <td class="text-break">
+                                <a href="{{ mapping.alist_url }}" target="_blank" rel="noopener noreferrer">
+                                    查看
+                                </a>
+                            </td>
+                        </tr>
+                    {% else %}
+                        <tr>
+                            <td class="py-4 text-center text-body-secondary" colspan="4">
+                                暂无电影与 AList 文件的对应关系。
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+{% endblock %}
