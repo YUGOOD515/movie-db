@@ -25,16 +25,14 @@ Session(app)
 
 
 def get_media_mappings():
-    """Add browser URLs to stored movie and episode relationships."""
-    movie_mappings = models.get_movie_mappings(app.config["DATABASE"])
-    episode_mappings = models.get_tv_episode_mappings(app.config["DATABASE"])
-    for mapping in movie_mappings + episode_mappings:
-        mapping["alist_url"] = helpers.build_alist_url(mapping["alist_path"])
-
-    return movie_mappings, episode_mappings
+    """Return stored movie and episode relationships."""
+    return (
+        models.get_movie_mappings(app.config["DATABASE"]),
+        models.get_tv_episode_mappings(app.config["DATABASE"]),
+    )
 
 
-def add_media_urls(item: dict):
+def add_media_routes(item: dict):
     """Add route and playback URLs without mixing them into model queries."""
     if item["media_type"] == "movie":
         item["detail_url"] = url_for(
@@ -47,10 +45,14 @@ def add_media_urls(item: dict):
             series_id=item["media_id"],
         )
 
-    alist_path = item.get("alist_path")
+    source_id = item.get("source_order")
     item["play_url"] = (
-        helpers.build_alist_url(alist_path)
-        if alist_path
+        url_for(
+            "play_media_source",
+            media_type=item["media_type"],
+            source_id=source_id,
+        )
+        if source_id is not None
         else None
     )
 
@@ -66,7 +68,7 @@ def prepare_homepage_data():
         "top_rated_movies",
     ):
         for item in homepage[section_name]:
-            add_media_urls(item)
+            add_media_routes(item)
 
     for genre in homepage["genre_features"]:
         genre["detail_url"] = url_for(
@@ -176,6 +178,45 @@ def index():
     return render_template("index.html", **prepare_homepage_data())
 
 
+@app.route("/play/<media_type>/<int:source_id>")
+def play_media_source(media_type: str, source_id: int):
+    if media_type not in ("movie", "tv"):
+        abort(404)
+
+    source = models.get_media_source(
+        app.config["DATABASE"],
+        media_type,
+        source_id,
+    )
+    if source is None:
+        abort(404)
+
+    progress = models.get_watch_progress(
+        app.config["DATABASE"],
+        media_type,
+        source["media_id"],
+    )
+    video_url = helpers.get_video_link(source["alist_path"])
+    database_path = app.config["DATABASE"]
+
+    def save_progress(position_ms: int, duration_ms: int):
+        models.save_watch_progress(
+            database_path,
+            media_type,
+            source["media_id"],
+            position_ms,
+            duration_ms,
+        )
+
+    helpers.play_video(
+        video_url,
+        start_position_ms=progress["resume_position_ms"],
+        progress_callback=save_progress,
+    )
+
+    return "", 204
+
+
 def render_media_detail(media_type: str, media_id: int):
     detail = models.get_media_detail(
         app.config["DATABASE"],
@@ -185,16 +226,31 @@ def render_media_detail(media_type: str, media_id: int):
     if detail is None:
         abort(404)
 
-    add_media_urls(detail)
+    add_media_routes(detail)
     for source in detail["sources"]:
-        source["alist_url"] = helpers.build_alist_url(source["alist_path"])
-    if detail["sources"]:
-        detail["play_url"] = detail["sources"][-1]["alist_url"]
+        source["play_url"] = url_for(
+            "play_media_source",
+            media_type=media_type,
+            source_id=source["source_id"],
+        )
+    resumable_sources = [
+        source
+        for source in detail["sources"]
+        if source["resume_position_ms"] > 0
+    ]
     detail["featured_source"] = (
-        detail["sources"][-1]
-        if detail["sources"]
-        else None
+        max(
+            resumable_sources,
+            key=lambda source: source["updated_at"] or "",
+        )
+        if resumable_sources
+        else (detail["sources"][-1] if detail["sources"] else None)
     )
+    if detail["featured_source"]:
+        detail["play_url"] = detail["featured_source"]["play_url"]
+        detail["progress"] = detail["featured_source"]["progress"]
+    else:
+        detail["progress"] = 0
 
     return render_template("detail.html", media=detail)
 

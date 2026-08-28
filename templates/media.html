@@ -5,7 +5,7 @@
 {% endblock %}
 
 {% block main %}
-    <div class="text-start">
+    <div class="container-xl text-start">
         <div class="mb-4">
             <h1 class="h3 mb-1">媒体资源关联</h1>
             <p class="text-body-secondary mb-0">查询 TMDB 信息并关联本地 AList 视频文件。</p>
@@ -20,7 +20,7 @@
             {% endfor %}
         {% endwith %}
 
-        <div class="card mb-5">
+        <div class="card squircle-card mb-5">
             <div class="card-body">
                 <form action="{{ url_for('media') }}" method="post">
                     <div class="row g-3 align-items-end">
@@ -112,7 +112,7 @@
                                 </td>
                                 <td class="text-nowrap">{{ mapping.release_date or "—" }}</td>
                                 <td>{{ mapping.movie_id }}</td>
-                                <td><a href="{{ mapping.alist_url }}" target="_blank" rel="noopener noreferrer">查看</a></td>
+                                <td><code>{{ mapping.alist_path }}</code></td>
                             </tr>
                         {% else %}
                             <tr>
@@ -157,7 +157,7 @@
                                 <td>{{ mapping.episode_name or "—" }}</td>
                                 <td class="text-nowrap">{{ mapping.air_date or "—" }}</td>
                                 <td>{{ mapping.episode_id }}</td>
-                                <td><a href="{{ mapping.alist_url }}" target="_blank" rel="noopener noreferrer">查看</a></td>
+                                <td><code>{{ mapping.alist_path }}</code></td>
                             </tr>
                         {% else %}
                             <tr>

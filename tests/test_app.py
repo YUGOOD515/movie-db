@@ -51,7 +51,7 @@ class ImportWorkflowTest(unittest.TestCase):
         ):
             self.assertIn(section_name.encode(), home_response.data)
         self.assertIn("还没有观看记录".encode(), home_response.data)
-        self.assertIn("media-rail--folder".encode(), home_response.data)
+        self.assertIn("media-rail--span-3".encode(), home_response.data)
         self.assertIn(b"site-menu-toggle", home_response.data)
         self.assertIn(b"site-sidebar offcanvas offcanvas-start", home_response.data)
         self.assertNotIn(b"offcanvas-lg", home_response.data)
@@ -62,6 +62,8 @@ class ImportWorkflowTest(unittest.TestCase):
     def test_missing_media_detail_returns_not_found(self):
         self.assertEqual(self.client.get("/movies/999999").status_code, 404)
         self.assertEqual(self.client.get("/series/999999").status_code, 404)
+        self.assertEqual(self.client.get("/play/movie/999999").status_code, 404)
+        self.assertEqual(self.client.get("/play/invalid/1").status_code, 404)
 
     def test_rejects_non_local_alist_url(self):
         response = self.client.post(
@@ -86,6 +88,97 @@ class ImportWorkflowTest(unittest.TestCase):
             movie_app.helpers.parse_alist_url(
                 "http://127.0.0.1:5244/d/Quark/movie.mkv"
             )
+
+    @patch("helpers.requests.get")
+    def test_reads_status_and_seeks_through_mpc_web_api(self, mocked_get):
+        mocked_get.return_value.json.return_value = {
+            "file": "movie.mkv",
+            "path": "https://alist.example/raw/movie.mkv?token=test",
+            "state": 2,
+            "position": 3_723_456,
+            "duration": 7_200_000,
+        }
+
+        status = movie_app.helpers.get_mpc_status()
+
+        self.assertEqual(status["position_ms"], 3_723_456)
+        self.assertEqual(status["duration_ms"], 7_200_000)
+        self.assertFalse(
+            movie_app.helpers._status_matches_video(
+                {"file": "movie.mkv", "path": "https://other/movie.mkv"},
+                "https://alist.example/raw/movie.mkv",
+            )
+        )
+        mocked_get.assert_called_once_with(
+            "http://127.0.0.1:13579/status.json",
+            timeout=2,
+        )
+
+        mocked_get.reset_mock()
+        movie_app.helpers.seek_mpc(3_723_456)
+        mocked_get.assert_called_once_with(
+            "http://127.0.0.1:13579/command.html",
+            params={
+                "wm_command": "-1",
+                "position": "01:02:03.456",
+            },
+            timeout=2,
+        )
+
+    @patch("helpers.time.sleep")
+    @patch("helpers.seek_mpc")
+    @patch("helpers.get_mpc_status")
+    def test_mpc_monitor_seeks_once_and_saves_changed_progress(
+        self,
+        mocked_status,
+        mocked_seek,
+        mocked_sleep,
+    ):
+        mocked_status.side_effect = [
+            {
+                "file": "movie.mkv",
+                "path": "https://alist.example/raw/movie.mkv?token=loading",
+                "state": 0,
+                "position_ms": 0,
+                "duration_ms": 0,
+            },
+            {
+                "file": "movie.mkv",
+                "path": "https://alist.example/raw/movie.mkv?token=one",
+                "state": 2,
+                "position_ms": 0,
+                "duration_ms": 7_200_000,
+            },
+            {
+                "file": "movie.mkv",
+                "path": "https://alist.example/raw/movie.mkv?token=two",
+                "state": 2,
+                "position_ms": 601_000,
+                "duration_ms": 7_200_000,
+            },
+            {
+                "file": "movie.mkv",
+                "path": "https://alist.example/raw/movie.mkv?token=three",
+                "state": 0,
+                "position_ms": 602_000,
+                "duration_ms": 7_200_000,
+            },
+        ]
+        saved_progress = []
+        generation = movie_app.helpers._next_playback_generation()
+
+        movie_app.helpers._monitor_mpc_playback(
+            generation,
+            "https://alist.example/raw/movie.mkv?token=start",
+            600_000,
+            lambda position, duration: saved_progress.append((position, duration)),
+        )
+
+        mocked_seek.assert_called_once_with(600_000)
+        self.assertEqual(
+            saved_progress,
+            [(601_000, 7_200_000), (602_000, 7_200_000)],
+        )
 
     @patch("helpers._tmdb_get")
     def test_find_media_uses_shared_movie_and_tv_flow(self, mocked_tmdb_get):
@@ -333,9 +426,10 @@ class ImportWorkflowTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("已关联".encode(), response.data)
         self.assertIn(
-            "/Quark/%E6%B5%8B%E8%AF%95%E7%94%B5%E5%BD%B1.mkv".encode(),
+            "/Quark/测试电影.mkv".encode(),
             response.data,
         )
+        self.assertNotIn(b'href="http://127.0.0.1:5244', response.data)
 
         repeated_response = self.client.post(
             "/media",
@@ -372,19 +466,65 @@ class ImportWorkflowTest(unittest.TestCase):
                 "images/157336/posters/1.jpg",
             )
 
+        movie_app.models.save_watch_progress(
+            self.database_path,
+            "movie",
+            157336,
+            600_000,
+            7_200_000,
+        )
+        homepage_data = movie_app.models.get_homepage_data(self.database_path)
+        self.assertEqual(homepage_data["continue_watching"][0]["media_id"], 157336)
+        self.assertEqual(homepage_data["continue_watching"][0]["progress"], 8)
+        self.assertNotIn(
+            157336,
+            [item["media_id"] for item in homepage_data["unwatched"]],
+        )
         home_response = self.client.get("/")
         detail_response = self.client.get("/movies/157336")
         self.assertEqual(home_response.status_code, 200)
         self.assertIn("测试电影".encode(), home_response.data)
         self.assertIn("最近添加".encode(), home_response.data)
-        self.assertIn("media-rail--poster".encode(), home_response.data)
+        self.assertIn("media-rail--span-6".encode(), home_response.data)
+        self.assertIn("media-rail--span-2".encode(), home_response.data)
         self.assertEqual(detail_response.status_code, 200)
         self.assertIn("测试简介".encode(), detail_response.data)
-        self.assertIn("播放电影".encode(), detail_response.data)
+        self.assertIn("继续播放".encode(), detail_response.data)
+        self.assertIn(b'href="/play/movie/1"', detail_response.data)
+        self.assertNotIn(b'href="http://127.0.0.1:5244', detail_response.data)
         self.assertIn(b"site-sidebar", detail_response.data)
         self.assertIn(b"detail-main", detail_response.data)
         self.assertIn("年龄分级 未提供".encode(), detail_response.data)
         self.assertNotIn(b"detail-poster", detail_response.data)
+
+        with (
+            patch(
+                "helpers.get_video_link",
+                return_value="https://alist.example/raw/movie.mkv",
+            ) as mocked_get_video_link,
+            patch("helpers.play_video") as mocked_play_video,
+        ):
+            play_response = self.client.get("/play/movie/1")
+
+        self.assertEqual(play_response.status_code, 204)
+        mocked_get_video_link.assert_called_once_with("/Quark/测试电影.mkv")
+        self.assertEqual(
+            mocked_play_video.call_args.args,
+            ("https://alist.example/raw/movie.mkv",),
+        )
+        self.assertEqual(
+            mocked_play_video.call_args.kwargs["start_position_ms"],
+            600_000,
+        )
+        progress_callback = mocked_play_video.call_args.kwargs["progress_callback"]
+        progress_callback(1_200_000, 7_200_000)
+        with closing(sqlite3.connect(self.database_path)) as database:
+            self.assertEqual(
+                database.execute(
+                    "SELECT position_ms, duration_ms FROM movie_watch_progress"
+                ).fetchone(),
+                (1_200_000, 7_200_000),
+            )
 
     @patch("helpers.download_tv_episode_still")
     @patch("helpers.download_media_images")
@@ -607,6 +747,19 @@ class ImportWorkflowTest(unittest.TestCase):
         mocked_download_media_images.assert_called_once()
         self.assertEqual(mocked_download_tv_episode_still.call_count, 2)
 
+        movie_app.models.save_watch_progress(
+            self.database_path,
+            "tv",
+            62086,
+            300_000,
+            2_880_000,
+        )
+        homepage_data = movie_app.models.get_homepage_data(self.database_path)
+        self.assertEqual(homepage_data["continue_watching"][0]["media_id"], 1396)
+        self.assertEqual(
+            homepage_data["continue_watching"][0]["episode_number"],
+            2,
+        )
         home_response = self.client.get("/")
         detail_response = self.client.get("/series/1396")
         self.assertEqual(home_response.status_code, 200)
@@ -618,8 +771,42 @@ class ImportWorkflowTest(unittest.TestCase):
         self.assertIn("48 分钟".encode(), detail_response.data)
         self.assertIn("2008-01-27".encode(), detail_response.data)
         self.assertIn(b"episode-card", detail_response.data)
+        self.assertIn("已观看 10%".encode(), detail_response.data)
+        self.assertIn(b'href="/play/tv/1"', detail_response.data)
+        self.assertNotIn(b'href="http://127.0.0.1:5244', detail_response.data)
         self.assertIn(b"images/tv/1396/season-1/episodes/62086.jpg", detail_response.data)
         self.assertNotIn(b"detail-poster", detail_response.data)
+
+        with (
+            patch(
+                "helpers.get_video_link",
+                return_value="https://alist.example/raw/episode.mkv",
+            ) as mocked_get_video_link,
+            patch("helpers.play_video") as mocked_play_video,
+        ):
+            play_response = self.client.get("/play/tv/1")
+
+        self.assertEqual(play_response.status_code, 204)
+        mocked_get_video_link.assert_called_once_with(
+            "/Quark/测试剧集.S01E02.mkv"
+        )
+        self.assertEqual(
+            mocked_play_video.call_args.args,
+            ("https://alist.example/raw/episode.mkv",),
+        )
+        self.assertEqual(
+            mocked_play_video.call_args.kwargs["start_position_ms"],
+            300_000,
+        )
+        progress_callback = mocked_play_video.call_args.kwargs["progress_callback"]
+        progress_callback(600_000, 2_880_000)
+        with closing(sqlite3.connect(self.database_path)) as database:
+            self.assertEqual(
+                database.execute(
+                    "SELECT position_ms, duration_ms FROM tv_episode_watch_progress"
+                ).fetchone(),
+                (600_000, 2_880_000),
+            )
 
 
 if __name__ == "__main__":

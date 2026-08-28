@@ -20,6 +20,8 @@ SQL 代码书写准则：https://www.sqlstyle.guide/zh/
 
 不要花哨、绚丽，使用 HTML、CSS、JavaScript 完成即可，适当引入第三方库用于加快进度。当前已有精简的 Bootstrap 媒体关联页面。
 
+前端优先使用 Bootstrap 原生组件和工具类，仅为媒体展示与必要交互保留少量自定义 CSS；本项目不使用 `design-taste-frontend` skill。
+
 ## 进度存储区
 
 当前阶段：电影和剧集录入、图片本地化、数据库关系存储及基础关联页面已经完成。

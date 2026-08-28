@@ -2,97 +2,102 @@
 
 {% block title %} - {{ media.name }}{% endblock %}
 
-{% block main_class %}page-main detail-main{% endblock %}
+{% block main_class %}detail-main p-0{% endblock %}
 
 {% block main %}
-    <article class="detail-page">
+    <article class="detail-page overflow-hidden">
         <section class="detail-hero" aria-labelledby="detail-title">
             {% if media.backdrop_path %}
-                <img class="detail-backdrop" src="{{ url_for('static', filename=media.backdrop_path) }}" alt="" width="1600" height="900" data-media-image>
+                <img class="detail-backdrop" src="{{ url_for('static', filename=media.backdrop_path) }}" alt="" width="100%" height="900" data-media-image>
             {% endif %}
-            <span class="image-fallback detail-backdrop-fallback{% if media.backdrop_path %} d-none{% endif %}" aria-hidden="true"><i class="bi bi-film"></i></span>
+            <span class="image-fallback detail-backdrop-fallback align-items-center justify-content-center display-1 text-body-secondary{% if media.backdrop_path %} d-none{% endif %}" aria-hidden="true"><i class="bi bi-film"></i></span>
             <span class="detail-scrim" aria-hidden="true"></span>
 
-            <a class="back-link" href="{{ url_for('index') }}">
-                <i class="bi bi-arrow-left" aria-hidden="true"></i>
-                返回媒体库
-            </a>
+            <div class="detail-content container-xl">
+                <div class="row align-items-end g-4">
+                    <div class="detail-primary col-12 col-md-3 d-flex flex-column align-items-start">
+                        {% if media.logo_path %}
+                            <img class="detail-logo img-fluid w-100 object-fit-contain mb-4" src="{{ url_for('static', filename=media.logo_path) }}" alt="{{ media.name }}标志" data-media-image>
+                            <h1 class="visually-hidden" id="detail-title">{{ media.name }}</h1>
+                        {% else %}
+                            <h1 class="display-4 fw-semibold lh-1 mb-4" id="detail-title">{{ media.name }}</h1>
+                        {% endif %}
 
-            <div class="detail-content">
-                <div class="detail-primary">
-                    {% if media.logo_path %}
-                        <img class="detail-logo" src="{{ url_for('static', filename=media.logo_path) }}" alt="{{ media.name }}标志" data-media-image>
-                        <h1 class="visually-hidden" id="detail-title">{{ media.name }}</h1>
-                    {% else %}
-                        <h1 id="detail-title">{{ media.name }}</h1>
-                    {% endif %}
+                        {% if media.play_url %}
+                            <a class="btn btn-primary detail-play w-100 d-inline-flex align-items-center justify-content-center gap-2" href="{{ media.play_url }}">
+                                <i class="bi bi-play-fill" aria-hidden="true"></i>
+                                {% if media.media_type == "tv" and media.featured_source %}
+                                    {% if media.progress %}继续{% else %}播放{% endif %} S{{ "%02d"|format(media.featured_source.season_number) }}E{{ "%02d"|format(media.featured_source.episode_number) }}
+                                {% else %}
+                                    {% if media.progress %}继续播放{% else %}播放电影{% endif %}
+                                {% endif %}
+                            </a>
+                        {% endif %}
+                    </div>
 
-                    {% if media.play_url %}
-                        <a class="btn btn-accent detail-play" href="{{ media.play_url }}">
-                            <i class="bi bi-play-fill" aria-hidden="true"></i>
-                            {% if media.media_type == "tv" and media.featured_source %}
-                                播放 S{{ "%02d"|format(media.featured_source.season_number) }}E{{ "%02d"|format(media.featured_source.episode_number) }}
-                            {% else %}
-                                播放电影
-                            {% endif %}
-                        </a>
-                    {% endif %}
-                </div>
-
-                <div class="detail-feature">
-                    {% if media.media_type == "tv" and media.featured_source %}
-                        <p class="detail-series-name">{{ media.name }}</p>
-                        <h2>
-                            第 {{ media.featured_source.season_number }} 季 · 第 {{ media.featured_source.episode_number }} 集
-                            {% if media.featured_source.episode_name %}<span>{{ media.featured_source.episode_name }}</span>{% endif %}
-                        </h2>
-                        <div class="detail-meta">
-                            {% if media.featured_source.runtime %}<span>{{ media.featured_source.runtime }} 分钟</span>{% endif %}
-                            <span>{{ media.featured_source.air_date or "播出日期未提供" }}</span>
-                            <span>年龄分级 {{ media.age_rating or "未提供" }}</span>
-                        </div>
-                        <p class="detail-overview">{{ media.featured_source.overview or media.overview or "暂无单集简介。" }}</p>
-                    {% else %}
-                        <h2>{{ media.name }}</h2>
-                        <div class="detail-meta">
-                            {% if media.runtime %}<span>{{ media.runtime }} 分钟</span>{% endif %}
-                            <span>{{ media.release_date or "上映日期未提供" }}</span>
-                            <span>年龄分级 {{ media.age_rating or "未提供" }}</span>
-                        </div>
-                        <p class="detail-overview">{{ media.overview or "暂无电影简介。" }}</p>
-                    {% endif %}
+                    <div class="detail-feature col-12 col-md-9">
+                        {% if media.media_type == "tv" and media.featured_source %}
+                            <p class="small text-body-secondary fw-semibold mb-2">{{ media.name }}</p>
+                            <h2 class="h2 fw-semibold mb-3">
+                                第 {{ media.featured_source.season_number }} 季 · 第 {{ media.featured_source.episode_number }} 集
+                                {% if media.featured_source.episode_name %}<span class="d-block fs-5 text-body-secondary mt-2">{{ media.featured_source.episode_name }}</span>{% endif %}
+                            </h2>
+                            <div class="d-flex flex-wrap gap-3 small text-body-secondary fw-semibold">
+                                {% if media.featured_source.runtime %}<span>{{ media.featured_source.runtime }} 分钟</span>{% endif %}
+                                <span>{{ media.featured_source.air_date or "播出日期未提供" }}</span>
+                                <span>年龄分级 {{ media.age_rating or "未提供" }}</span>
+                            </div>
+                            <p class="detail-overview lh-lg mt-3 mb-0">{{ media.featured_source.overview or media.overview or "暂无单集简介。" }}</p>
+                        {% else %}
+                            <h2 class="h2 fw-semibold mb-3">{{ media.name }}</h2>
+                            <div class="d-flex flex-wrap gap-3 small text-body-secondary fw-semibold">
+                                {% if media.runtime %}<span>{{ media.runtime }} 分钟</span>{% endif %}
+                                <span>{{ media.release_date or "上映日期未提供" }}</span>
+                                <span>年龄分级 {{ media.age_rating or "未提供" }}</span>
+                            </div>
+                            <p class="detail-overview lh-lg mt-3 mb-0">{{ media.overview or "暂无电影简介。" }}</p>
+                        {% endif %}
+                    </div>
                 </div>
             </div>
         </section>
 
         {% if media.media_type == "tv" %}
-            <section class="detail-sources" aria-labelledby="episodes-heading">
-                <div class="section-heading"><h2 id="episodes-heading">选集</h2></div>
+            <section class="detail-sources container-xl py-5" aria-labelledby="episodes-heading">
+                <div class="section-heading mb-4"><h2 class="h4 mb-0" id="episodes-heading">选集</h2></div>
                 <div class="row g-3 g-xl-4">
                     {% for source in media.sources %}
                         <div class="col-12 col-sm-6 col-lg-3">
-                            <a class="episode-card" href="{{ source.alist_url }}">
-                                <span class="episode-still-frame">
-                                    {% set episode_image = source.still_path or media.backdrop_path %}
-                                    {% if episode_image %}
-                                        <img src="{{ url_for('static', filename=episode_image) }}" alt="{{ media.name }}第 {{ source.season_number }} 季第 {{ source.episode_number }} 集剧照" width="640" height="360" loading="lazy" data-media-image>
-                                    {% endif %}
-                                    <span class="image-fallback{% if episode_image %} d-none{% endif %}" aria-hidden="true"><i class="bi bi-film"></i></span>
-                                    <span class="episode-play" aria-hidden="true"><i class="bi bi-play-fill"></i></span>
+                            <a class="episode-card card h-100 border-0 bg-transparent text-body text-decoration-none" href="{{ source.play_url }}">
+                                <span class="episode-still-frame squircle-card ratio ratio-16x9 d-block overflow-hidden bg-body-tertiary shadow-sm">
+                                    <span class="d-block">
+                                        {% set episode_image = source.still_path or media.backdrop_path %}
+                                        {% if episode_image %}
+                                            <img class="media-cover" src="{{ url_for('static', filename=episode_image) }}" alt="{{ media.name }}第 {{ source.season_number }} 季第 {{ source.episode_number }} 集剧照" width="640" height="360" loading="lazy" data-media-image>
+                                        {% endif %}
+                                        <span class="image-fallback position-absolute top-0 start-0 w-100 h-100 align-items-center justify-content-center fs-2 text-body-secondary{% if episode_image %} d-none{% else %} d-flex{% endif %}" aria-hidden="true"><i class="bi bi-film"></i></span>
+                                        <span class="episode-play btn btn-dark position-absolute top-50 start-50 translate-middle rounded-circle d-flex align-items-center justify-content-center p-0" aria-hidden="true"><i class="bi bi-play-fill"></i></span>
+                                        {% if source.progress %}
+                                            <span class="progress watch-progress rounded-0" role="progressbar" aria-label="S{{ source.season_number }}E{{ source.episode_number }} 观看进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ source.progress }}">
+                                                <span class="progress-bar" style="width: {{ source.progress }}%"></span>
+                                            </span>
+                                        {% endif %}
+                                    </span>
                                 </span>
-                                <span class="episode-card-copy">
-                                    <span class="episode-position">S{{ "%02d"|format(source.season_number) }}E{{ "%02d"|format(source.episode_number) }}</span>
-                                    <strong class="episode-name">{{ source.episode_name or "未命名单集" }}</strong>
-                                    <span class="episode-meta">
+                                <span class="card-body px-0 py-3">
+                                    <span class="d-block small text-primary fw-bold mb-1">S{{ "%02d"|format(source.season_number) }}E{{ "%02d"|format(source.episode_number) }}</span>
+                                    <strong class="d-block text-truncate mb-1">{{ source.episode_name or "未命名单集" }}</strong>
+                                    <span class="d-flex flex-wrap gap-3 small text-body-secondary">
                                         {% if source.runtime %}<span>{{ source.runtime }} 分钟</span>{% endif %}
                                         {% if source.air_date %}<span>{{ source.air_date }}</span>{% endif %}
+                                        {% if source.progress %}<span>已观看 {{ source.progress }}%</span>{% endif %}
                                     </span>
                                 </span>
                             </a>
                         </div>
                     {% else %}
                         <div class="col-12">
-                            <div class="empty-state compact"><p>暂无已关联单集。</p></div>
+                            <div class="empty-state compact squircle-card border bg-body-tertiary p-4"><p class="text-body-secondary mb-0">暂无已关联单集。</p></div>
                         </div>
                     {% endfor %}
                 </div>

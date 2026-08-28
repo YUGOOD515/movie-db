@@ -1,0 +1,28 @@
+# Progress
+
+- 2026-08-28: Started MPC-HC progress/resume investigation; production database remains unchanged.
+- 2026-08-28: Audited the current playback chain and local MPC-HC installation.
+- 2026-08-28: Began verifying the Web Interface contract against the official MPC-HC repository.
+- 2026-08-28: Verified the status and seek contracts against the installed 2.7.4 tag source.
+- 2026-08-28: Audited source multiplicity and selected movie/episode-level progress keys.
+- 2026-08-28: Added `migrations/004_add_watch_progress.sql` and validated it against an in-memory copy of `migrations/schema.sql`; both tables and indexes were created and `foreign_key_check` was clean.
+- 2026-08-28: Paused at the required production migration approval gate.
+- 2026-08-28: User approved migration execution and reported MPC-HC 2.8.1; resumed implementation without visual QA.
+- 2026-08-28: Verified the installed 2.8.1 binary and matching official source; selected `/status.json` for status polling.
+- 2026-08-28: Backed up `movie.db` to `backups/movie-before-watch-progress-20260828-104109.db` (SHA-256 `24ba183ce69ef7b33e60e5fd1447f61d13bdbb6f84f1243050eb766e3be4d334`).
+- 2026-08-28: Applied migration 004; `integrity_check` returned `ok` and `foreign_key_check` returned no rows.
+- 2026-08-28: Added model contracts for source identity, progress read/upsert, percentage, completion, and resume-position calculation.
+- 2026-08-28: Added homepage recent/unfinished progress queries, unwatched filtering, and per-source detail progress fields.
+- 2026-08-28: Added MPC-HC 2.8.1 JSON status polling, API seeking, file matching, single active monitor cancellation, and callback-based persistence.
+- 2026-08-28: Updated the Flask playback route to resume by movie/episode identity and selected the latest resumable episode on detail pages.
+- 2026-08-28: Synchronized the approved progress schema into `migrations/schema.sql` for new databases and tests.
+- 2026-08-28: Added native Bootstrap progress bars and continue-play labels to detail episode cards without adding CSS.
+- 2026-08-28: Initial regression run compiled successfully; 8 tests passed and 2 existing playback-call assertions require updates for the intentional API extension.
+- 2026-08-28: Updated playback assertions and added MPC status/seek/monitor plus movie and episode persistence/resume coverage.
+- 2026-08-28: Added a startup guard so a temporary stopped/zero-duration status does not terminate monitoring before media is ready.
+- 2026-08-28: Regression suite passed: 12 tests, including MPC-HC API, monitor startup, resume, and database persistence coverage.
+- 2026-08-28: Production checks passed: integrity `ok`, no foreign-key violations, and `/`, `/media`, one movie detail, and one series detail returned HTTP 200.
+- 2026-08-28: `git diff --check` passed; only existing Windows line-ending warnings were emitted.
+- 2026-08-28: Added direct assertions for homepage recent-watching data, progress percentage, TV episode identity, and unwatched exclusion.
+- 2026-08-28: Final verification passed: 12 tests, production integrity `ok`, no foreign-key violations, clean diff check, and all read-only application routes returned 200.
+- 2026-08-28: Implementation complete. Real media was not launched automatically; first user playback will provide the live MPC-HC status stream and create progress rows.

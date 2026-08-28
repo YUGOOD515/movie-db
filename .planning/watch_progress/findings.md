@@ -1,0 +1,23 @@
+# Findings
+
+- Current playback route resolves a stored AList path, gets `raw_url`, calls `helpers.play_video()`, and returns HTTP 204.
+- Current schema stores source mappings but no watch position, duration, completion state, or update timestamp.
+- Existing project policy requires migration SQL review and explicit approval before touching the production database.
+- Local MPC-HC installation is version 2.7.4; no MPC-HC process or Web Interface listener was active during inspection.
+- MPC-HC 2.7.4 source confirms `/variables.html` exposes the current file, state, position, and duration; position and duration are integer milliseconds.
+- MPC-HC 2.7.4 source confirms seeking uses `/command.html` with `wm_command=-1` and a `position` value formatted as `HH:MM:SS.mmm`.
+- The installed Web Interface is enabled on port 13579, but `WebServerLocalhostOnly` is currently disabled. Application calls should still target only `127.0.0.1`; changing the player setting requires a separate explicit action.
+- Production data currently has 5 movie sources for 5 movies and 10 episode sources for 9 episodes. One episode has multiple sources, so progress should be keyed by movie/episode identity rather than source identity.
+- The proposed tables should store integer millisecond position/duration plus `updated_at`, keyed by `movie_id` and `episode_id` respectively.
+- Proposed runtime flow: resolve source and media identity, read saved position, launch MPC-HC, wait until the Web Interface reports the selected file, seek once, then poll and upsert changed position/duration until playback stops or changes files.
+- Homepage “最近观看” will use the most recent unfinished movie or episode progress; TV items will collapse to the latest episode per series. Detail episode cards will expose their own progress.
+- The user explicitly approved applying migration 004 on 2026-08-28.
+- The installed MPC-HC was updated to 2.8.1 (`f99388778`); Web Interface remains enabled on port 13579 and localhost-only remains disabled.
+- MPC-HC 2.8.1 adds a native `/status.json` endpoint containing `file`, `path`, numeric `state`, `position`, and `duration`; use it instead of parsing `/variables.html`.
+- MPC-HC 2.8.1 retains `wm_command=-1` plus `position=HH:MM:SS.mmm` seeking, so the resume contract is unchanged.
+- The worktree already contains the user's prior frontend/playback refactor. New edits must remain focused and preserve those changes.
+- Fresh test databases are created from `migrations/schema.sql`, so the approved progress tables and indexes must also be reflected there after applying migration 004.
+- The existing compact `.watch-progress` rule already supplies the required absolute bottom placement and height, so detail episode progress needs no additional CSS.
+- MPC-HC may expose the requested path before media duration is ready; the monitor must keep waiting when state is stopped but duration is still zero.
+- When MPC-HC reports a path, media matching must require the normalized path to match and must not fall back to filename-only matching; this prevents same-named files from sharing a monitor.
+- Production `movie.db` remains structurally healthy after migration; both progress tables are initially empty, as expected before the first monitored playback.
