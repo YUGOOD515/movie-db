@@ -11,6 +11,22 @@ import models
 BASE_DIR = Path(__file__).resolve().parent
 DATABASE_PATH = BASE_DIR / "movie.db"
 IMAGE_ROOT = BASE_DIR / "static" / "images"
+GENRE_ICONS = {
+    "Sci-Fi & Fantasy": "stars",
+    "冒险": "compass",
+    "剧情": "masks-theater",
+    "动作": "lightning-charge",
+    "动作冒险": "lightning-charge",
+    "动画": "palette",
+    "喜剧": "emoji-laughing",
+    "奇幻": "stars",
+    "家庭": "people",
+    "恐怖": "eye",
+    "悬疑": "question-diamond",
+    "爱情": "heart",
+    "犯罪": "fingerprint",
+    "科幻": "rocket-takeoff",
+}
 
 app = Flask(__name__)
 app.config["DATABASE"] = DATABASE_PATH
@@ -59,6 +75,17 @@ def add_media_routes(item: dict):
     return item
 
 
+def add_genre_presentation(genre: dict, media_type: str):
+    genre["icon"] = GENRE_ICONS.get(genre["genre_name"], "tag")
+    genre["detail_url"] = url_for(
+        "movie_genres_library",
+        media_type=media_type,
+        genre_id=genre["genre_id"],
+    )
+
+    return genre
+
+
 def prepare_homepage_data():
     homepage = models.get_homepage_data(app.config["DATABASE"])
     for section_name in (
@@ -70,13 +97,62 @@ def prepare_homepage_data():
         for item in homepage[section_name]:
             add_media_routes(item)
 
-    for genre in homepage["genre_features"]:
-        genre["detail_url"] = url_for(
-            "movie_detail",
-            movie_id=genre["media_id"],
+    for section_name, media_type in (
+        ("genre_features", "movie"),
+        ("tv_genre_features", "tv"),
+    ):
+        for genre in homepage[section_name]:
+            add_genre_presentation(genre, media_type)
+
+    for folder in homepage["favorite_folders"]:
+        folder["detail_url"] = url_for(
+            "favorites_library",
+            folder_id=folder["folder_id"],
         )
 
     return homepage
+
+
+def prepare_library_page(section_name: str):
+    items = models.get_library_page_items(
+        app.config["DATABASE"],
+        section_name,
+    )
+    for item in items:
+        add_media_routes(item)
+
+    return items
+
+
+def prepare_favorite_page(folder_id: int | None):
+    page = models.get_favorite_page_data(
+        app.config["DATABASE"],
+        folder_id,
+    )
+    if page is None:
+        abort(404)
+    for item in page["items"]:
+        add_media_routes(item)
+
+    return page
+
+
+def prepare_genre_page(filters: dict):
+    items = models.get_filtered_library_items(
+        app.config["DATABASE"],
+        **filters,
+    )
+    for item in items:
+        add_media_routes(item)
+
+    options = models.get_library_filter_options(
+        app.config["DATABASE"],
+        filters["media_type"],
+    )
+    for genre in options["genres"]:
+        genre["icon"] = GENRE_ICONS.get(genre["genre_name"], "tag")
+
+    return items, options
 
 
 def import_movie(movie_name: str, alist_path: str):
@@ -178,6 +254,90 @@ def index():
     return render_template("index.html", **prepare_homepage_data())
 
 
+@app.route("/recent-added")
+def recent_added_library():
+    return render_template(
+        "library_page.html",
+        page_title="最近添加",
+        page_description="按入库时间由近到远排列",
+        empty_message="媒体库暂时为空，可先关联电影或剧集。",
+        items=prepare_library_page("recent_added"),
+    )
+
+
+@app.route("/unwatched")
+def unwatched_library():
+    return render_template(
+        "library_page.html",
+        page_title="未观看",
+        page_description="尚未开始播放的电影和剧集",
+        empty_message="目前没有未观看的媒体。",
+        items=prepare_library_page("unwatched"),
+    )
+
+
+@app.route("/favorites")
+def favorites_library():
+    return render_template(
+        "favorites_page.html",
+        **prepare_favorite_page(request.args.get("folder_id", type=int)),
+    )
+
+
+@app.post("/favorites/<media_type>/<int:media_id>/toggle")
+def toggle_favorite(media_type: str, media_id: int):
+    if media_type not in ("movie", "tv"):
+        abort(404)
+    try:
+        models.toggle_media_favorite(
+            app.config["DATABASE"],
+            media_type,
+            media_id,
+        )
+    except ValueError:
+        abort(404)
+
+    return redirect(
+        url_for(
+            "movie_detail" if media_type == "movie" else "tv_detail",
+            **({"movie_id": media_id} if media_type == "movie" else {"series_id": media_id}),
+        )
+    )
+
+
+@app.route("/genres")
+def movie_genres_library():
+    media_type = request.args.get("media_type", "all")
+    if media_type not in ("all", "movie", "tv"):
+        media_type = "all"
+    min_rating = request.args.get("min_rating", type=float)
+    if min_rating is not None and not 0 <= min_rating <= 10:
+        min_rating = None
+    filters = {
+        "media_type": media_type,
+        "genre_id": request.args.get("genre_id", type=int),
+        "country_code": request.args.get("country_code") or None,
+        "language_code": request.args.get("language_code") or None,
+        "year": request.args.get("year") or None,
+        "min_rating": min_rating,
+    }
+    items, filter_options = prepare_genre_page(filters)
+    return render_template(
+        "genre_page.html",
+        items=items,
+        filter_options=filter_options,
+        filters=filters,
+    )
+
+
+@app.route("/top-rated")
+def top_rated_library():
+    return render_template(
+        "top_rated_page.html",
+        items=prepare_library_page("top_rated_movies"),
+    )
+
+
 @app.route("/play/<media_type>/<int:source_id>")
 def play_media_source(media_type: str, source_id: int):
     if media_type not in ("movie", "tv"):
@@ -226,6 +386,11 @@ def render_media_detail(media_type: str, media_id: int):
     if detail is None:
         abort(404)
 
+    detail["is_favorite"] = models.is_media_favorite(
+        app.config["DATABASE"],
+        media_type,
+        media_id,
+    )
     add_media_routes(detail)
     for source in detail["sources"]:
         source["play_url"] = url_for(
@@ -241,7 +406,10 @@ def render_media_detail(media_type: str, media_id: int):
     detail["featured_source"] = (
         max(
             resumable_sources,
-            key=lambda source: source["updated_at"] or "",
+            key=lambda source: (
+                source["updated_at"] or "",
+                source["source_id"],
+            ),
         )
         if resumable_sources
         else (detail["sources"][-1] if detail["sources"] else None)
@@ -251,6 +419,80 @@ def render_media_detail(media_type: str, media_id: int):
         detail["progress"] = detail["featured_source"]["progress"]
     else:
         detail["progress"] = 0
+
+    detail["featured_episode"] = None
+    for season in detail["seasons"]:
+        for episode in season["episodes"]:
+            episode["featured_source"] = (
+                next(
+                    (
+                        source
+                        for source in episode["sources"]
+                        if detail["featured_source"]
+                        and source["source_id"]
+                        == detail["featured_source"]["source_id"]
+                    ),
+                    None,
+                )
+                or (episode["sources"][-1] if episode["sources"] else None)
+            )
+            episode["play_url"] = (
+                episode["featured_source"]["play_url"]
+                if episode["featured_source"]
+                else None
+            )
+            if (
+                detail["featured_source"]
+                and episode["episode_id"]
+                == detail["featured_source"].get("episode_id")
+            ):
+                detail["featured_episode"] = episode
+
+    detail["vote_count_label"] = f'{detail["vote_count"]:,}'
+    if media_type == "tv":
+        status_labels = {
+            "Ended": "已完结",
+            "Canceled": "已取消",
+            "Returning Series": "连载中",
+        }
+        detail["status_label"] = (
+            "连载中"
+            if detail["in_production"]
+            else status_labels.get(
+                detail["media_status"],
+                detail["media_status"],
+            )
+        )
+    else:
+        detail["status_label"] = {
+            "Released": "已上映",
+            "Post Production": "后期制作",
+            "In Production": "制作中",
+            "Planned": "计划中",
+            "Canceled": "已取消",
+        }.get(detail["media_status"], detail["media_status"])
+
+    detail["external_links"] = [
+        {
+            "label": "TMDB",
+            "url": (
+                f"https://www.themoviedb.org/movie/{media_id}"
+                if media_type == "movie"
+                else f"https://www.themoviedb.org/tv/{media_id}"
+            ),
+        }
+    ]
+    if detail.get("imdb_id"):
+        detail["external_links"].append(
+            {
+                "label": "IMDb",
+                "url": f'https://www.imdb.com/title/{detail["imdb_id"]}/',
+            }
+        )
+    if detail.get("homepage"):
+        detail["external_links"].append(
+            {"label": "官网", "url": detail["homepage"]}
+        )
 
     return render_template("detail.html", media=detail)
 

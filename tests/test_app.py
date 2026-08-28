@@ -36,6 +36,11 @@ class ImportWorkflowTest(unittest.TestCase):
     def test_home_contains_library_sections_and_media_route_contains_import_page(self):
         home_response = self.client.get("/")
         media_response = self.client.get("/media")
+        recent_added_response = self.client.get("/recent-added")
+        unwatched_response = self.client.get("/unwatched")
+        favorites_response = self.client.get("/favorites")
+        genre_response = self.client.get("/genres")
+        top_rated_response = self.client.get("/top-rated")
 
         self.assertEqual(home_response.status_code, 200)
         self.assertNotIn('action="/media"'.encode(), home_response.data)
@@ -46,6 +51,7 @@ class ImportWorkflowTest(unittest.TestCase):
             "收藏夹",
             "最近添加",
             "电影类别",
+            "剧集类别",
             "未观看",
             "最受好评的电影",
         ):
@@ -55,15 +61,45 @@ class ImportWorkflowTest(unittest.TestCase):
         self.assertIn(b"site-menu-toggle", home_response.data)
         self.assertIn(b"site-sidebar offcanvas offcanvas-start", home_response.data)
         self.assertNotIn(b"offcanvas-lg", home_response.data)
+        self.assertIn(b'href="/recent-added"', home_response.data)
+        self.assertIn(b'href="/unwatched"', home_response.data)
+        self.assertIn(b'href="/genres"', home_response.data)
+        self.assertIn(b'href="/top-rated"', home_response.data)
+        for href in (
+            "/recent-added",
+            "/favorites",
+            "/genres",
+            "/unwatched",
+            "/top-rated",
+        ):
+            self.assertIn(f'href="{href}"'.encode(), home_response.data)
         self.assertEqual(media_response.status_code, 200)
         self.assertIn("媒体资源关联".encode(), media_response.data)
         self.assertIn('action="/media"'.encode(), media_response.data)
+        self.assertEqual(recent_added_response.status_code, 200)
+        self.assertIn("最近添加".encode(), recent_added_response.data)
+        self.assertIn("媒体库暂时为空".encode(), recent_added_response.data)
+        self.assertEqual(unwatched_response.status_code, 200)
+        self.assertIn("未观看".encode(), unwatched_response.data)
+        self.assertIn("目前没有未观看的媒体".encode(), unwatched_response.data)
+        self.assertEqual(favorites_response.status_code, 200)
+        self.assertIn("当前收藏夹还没有媒体".encode(), favorites_response.data)
+        self.assertEqual(genre_response.status_code, 200)
+        self.assertIn("制作国家".encode(), genre_response.data)
+        self.assertIn("筛选结果".encode(), genre_response.data)
+        self.assertEqual(top_rated_response.status_code, 200)
+        self.assertIn("最受好评的电影".encode(), top_rated_response.data)
 
     def test_missing_media_detail_returns_not_found(self):
         self.assertEqual(self.client.get("/movies/999999").status_code, 404)
         self.assertEqual(self.client.get("/series/999999").status_code, 404)
         self.assertEqual(self.client.get("/play/movie/999999").status_code, 404)
         self.assertEqual(self.client.get("/play/invalid/1").status_code, 404)
+        self.assertEqual(self.client.get("/favorites?folder_id=999999").status_code, 404)
+        self.assertEqual(
+            self.client.post("/favorites/invalid/1/toggle").status_code,
+            404,
+        )
 
     def test_rejects_non_local_alist_url(self):
         response = self.client.post(
@@ -481,12 +517,35 @@ class ImportWorkflowTest(unittest.TestCase):
             [item["media_id"] for item in homepage_data["unwatched"]],
         )
         home_response = self.client.get("/")
+        recent_added_response = self.client.get("/recent-added")
+        unwatched_response = self.client.get("/unwatched")
+        genre_response = self.client.get("/genres")
+        filtered_genre_response = self.client.get(
+            "/genres?media_type=movie&genre_id=18&country_code=US"
+            "&language_code=en&year=2026&min_rating=8"
+        )
+        empty_genre_response = self.client.get(
+            "/genres?media_type=movie&min_rating=9"
+        )
+        top_rated_response = self.client.get("/top-rated")
         detail_response = self.client.get("/movies/157336")
         self.assertEqual(home_response.status_code, 200)
         self.assertIn("测试电影".encode(), home_response.data)
         self.assertIn("最近添加".encode(), home_response.data)
         self.assertIn("media-rail--span-6".encode(), home_response.data)
         self.assertIn("media-rail--span-2".encode(), home_response.data)
+        self.assertIn("测试电影".encode(), recent_added_response.data)
+        self.assertIn(b"row-cols-lg-6", recent_added_response.data)
+        self.assertNotIn("测试电影".encode(), unwatched_response.data)
+        self.assertIn("剧情".encode(), genre_response.data)
+        self.assertIn(b"row-cols-lg-6", genre_response.data)
+        self.assertIn("测试电影".encode(), filtered_genre_response.data)
+        self.assertIn("没有符合当前条件的媒体".encode(), empty_genre_response.data)
+        self.assertIn(b"bi bi-masks-theater", home_response.data)
+        self.assertIn("测试电影".encode(), top_rated_response.data)
+        self.assertIn(b"ranked-number", top_rated_response.data)
+        self.assertIn(b"ranked-feature-card", top_rated_response.data)
+        self.assertNotIn("第 1 名".encode(), top_rated_response.data)
         self.assertEqual(detail_response.status_code, 200)
         self.assertIn("测试简介".encode(), detail_response.data)
         self.assertIn("继续播放".encode(), detail_response.data)
@@ -494,7 +553,41 @@ class ImportWorkflowTest(unittest.TestCase):
         self.assertNotIn(b'href="http://127.0.0.1:5244', detail_response.data)
         self.assertIn(b"site-sidebar", detail_response.data)
         self.assertIn(b"detail-main", detail_response.data)
-        self.assertIn("年龄分级 未提供".encode(), detail_response.data)
+        self.assertIn("年龄分级".encode(), detail_response.data)
+        self.assertIn("未提供".encode(), detail_response.data)
+        self.assertIn("媒体信息".encode(), detail_response.data)
+        self.assertIn("Test Movie".encode(), detail_response.data)
+        self.assertIn("剧情".encode(), detail_response.data)
+        self.assertIn("美国".encode(), detail_response.data)
+        self.assertIn("英语".encode(), detail_response.data)
+        self.assertIn("测试公司".encode(), detail_response.data)
+        self.assertIn('action="/favorites/movie/157336/toggle"'.encode(), detail_response.data)
+        self.assertIn(">收藏<".encode(), detail_response.data)
+
+        favorite_toggle_response = self.client.post(
+            "/favorites/movie/157336/toggle",
+            follow_redirects=True,
+        )
+        movie_favorites_response = self.client.get("/favorites?folder_id=1")
+        favorite_home_response = self.client.get("/")
+        self.assertEqual(favorite_toggle_response.status_code, 200)
+        self.assertIn("已收藏".encode(), favorite_toggle_response.data)
+        self.assertIn("测试电影".encode(), movie_favorites_response.data)
+        self.assertIn('href="/favorites?folder_id=1"'.encode(), favorite_home_response.data)
+        self.assertIn("1 部作品".encode(), favorite_home_response.data)
+
+        movie_app.models.toggle_media_favorite(
+            self.database_path,
+            "movie",
+            157336,
+        )
+        self.assertNotIn(
+            "测试电影".encode(),
+            self.client.get("/favorites?folder_id=1").data,
+        )
+        self.assertIn("测试系列".encode(), detail_response.data)
+        self.assertIn("TMDB".encode(), detail_response.data)
+        self.assertIn("IMDb".encode(), detail_response.data)
         self.assertNotIn(b"detail-poster", detail_response.data)
 
         with (
@@ -757,25 +850,80 @@ class ImportWorkflowTest(unittest.TestCase):
         homepage_data = movie_app.models.get_homepage_data(self.database_path)
         self.assertEqual(homepage_data["continue_watching"][0]["media_id"], 1396)
         self.assertEqual(
+            homepage_data["continue_watching"][0]["logo_path"],
+            "images/tv/1396/logos/1.png",
+        )
+        self.assertEqual(
             homepage_data["continue_watching"][0]["episode_number"],
             2,
         )
         home_response = self.client.get("/")
+        tv_genre_response = self.client.get(
+            "/genres?media_type=tv&genre_id=18"
+        )
         detail_response = self.client.get("/series/1396")
         self.assertEqual(home_response.status_code, 200)
         self.assertIn("测试剧集".encode(), home_response.data)
+        self.assertIn("剧集类别".encode(), home_response.data)
+        self.assertIn("测试剧集".encode(), tv_genre_response.data)
+        self.assertIn(b"continue-logo position-absolute", home_response.data)
+        self.assertIn(b"images/tv/1396/logos/1.png", home_response.data)
+        favorite_toggle_response = self.client.post(
+            "/favorites/tv/1396/toggle",
+            follow_redirects=True,
+        )
+        self.assertIn("已收藏".encode(), favorite_toggle_response.data)
+        self.assertIn(
+            "测试剧集".encode(),
+            self.client.get("/favorites?folder_id=2").data,
+        )
         self.assertEqual(detail_response.status_code, 200)
         self.assertIn("选集".encode(), detail_response.data)
         self.assertIn("S01E02".encode(), detail_response.data)
-        self.assertIn("第二集简介".encode(), detail_response.data)
+        self.assertNotIn("第二集简介".encode(), detail_response.data)
         self.assertIn("48 分钟".encode(), detail_response.data)
         self.assertIn("2008-01-27".encode(), detail_response.data)
         self.assertIn(b"episode-card", detail_response.data)
+        self.assertIn(b"season-tabs", detail_response.data)
+        self.assertNotIn(b"season-tab-overview", detail_response.data)
+        self.assertIn(b"episode-rail", detail_response.data)
+        self.assertIn(b"episode-rail-track container-xl", detail_response.data)
+        self.assertIn("第 1 季".encode(), detail_response.data)
+        self.assertIn("测试创作者".encode(), detail_response.data)
+        self.assertIn("AMC".encode(), detail_response.data)
         self.assertIn("已观看 10%".encode(), detail_response.data)
         self.assertIn(b'href="/play/tv/1"', detail_response.data)
         self.assertNotIn(b'href="http://127.0.0.1:5244', detail_response.data)
         self.assertIn(b"images/tv/1396/season-1/episodes/62086.jpg", detail_response.data)
         self.assertNotIn(b"detail-poster", detail_response.data)
+
+        movie_app.models.add_tv_episode_source(
+            self.database_path,
+            62086,
+            "/Quark/测试剧集.S01E02.1080p.mkv",
+        )
+        detail_data = movie_app.models.get_media_detail(
+            self.database_path,
+            "tv",
+            1396,
+        )
+        episode = detail_data["seasons"][0]["episodes"][1]
+        self.assertEqual(len(episode["sources"]), 2)
+        version_response = self.client.get("/series/1396")
+        self.assertIn(
+            'aria-label="继续 S01E02，选择版本"'.encode(),
+            version_response.data,
+        )
+        self.assertIn(
+            'aria-label="播放 S1E2，选择版本"'.encode(),
+            version_response.data,
+        )
+        self.assertGreaterEqual(
+            version_response.data.count(b'data-bs-toggle="dropdown"'),
+            2,
+        )
+        self.assertIn(b'href="/play/tv/1"', version_response.data)
+        self.assertIn(b'href="/play/tv/2"', version_response.data)
 
         with (
             patch(

@@ -1212,7 +1212,15 @@ def _get_homepage_movie_items(db: sqlite3.Connection):
                       AND image.image_type = 'backdrops'
                     ORDER BY image.image_position
                     LIMIT 1
-               ) AS backdrop_path
+               ) AS backdrop_path,
+               (
+                   SELECT image.local_path
+                     FROM movie_image AS image
+                    WHERE image.movie_id = movie.movie_id
+                      AND image.image_type = 'logos'
+                    ORDER BY image.image_position
+                    LIMIT 1
+               ) AS logo_path
           FROM movie
                INNER JOIN movie_source AS source
                ON source.source_id = (
@@ -1279,7 +1287,15 @@ def _get_homepage_tv_items(db: sqlite3.Connection):
                       AND image.image_type = 'backdrops'
                     ORDER BY image.image_position
                     LIMIT 1
-               ) AS backdrop_path
+               ) AS backdrop_path,
+               (
+                   SELECT image.local_path
+                     FROM tv_series_image AS image
+                    WHERE image.series_id = series.series_id
+                      AND image.image_type = 'logos'
+                    ORDER BY image.image_position
+                    LIMIT 1
+               ) AS logo_path
           FROM tv_series AS series
                INNER JOIN linked_episode AS linked
                ON linked.series_id = series.series_id
@@ -1291,33 +1307,53 @@ def _get_homepage_tv_items(db: sqlite3.Connection):
     return [dict(row) for row in rows]
 
 
-def _get_movie_genre_features(db: sqlite3.Connection):
+def _get_media_genre_features(
+    db: sqlite3.Connection,
+    media_type: str,
+):
+    if media_type == "movie":
+        relation_table = "movie_genre"
+        media_table = "movie"
+        media_id_column = "movie_id"
+        media_name_column = "title"
+        image_table = "movie_image"
+        image_owner_column = "movie_id"
+    elif media_type == "tv":
+        relation_table = "tv_series_genre"
+        media_table = "tv_series"
+        media_id_column = "series_id"
+        media_name_column = "series_name"
+        image_table = "tv_series_image"
+        image_owner_column = "series_id"
+    else:
+        raise ValueError("媒体类型无效。")
+
     rows = db.execute(
-        """
+        f"""
         WITH ranked_genre AS (
             SELECT genre.genre_id,
                    genre.genre_name,
-                   movie.movie_id,
-                   movie.title,
+                   media.{media_id_column} AS media_id,
+                   media.{media_name_column} AS media_name,
                    ROW_NUMBER() OVER (
                        PARTITION BY genre.genre_id
-                           ORDER BY movie.vote_average DESC,
-                                    movie.movie_id DESC
+                           ORDER BY media.vote_average DESC,
+                                    media.{media_id_column} DESC
                    ) AS media_rank
-              FROM movie_genre AS relation
+              FROM {relation_table} AS relation
                    INNER JOIN genre
                    ON genre.genre_id = relation.genre_id
-                   INNER JOIN movie
-                   ON movie.movie_id = relation.movie_id
+                   INNER JOIN {media_table} AS media
+                   ON media.{media_id_column} = relation.{media_id_column}
         )
         SELECT ranked.genre_id,
                ranked.genre_name,
-               ranked.movie_id AS media_id,
-               ranked.title AS media_name,
+               ranked.media_id,
+               ranked.media_name,
                (
                    SELECT image.local_path
-                     FROM movie_image AS image
-                    WHERE image.movie_id = ranked.movie_id
+                     FROM {image_table} AS image
+                    WHERE image.{image_owner_column} = ranked.media_id
                       AND image.image_type = 'backdrops'
                     ORDER BY image.image_position
                     LIMIT 1
@@ -1329,6 +1365,189 @@ def _get_movie_genre_features(db: sqlite3.Connection):
     ).fetchall()
 
     return [dict(row) for row in rows]
+
+
+def _get_movie_genre_features(db: sqlite3.Connection):
+    return _get_media_genre_features(db, "movie")
+
+
+def _get_tv_genre_features(db: sqlite3.Connection):
+    return _get_media_genre_features(db, "tv")
+
+
+def _filter_library_items(
+    db: sqlite3.Connection,
+    media_type: str,
+    items: list[dict],
+    genre_id: int | None,
+    country_code: str | None,
+    language_code: str | None,
+    year: str | None,
+    min_rating: float | None,
+):
+    relation = MEDIA_RELATIONS[media_type]
+    owner_column = relation["owner_column"]
+    allowed_ids = {item["media_id"] for item in items}
+    relation_filters = (
+        (relation["genre_table"], "genre_id", genre_id),
+        (
+            relation["production_country_table"],
+            "country_code",
+            country_code,
+        ),
+        (
+            relation["spoken_language_table"],
+            "language_code",
+            language_code,
+        ),
+    )
+    for table_name, filter_column, filter_value in relation_filters:
+        if filter_value is None:
+            continue
+        rows = db.execute(
+            f"""
+            SELECT {owner_column} AS media_id
+              FROM {table_name}
+             WHERE {filter_column} = ?
+            """,
+            (filter_value,),
+        ).fetchall()
+        allowed_ids &= {row["media_id"] for row in rows}
+
+    return [
+        item
+        for item in items
+        if item["media_id"] in allowed_ids
+        and (year is None or item["year"] == year)
+        and (min_rating is None or item["vote_average"] >= min_rating)
+    ]
+
+
+def get_filtered_library_items(
+    database_path: str | Path,
+    media_type: str = "all",
+    genre_id: int | None = None,
+    country_code: str | None = None,
+    language_code: str | None = None,
+    year: str | None = None,
+    min_rating: float | None = None,
+):
+    """Return linked movies and series matching the selected filters."""
+    if media_type not in ("all", "movie", "tv"):
+        raise ValueError("媒体类型无效。")
+
+    selected_types = ("movie", "tv") if media_type == "all" else (media_type,)
+    with closing(_connect(database_path)) as db:
+        items = []
+        for selected_type in selected_types:
+            media_items = (
+                _get_homepage_movie_items(db)
+                if selected_type == "movie"
+                else _get_homepage_tv_items(db)
+            )
+            items.extend(
+                _filter_library_items(
+                    db,
+                    selected_type,
+                    media_items,
+                    genre_id,
+                    country_code,
+                    language_code,
+                    year,
+                    min_rating,
+                )
+            )
+
+    return sorted(
+        items,
+        key=lambda item: (item["source_order"], item["media_id"]),
+        reverse=True,
+    )
+
+
+def get_library_filter_options(
+    database_path: str | Path,
+    media_type: str = "all",
+):
+    """Return filter choices available for movies, series, or both."""
+    if media_type not in ("all", "movie", "tv"):
+        raise ValueError("媒体类型无效。")
+
+    selected_types = ("movie", "tv") if media_type == "all" else (media_type,)
+    genres = {}
+    countries = {}
+    languages = {}
+    years = set()
+    with closing(_connect(database_path)) as db:
+        for selected_type in selected_types:
+            relation = MEDIA_RELATIONS[selected_type]
+            for row in db.execute(
+                f"""
+                SELECT DISTINCT genre.genre_id,
+                                genre.genre_name
+                  FROM {relation['genre_table']} AS relation
+                       INNER JOIN genre
+                       ON genre.genre_id = relation.genre_id
+                """
+            ).fetchall():
+                genres[row["genre_id"]] = dict(row)
+
+            for row in db.execute(
+                f"""
+                SELECT DISTINCT country.country_code,
+                                country.country_name
+                  FROM {relation['production_country_table']} AS relation
+                       INNER JOIN country
+                       ON country.country_code = relation.country_code
+                 WHERE country.country_code <> ''
+                """
+            ).fetchall():
+                countries[row["country_code"]] = {
+                    "country_code": row["country_code"],
+                    "country_name": row["country_name"] or row["country_code"],
+                }
+
+            for row in db.execute(
+                f"""
+                SELECT DISTINCT language.language_code,
+                                language.english_name,
+                                language.native_name
+                  FROM {relation['spoken_language_table']} AS relation
+                       INNER JOIN spoken_language AS language
+                       ON language.language_code = relation.language_code
+                """
+            ).fetchall():
+                languages[row["language_code"]] = {
+                    "language_code": row["language_code"],
+                    "language_name": (
+                        row["native_name"]
+                        or row["english_name"]
+                        or row["language_code"]
+                    ),
+                }
+
+            media_items = (
+                _get_homepage_movie_items(db)
+                if selected_type == "movie"
+                else _get_homepage_tv_items(db)
+            )
+            years.update(item["year"] for item in media_items if item["year"])
+
+    return {
+        "genres": sorted(
+            genres.values(),
+            key=lambda item: item["genre_name"].casefold(),
+        ),
+        "countries": sorted(
+            countries.values(),
+            key=lambda item: item["country_name"].casefold(),
+        ),
+        "languages": sorted(
+            languages.values(),
+            key=lambda item: item["language_name"].casefold(),
+        ),
+        "years": sorted(years, reverse=True),
+    }
 
 
 def _get_continue_watching_items(
@@ -1367,7 +1586,15 @@ def _get_continue_watching_items(
                       AND image.image_type = 'backdrops'
                     ORDER BY image.image_position
                     LIMIT 1
-               ) AS backdrop_path
+               ) AS backdrop_path,
+               (
+                   SELECT image.local_path
+                     FROM movie_image AS image
+                    WHERE image.movie_id = movie.movie_id
+                      AND image.image_type = 'logos'
+                    ORDER BY image.image_position
+                    LIMIT 1
+               ) AS logo_path
           FROM movie_watch_progress AS progress
                INNER JOIN movie
                ON movie.movie_id = progress.movie_id
@@ -1416,7 +1643,15 @@ def _get_continue_watching_items(
                       AND image.image_type = 'backdrops'
                     ORDER BY image.image_position
                     LIMIT 1
-               ) AS backdrop_path
+               ) AS backdrop_path,
+               (
+                   SELECT image.local_path
+                     FROM tv_series_image AS image
+                    WHERE image.series_id = series.series_id
+                      AND image.image_type = 'logos'
+                    ORDER BY image.image_position
+                    LIMIT 1
+               ) AS logo_path
           FROM tv_episode_watch_progress AS progress
                INNER JOIN tv_episode AS episode
                ON episode.episode_id = progress.episode_id
@@ -1488,41 +1723,239 @@ def _get_started_media_keys(db: sqlite3.Connection):
     }
 
 
+def _get_recent_added_items(db: sqlite3.Connection):
+    return sorted(
+        _get_homepage_movie_items(db) + _get_homepage_tv_items(db),
+        key=lambda item: (item["source_order"], item["media_id"]),
+        reverse=True,
+    )
+
+
+def _get_unwatched_items(db: sqlite3.Connection, media_items: list[dict]):
+    started_media = _get_started_media_keys(db)
+    return [
+        item
+        for item in media_items
+        if (item["media_type"], item["media_id"]) not in started_media
+    ]
+
+
+def get_library_page_items(database_path: str | Path, section_name: str):
+    """Return every item for a supported full-library page."""
+    if section_name not in (
+        "recent_added",
+        "unwatched",
+        "top_rated_movies",
+    ):
+        raise ValueError("不支持的媒体库板块。")
+
+    with closing(_connect(database_path)) as db:
+        if section_name == "top_rated_movies":
+            return sorted(
+                _get_homepage_movie_items(db),
+                key=lambda item: (item["vote_average"], item["media_id"]),
+                reverse=True,
+            )
+
+        media_items = _get_recent_added_items(db)
+        if section_name == "unwatched":
+            return _get_unwatched_items(db, media_items)
+
+    return media_items
+
+
+def get_movie_genre_features(database_path: str | Path):
+    """Return every movie genre and its representative backdrop."""
+    with closing(_connect(database_path)) as db:
+        return _get_movie_genre_features(db)
+
+
+def _get_favorite_folders(db: sqlite3.Connection):
+    rows = db.execute(
+        """
+        SELECT folder.folder_id,
+               folder.folder_name AS name,
+               folder.folder_type,
+               folder.icon_name AS icon,
+               folder.is_system,
+               COUNT(item.favorite_item_id) AS count
+          FROM favorite_folder AS folder
+               LEFT JOIN favorite_item AS item
+               ON item.folder_id = folder.folder_id
+         GROUP BY folder.folder_id
+         ORDER BY folder.folder_position
+        """
+    ).fetchall()
+
+    return [dict(row) for row in rows]
+
+
+def get_favorite_page_data(
+    database_path: str | Path,
+    folder_id: int | None = None,
+):
+    """Return favorite folders and deduplicated linked media items."""
+    with closing(_connect(database_path)) as db:
+        folders = _get_favorite_folders(db)
+        selected_folder = next(
+            (folder for folder in folders if folder["folder_id"] == folder_id),
+            None,
+        )
+        if folder_id is not None and selected_folder is None:
+            return None
+
+        parameters = () if folder_id is None else (folder_id,)
+        where_clause = "" if folder_id is None else "WHERE folder_id = ?"
+        favorite_rows = db.execute(
+            f"""
+            SELECT favorite_item_id,
+                   folder_id,
+                   media_type,
+                   movie_id,
+                   series_id,
+                   added_at
+              FROM favorite_item
+                   {where_clause}
+             ORDER BY added_at DESC,
+                      favorite_item_id DESC
+            """,
+            parameters,
+        ).fetchall()
+        media_items = {
+            (item["media_type"], item["media_id"]): item
+            for item in (
+                _get_homepage_movie_items(db) + _get_homepage_tv_items(db)
+            )
+        }
+
+    items = []
+    included_media = set()
+    for favorite in favorite_rows:
+        media_id = (
+            favorite["movie_id"]
+            if favorite["media_type"] == "movie"
+            else favorite["series_id"]
+        )
+        media_key = (favorite["media_type"], media_id)
+        if media_key in included_media or media_key not in media_items:
+            continue
+        item = dict(media_items[media_key])
+        item["favorite_added_at"] = favorite["added_at"]
+        items.append(item)
+        included_media.add(media_key)
+
+    return {
+        "folders": folders,
+        "selected_folder": selected_folder,
+        "items": items,
+    }
+
+
+def is_media_favorite(
+    database_path: str | Path,
+    media_type: str,
+    media_id: int,
+):
+    if media_type not in ("movie", "tv"):
+        raise ValueError("不支持的媒体类型。")
+
+    media_column = "movie_id" if media_type == "movie" else "series_id"
+    folder_id = 1 if media_type == "movie" else 2
+    with closing(_connect(database_path)) as db:
+        row = db.execute(
+            f"""
+            SELECT 1
+              FROM favorite_item
+             WHERE folder_id = ?
+               AND {media_column} = ?
+            """,
+            (folder_id, media_id),
+        ).fetchone()
+
+    return row is not None
+
+
+def toggle_media_favorite(
+    database_path: str | Path,
+    media_type: str,
+    media_id: int,
+):
+    """Toggle one media item in its movie or TV system folder."""
+    if media_type not in ("movie", "tv"):
+        raise ValueError("不支持的媒体类型。")
+
+    media_table = "movie" if media_type == "movie" else "tv_series"
+    media_column = "movie_id" if media_type == "movie" else "series_id"
+    folder_id = 1 if media_type == "movie" else 2
+    with closing(_connect(database_path)) as db:
+        with db:
+            if db.execute(
+                f"SELECT 1 FROM {media_table} WHERE {media_column} = ?",
+                (media_id,),
+            ).fetchone() is None:
+                raise ValueError("媒体不存在。")
+
+            existing = db.execute(
+                f"""
+                SELECT favorite_item_id
+                  FROM favorite_item
+                 WHERE folder_id = ?
+                   AND {media_column} = ?
+                """,
+                (folder_id, media_id),
+            ).fetchone()
+            if existing:
+                db.execute(
+                    "DELETE FROM favorite_item WHERE favorite_item_id = ?",
+                    (existing["favorite_item_id"],),
+                )
+                return False
+
+            db.execute(
+                f"""
+                INSERT INTO favorite_item (
+                    folder_id,
+                    media_type,
+                    {media_column}
+                )
+                     VALUES (?, ?, ?)
+                """,
+                (folder_id, media_type, media_id),
+            )
+
+    return True
+
+
 def get_homepage_data(database_path: str | Path, item_limit: int = 12):
     """Return real, presentation-ready media data for the library homepage."""
     with closing(_connect(database_path)) as db:
         movie_items = _get_homepage_movie_items(db)
         tv_items = _get_homepage_tv_items(db)
         genre_features = _get_movie_genre_features(db)
+        tv_genre_features = _get_tv_genre_features(db)
         continue_watching = _get_continue_watching_items(db, item_limit)
-        started_media = _get_started_media_keys(db)
+        favorite_folders = _get_favorite_folders(db)
+        media_items = sorted(
+            movie_items + tv_items,
+            key=lambda item: (item["source_order"], item["media_id"]),
+            reverse=True,
+        )
+        unwatched_items = _get_unwatched_items(db, media_items)
 
-    media_items = movie_items + tv_items
-    recent_added = sorted(
-        media_items,
-        key=lambda item: (item["source_order"], item["media_id"]),
-        reverse=True,
-    )[:item_limit]
+    recent_added = media_items[:item_limit]
     top_rated_movies = sorted(
         movie_items,
         key=lambda item: (item["vote_average"], item["media_id"]),
         reverse=True,
     )[:item_limit]
-    unwatched = [
-        item
-        for item in recent_added
-        if (item["media_type"], item["media_id"]) not in started_media
-    ][:item_limit]
+    unwatched = unwatched_items[:item_limit]
 
     return {
         "continue_watching": continue_watching,
-        "favorite_folders": [
-            {"name": "电影收藏", "icon": "film", "count": 0},
-            {"name": "电视剧收藏", "icon": "tv", "count": 0},
-            {"name": "自定义收藏", "icon": "bookmark-star", "count": 0},
-        ],
+        "favorite_folders": favorite_folders,
         "recent_added": recent_added,
         "genre_features": genre_features,
+        "tv_genre_features": tv_genre_features,
         "unwatched": unwatched,
         "top_rated_movies": top_rated_movies,
         "media_count": len(media_items),
@@ -1556,6 +1989,10 @@ def get_media_detail(
                        movie.overview AS overview,
                        movie.tagline AS tagline,
                        movie.release_status AS media_status,
+                       movie.original_language AS original_language,
+                       movie.homepage AS homepage,
+                       movie.imdb_id AS imdb_id,
+                       collection.collection_name AS collection_name,
                        (
                            SELECT image.local_path
                              FROM movie_image AS image
@@ -1581,6 +2018,8 @@ def get_media_detail(
                             LIMIT 1
                        ) AS logo_path
                   FROM movie
+                       LEFT JOIN collection
+                       ON collection.collection_id = movie.collection_id
                  WHERE movie.movie_id = ?
                 """,
                 (media_id,),
@@ -1626,6 +2065,14 @@ def get_media_detail(
                        series.overview AS overview,
                        series.tagline AS tagline,
                        series.series_status AS media_status,
+                       series.last_air_date AS last_air_date,
+                       series.in_production AS in_production,
+                       series.number_of_seasons AS number_of_seasons,
+                       series.number_of_episodes AS number_of_episodes,
+                       series.original_language AS original_language,
+                       series.homepage AS homepage,
+                       series.created_by_json AS created_by_json,
+                       series.networks_json AS networks_json,
                        (
                            SELECT image.local_path
                              FROM tv_series_image AS image
@@ -1655,54 +2102,52 @@ def get_media_detail(
                 """,
                 (media_id,),
             ).fetchone()
-            source_rows = db.execute(
+            season_rows = db.execute(
                 """
-                WITH ranked_sources AS (
-                    SELECT source.source_id,
-                           source.alist_path,
-                           episode.episode_id,
-                           episode.episode_number,
-                           episode.episode_name,
-                           episode.runtime,
-                           episode.air_date,
-                           episode.overview,
-                           season.season_number,
-                           image.local_path AS still_path,
-                           progress.position_ms,
-                           progress.duration_ms,
-                           progress.updated_at,
-                           ROW_NUMBER() OVER (
-                               PARTITION BY episode.episode_id
-                               ORDER BY source.source_id DESC
-                           ) AS source_rank
-                      FROM tv_episode_source AS source
-                           INNER JOIN tv_episode AS episode
-                           ON episode.episode_id = source.episode_id
-                           INNER JOIN tv_season AS season
-                           ON season.season_id = episode.season_id
-                           LEFT JOIN tv_episode_image AS image
-                           ON image.episode_id = episode.episode_id
-                           LEFT JOIN tv_episode_watch_progress AS progress
-                           ON progress.episode_id = episode.episode_id
-                     WHERE season.series_id = ?
-                )
-                SELECT source_id,
-                       alist_path,
-                       episode_id,
-                       episode_number,
-                       episode_name,
-                       runtime,
-                       air_date,
-                       overview,
+                SELECT season_id,
                        season_number,
-                       still_path,
-                       position_ms,
-                       duration_ms,
-                       updated_at
-                  FROM ranked_sources
-                 WHERE source_rank = 1
+                       season_name,
+                       overview,
+                       air_date,
+                       episode_count,
+                       vote_average
+                  FROM tv_season
+                 WHERE series_id = ?
+                 ORDER BY season_number
+                """,
+                (media_id,),
+            ).fetchall()
+            episode_source_rows = db.execute(
+                """
+                SELECT source.source_id,
+                       source.alist_path,
+                       episode.episode_id,
+                       episode.episode_number,
+                       episode.episode_name,
+                       episode.runtime,
+                       episode.air_date,
+                       episode.overview,
+                       episode.vote_average,
+                       episode.vote_count,
+                       season.season_id,
+                       season.season_number,
+                       image.local_path AS still_path,
+                       progress.position_ms,
+                       progress.duration_ms,
+                       progress.updated_at
+                  FROM tv_episode AS episode
+                       INNER JOIN tv_season AS season
+                       ON season.season_id = episode.season_id
+                       LEFT JOIN tv_episode_source AS source
+                       ON source.episode_id = episode.episode_id
+                       LEFT JOIN tv_episode_image AS image
+                       ON image.episode_id = episode.episode_id
+                       LEFT JOIN tv_episode_watch_progress AS progress
+                       ON progress.episode_id = episode.episode_id
+                 WHERE season.series_id = ?
                  ORDER BY season_number,
-                          episode_number
+                          episode_number,
+                          source.source_id
                 """,
                 (media_id,),
             ).fetchall()
@@ -1718,15 +2163,135 @@ def get_media_detail(
                 (media_id,),
             ).fetchall()
 
+        relation_config = MEDIA_RELATIONS[media_type]
+        owner_column = relation_config["owner_column"]
+        production_country_rows = db.execute(
+            f"""
+            SELECT country.country_name,
+                   country.country_code
+              FROM {relation_config['production_country_table']} AS relation
+                   INNER JOIN country
+                   ON country.country_code = relation.country_code
+             WHERE relation.{owner_column} = ?
+             ORDER BY relation.country_position
+            """,
+            (media_id,),
+        ).fetchall()
+        language_rows = db.execute(
+            f"""
+            SELECT language.native_name,
+                   language.english_name,
+                   language.language_code
+              FROM {relation_config['spoken_language_table']} AS relation
+                   INNER JOIN spoken_language AS language
+                   ON language.language_code = relation.language_code
+             WHERE relation.{owner_column} = ?
+             ORDER BY relation.language_position
+            """,
+            (media_id,),
+        ).fetchall()
+        company_rows = db.execute(
+            f"""
+            SELECT company.company_name
+              FROM {relation_config['production_company_table']} AS relation
+                   INNER JOIN production_company AS company
+                   ON company.company_id = relation.company_id
+             WHERE relation.{owner_column} = ?
+             ORDER BY relation.company_position
+            """,
+            (media_id,),
+        ).fetchall()
+
     if row is None:
         return None
 
     detail = dict(row)
-    detail["sources"] = [
-        _add_progress_fields(dict(source))
-        for source in source_rows
-    ]
     detail["genres"] = [genre["genre_name"] for genre in genre_rows]
+    detail["production_countries"] = [
+        country["country_name"] or country["country_code"]
+        for country in production_country_rows
+    ]
+    detail["spoken_languages"] = [
+        language["native_name"]
+        or language["english_name"]
+        or language["language_code"]
+        for language in language_rows
+    ]
+    detail["production_companies"] = [
+        company["company_name"]
+        for company in company_rows
+    ]
     detail["age_rating"] = None
+
+    if media_type == "movie":
+        detail["sources"] = []
+        for row_source in source_rows:
+            source = _add_progress_fields(dict(row_source))
+            source["source_label"] = Path(source["alist_path"]).name
+            detail["sources"].append(source)
+        detail["seasons"] = []
+        detail["creators"] = []
+        detail["networks"] = []
+    else:
+        creators = json.loads(detail.pop("created_by_json") or "[]")
+        networks = json.loads(detail.pop("networks_json") or "[]")
+        detail["creators"] = [
+            creator["name"]
+            for creator in creators
+            if creator.get("name")
+        ]
+        detail["networks"] = [
+            network["name"]
+            for network in networks
+            if network.get("name")
+        ]
+
+        seasons = []
+        seasons_by_id = {}
+        for season_row in season_rows:
+            season = dict(season_row)
+            season["episodes"] = []
+            seasons.append(season)
+            seasons_by_id[season["season_id"]] = season
+
+        episodes_by_id = {}
+        sources = []
+        for episode_source_row in episode_source_rows:
+            source_row = dict(episode_source_row)
+            episode_id = source_row["episode_id"]
+            episode = episodes_by_id.get(episode_id)
+            if episode is None:
+                episode = _add_progress_fields(
+                    {
+                        key: source_row[key]
+                        for key in (
+                            "episode_id",
+                            "episode_number",
+                            "episode_name",
+                            "runtime",
+                            "air_date",
+                            "overview",
+                            "vote_average",
+                            "vote_count",
+                            "season_number",
+                            "still_path",
+                            "position_ms",
+                            "duration_ms",
+                            "updated_at",
+                        )
+                    }
+                )
+                episode["sources"] = []
+                episodes_by_id[episode_id] = episode
+                seasons_by_id[source_row["season_id"]]["episodes"].append(episode)
+
+            if source_row["source_id"] is not None:
+                source = _add_progress_fields(source_row)
+                source["source_label"] = Path(source["alist_path"]).name
+                episode["sources"].append(source)
+                sources.append(source)
+
+        detail["sources"] = sources
+        detail["seasons"] = seasons
 
     return detail

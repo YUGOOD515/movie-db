@@ -7,6 +7,12 @@
     corner-shape: squircle;
 }
 
+button,
+.btn {
+    border-radius: 16px;
+    corner-shape: squircle;
+}
+
 .site-sidebar {
     --bs-offcanvas-width: 14.5rem;
 }
@@ -35,7 +41,8 @@
     outline-offset: 2px;
 }
 
-.media-rail-track > .media-rail-item {
+.media-rail-track > .media-rail-item,
+.poster-grid > .media-rail-item {
     width: var(--rail-item-basis);
     max-width: none;
     flex: 0 0 var(--rail-item-basis);
@@ -76,10 +83,26 @@
     z-index: 1;
 }
 
+.continue-logo {
+    bottom: 1.25rem;
+    left: 1.25rem;
+    z-index: 2;
+    width: auto;
+    max-width: 32%;
+    height: auto;
+    max-height: 24%;
+    object-fit: contain;
+    object-position: left bottom;
+    filter: drop-shadow(0 0.25rem 0.5rem rgba(0, 0, 0, 0.55));
+    pointer-events: none;
+}
+
 .play-button {
     z-index: 2;
     width: 3.5rem;
     height: 3.5rem;
+    border-radius: 50%;
+    corner-shape: round;
 }
 
 .watch-progress {
@@ -95,8 +118,54 @@
     background: linear-gradient(180deg, rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.8));
 }
 
+.ranked-feature {
+    --ranked-card-offset: clamp(2.75rem, 4vw, 4rem);
+    position: relative;
+    padding-left: var(--ranked-card-offset);
+}
+
+.ranked-number {
+    position: absolute;
+    top: 50%;
+    left: var(--ranked-card-offset);
+    z-index: 0;
+    color: transparent;
+    font-size: clamp(8rem, 13vw, 12rem);
+    font-weight: 800;
+    line-height: 1;
+    pointer-events: none;
+    transform: translate(-50%, -50%);
+    -webkit-text-stroke: 2px rgba(var(--bs-body-color-rgb), 0.42);
+}
+
+.ranked-feature-card {
+    position: relative;
+    z-index: 1;
+}
+
+.ranked-feature-overlay {
+    z-index: 1;
+    background: linear-gradient(180deg, rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.84));
+}
+
+.ranked-feature-content {
+    z-index: 2;
+}
+
+.ranked-feature-logo {
+    width: auto;
+    max-width: 46%;
+    height: auto;
+    max-height: 4rem;
+    object-fit: contain;
+    object-position: left bottom;
+    filter: drop-shadow(0 0.25rem 0.5rem rgba(0, 0, 0, 0.55));
+}
+
 .detail-hero {
     position: relative;
+    display: flex;
+    align-items: flex-end;
     min-height: clamp(38rem, 76dvh, 50rem);
     overflow: hidden;
     background: var(--bs-tertiary-bg);
@@ -124,7 +193,7 @@
             rgba(var(--bs-body-bg-rgb), 0.9) 30%,
             rgba(var(--bs-body-bg-rgb), 0.6) 50%,
             rgba(var(--bs-body-bg-rgb), 0) 80%
-        )
+        );
 }
 
 .back-link {
@@ -135,11 +204,10 @@
 }
 
 .detail-content {
-    position: absolute;
-    right: 0;
-    bottom: 4.5rem;
-    left: 0;
+    position: relative;
     z-index: 1;
+    padding-top: 12rem;
+    padding-bottom: 4.5rem;
 }
 
 .detail-logo {
@@ -152,9 +220,65 @@
     max-width: 65ch;
 }
 
+.detail-tagline {
+    max-width: 65ch;
+}
+
+.detail-meta > span:not(:last-child)::after {
+    margin-inline: 0.7rem;
+    color: var(--bs-secondary-color);
+    content: "·";
+}
+
+.detail-progress {
+    height: 0.25rem;
+}
+
+.detail-version-menu {
+    width: min(22rem, calc(100vw - 2rem));
+    max-width: min(28rem, calc(100vw - 2rem));
+}
+
+.season-tabs,
+.episode-rail {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+.season-tabs {
+    --bs-nav-pills-border-radius: 16px;
+}
+
+.season-tabs::-webkit-scrollbar,
+.episode-rail::-webkit-scrollbar {
+    display: none;
+}
+
+.season-tabs::after,
+.episode-rail-track::after {
+    content: "";
+    flex: 0 0 0.75rem;
+}
+
+.season-tabs .season-tab {
+    flex: 0 0 auto;
+    border-radius: 16px;
+    corner-shape: squircle;
+}
+
+.episode-rail-item {
+    flex: 0 0 85%;
+}
+
 .episode-play {
     width: 2.75rem;
     height: 2.75rem;
+    border-radius: 50%;
+    corner-shape: round;
+}
+
+.episode-play.dropdown-toggle::after {
+    display: none;
 }
 
 @media (min-width: 576px) {
@@ -169,6 +293,10 @@
     .media-rail--span-2 {
         --rail-item-basis: calc(21.6667% - 0.6667rem);
     }
+
+    .episode-rail-item {
+        flex-basis: calc(50% - 0.5rem);
+    }
 }
 
 @media (min-width: 992px) {
@@ -182,6 +310,16 @@
 
     .media-rail--span-2 {
         --rail-item-basis: calc(11.6667% - 1rem);
+    }
+
+    .episode-rail-item {
+        flex-basis: calc(25% - 0.75rem);
+    }
+}
+
+@media (min-width: 1200px) {
+    .episode-rail-item {
+        flex-basis: calc(25% - 1.125rem);
     }
 }
 
@@ -207,11 +345,13 @@
     }
 
     .detail-content {
-        bottom: 3rem;
+        padding-top: 10rem;
+        padding-bottom: 3rem;
     }
 
     .detail-logo,
-    .detail-play {
+    .detail-play,
+    .detail-primary > .mt-3 {
         max-width: 17rem;
     }
 

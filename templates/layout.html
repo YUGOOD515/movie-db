@@ -21,7 +21,7 @@
         <title>Media{% block title %}{% endblock %}</title>
     </head>
     <body>
-        <button class="site-menu-toggle btn btn-dark rounded-circle d-flex align-items-center justify-content-center p-0" type="button" data-bs-toggle="offcanvas" data-bs-target="#site-sidebar" aria-controls="site-sidebar" aria-label="打开导航">
+        <button class="site-menu-toggle btn btn-dark d-flex align-items-center justify-content-center p-0" type="button" data-bs-toggle="offcanvas" data-bs-target="#site-sidebar" aria-controls="site-sidebar" aria-label="打开导航">
             <i class="bi bi-list" aria-hidden="true"></i>
         </button>
 
@@ -40,6 +40,26 @@
                     <a class="nav-link d-flex align-items-center gap-2" href="{{ url_for('index') }}">
                         <i class="bi bi-collection-play text-primary" aria-hidden="true"></i>
                         <span>媒体库</span>
+                    </a>
+                    <a class="nav-link d-flex align-items-center gap-2" href="{{ url_for('recent_added_library') }}">
+                        <i class="bi bi-clock-history text-primary" aria-hidden="true"></i>
+                        <span>最近添加</span>
+                    </a>
+                    <a class="nav-link d-flex align-items-center gap-2" href="{{ url_for('favorites_library') }}">
+                        <i class="bi bi-heart text-primary" aria-hidden="true"></i>
+                        <span>收藏</span>
+                    </a>
+                    <a class="nav-link d-flex align-items-center gap-2" href="{{ url_for('movie_genres_library') }}">
+                        <i class="bi bi-funnel text-primary" aria-hidden="true"></i>
+                        <span>类别筛选</span>
+                    </a>
+                    <a class="nav-link d-flex align-items-center gap-2" href="{{ url_for('unwatched_library') }}">
+                        <i class="bi bi-eye-slash text-primary" aria-hidden="true"></i>
+                        <span>未观看</span>
+                    </a>
+                    <a class="nav-link d-flex align-items-center gap-2" href="{{ url_for('top_rated_library') }}">
+                        <i class="bi bi-star text-primary" aria-hidden="true"></i>
+                        <span>最受好评的电影</span>
                     </a>
                     <a class="nav-link d-flex align-items-center gap-2" href="{{ url_for('media') }}">
                         <i class="bi bi-link-45deg text-primary" aria-hidden="true"></i>

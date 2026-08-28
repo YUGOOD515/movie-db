@@ -8,4 +8,8 @@
             }
         });
     });
+
+    document.querySelectorAll("[data-media-logo]").forEach((logo) => {
+        logo.addEventListener("error", () => logo.classList.add("d-none"));
+    });
 })();

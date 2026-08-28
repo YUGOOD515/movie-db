@@ -1,0 +1,50 @@
+{% macro poster_card(item, show_rating=false) %}
+    <article class="poster-card h-100">
+        <a class="poster-link d-block h-100 text-body text-decoration-none" href="{{ item.detail_url }}" aria-label="查看{{ item.name }}详情">
+            <span class="poster-frame squircle-card ratio ratio-poster d-block overflow-hidden bg-body-tertiary shadow-sm">
+                <span class="d-block">
+                    {% if item.poster_path %}
+                        <img
+                            class="media-cover"
+                            src="{{ url_for('static', filename=item.poster_path) }}"
+                            alt="{{ item.name }}海报"
+                            width="500"
+                            height="750"
+                            loading="lazy"
+                            data-media-image
+                        >
+                    {% endif %}
+                    <span class="image-fallback position-absolute top-0 start-0 w-100 h-100 align-items-center justify-content-center fs-2 text-body-secondary{% if item.poster_path %} d-none{% else %} d-flex{% endif %}" aria-hidden="true">
+                        <i class="bi bi-film"></i>
+                    </span>
+                </span>
+            </span>
+            <span class="d-block pt-3">
+                <span class="d-block text-truncate fw-semibold mb-1">{{ item.name }}</span>
+                <span class="d-flex align-items-center gap-2 small text-body-secondary">
+                    <span>{{ "电影" if item.media_type == "movie" else "剧集" }}</span>
+                    {% if item.year %}<span>{{ item.year }}</span>{% endif %}
+                    {% if show_rating %}
+                        <span class="text-warning"><i class="bi bi-star-fill me-1" aria-hidden="true"></i>{{ "%.1f"|format(item.vote_average) }}</span>
+                    {% endif %}
+                </span>
+            </span>
+        </a>
+    </article>
+{% endmacro %}
+
+{% macro genre_card(genre) %}
+    <a class="genre-card squircle-card ratio ratio-genre d-block overflow-hidden bg-body-tertiary shadow-sm text-decoration-none" href="{{ genre.detail_url }}" aria-label="查看{{ genre.genre_name }}类别代表电影{{ genre.media_name }}">
+        <span class="d-block">
+            {% if genre.backdrop_path %}
+                <img class="media-cover" src="{{ url_for('static', filename=genre.backdrop_path) }}" alt="{{ genre.media_name }}横版海报" width="960" height="420" loading="lazy" data-media-image>
+            {% endif %}
+            <span class="image-fallback position-absolute top-0 start-0 w-100 h-100 align-items-center justify-content-center fs-2 text-body-secondary{% if genre.backdrop_path %} d-none{% else %} d-flex{% endif %}" aria-hidden="true"><i class="bi bi-film"></i></span>
+            <span class="genre-overlay position-absolute top-0 start-0 w-100 h-100"></span>
+            <span class="genre-name position-absolute bottom-0 start-0 d-flex align-items-center gap-2 p-4 text-white h3 fw-bold mb-0">
+                <i class="bi bi-{{ genre.icon }}" aria-hidden="true"></i>
+                <span>{{ genre.genre_name }}</span>
+            </span>
+        </span>
+    </a>
+{% endmacro %}

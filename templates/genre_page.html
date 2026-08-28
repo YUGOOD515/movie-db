@@ -1,0 +1,88 @@
+{% extends "layout.html" %}
+{% from "_media_cards.html" import poster_card %}
+
+{% block title %} - 类别{% endblock %}
+
+{% block main %}
+    <section class="container-xl" aria-labelledby="genre-page-heading">
+        <header class="mb-4">
+            <h1 class="h3 mb-2" id="genre-page-heading">类别</h1>
+            <p class="text-body-secondary mb-0">按媒体属性筛选本地电影与剧集</p>
+        </header>
+
+        <form class="squircle-card border bg-body-tertiary p-3 p-md-4 mb-5" action="{{ url_for('movie_genres_library') }}" method="get">
+            <fieldset class="mb-4">
+                <legend class="small fw-semibold mb-2">电影 / 剧集</legend>
+                <div class="d-flex flex-wrap gap-2">
+                    {% for value, label, icon in [('all', '全部', 'collection-play'), ('movie', '电影', 'film'), ('tv', '剧集', 'tv')] %}
+                        <input class="btn-check" type="radio" name="media_type" value="{{ value }}" id="media-type-{{ value }}"{% if filters.media_type == value %} checked{% endif %}>
+                        <label class="btn btn-outline-secondary" for="media-type-{{ value }}"><i class="bi bi-{{ icon }} me-2" aria-hidden="true"></i>{{ label }}</label>
+                    {% endfor %}
+                </div>
+            </fieldset>
+
+            <fieldset class="mb-4">
+                <legend class="small fw-semibold mb-2">类别</legend>
+                <div class="d-flex flex-wrap gap-2">
+                    <input class="btn-check" type="radio" name="genre_id" value="" id="genre-all"{% if filters.genre_id is none %} checked{% endif %}>
+                    <label class="btn btn-outline-secondary" for="genre-all"><i class="bi bi-grid me-2" aria-hidden="true"></i>全部</label>
+                    {% for genre in filter_options.genres %}
+                        <input class="btn-check" type="radio" name="genre_id" value="{{ genre.genre_id }}" id="genre-{{ genre.genre_id }}"{% if filters.genre_id == genre.genre_id %} checked{% endif %}>
+                        <label class="btn btn-outline-secondary" for="genre-{{ genre.genre_id }}"><i class="bi bi-{{ genre.icon }} me-2" aria-hidden="true"></i>{{ genre.genre_name }}</label>
+                    {% endfor %}
+                </div>
+            </fieldset>
+
+            <div class="row g-3 align-items-end">
+                <div class="col-6 col-lg-3">
+                    <label class="form-label small fw-semibold" for="country-code">制作国家</label>
+                    <select class="form-select" id="country-code" name="country_code">
+                        <option value="">全部</option>
+                        {% for country in filter_options.countries %}<option value="{{ country.country_code }}"{% if filters.country_code == country.country_code %} selected{% endif %}>{{ country.country_name }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div class="col-6 col-lg-3">
+                    <label class="form-label small fw-semibold" for="language-code">语言</label>
+                    <select class="form-select" id="language-code" name="language_code">
+                        <option value="">全部</option>
+                        {% for language in filter_options.languages %}<option value="{{ language.language_code }}"{% if filters.language_code == language.language_code %} selected{% endif %}>{{ language.language_name }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div class="col-6 col-lg-3">
+                    <label class="form-label small fw-semibold" for="year">年份</label>
+                    <select class="form-select" id="year" name="year">
+                        <option value="">全部</option>
+                        {% for year in filter_options.years %}<option value="{{ year }}"{% if filters.year == year %} selected{% endif %}>{{ year }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div class="col-6 col-lg-3">
+                    <label class="form-label small fw-semibold" for="min-rating">评分</label>
+                    <select class="form-select" id="min-rating" name="min_rating">
+                        <option value="">全部</option>
+                        {% for rating in [9, 8, 7, 6] %}<option value="{{ rating }}"{% if filters.min_rating == rating %} selected{% endif %}>{{ rating }} 分以上</option>{% endfor %}
+                    </select>
+                </div>
+                <div class="col-12 d-flex justify-content-end gap-2">
+                    <a class="btn btn-outline-secondary" href="{{ url_for('movie_genres_library') }}">重置</a>
+                    <button class="btn btn-primary" type="submit">筛选</button>
+                </div>
+            </div>
+        </form>
+
+        <div class="d-flex align-items-baseline justify-content-between gap-3 mb-3">
+            <h2 class="h4 mb-0">筛选结果</h2>
+            <span class="small text-body-secondary">{{ items|length }} 部作品</span>
+        </div>
+        {% if items %}
+            <div class="row row-cols-2 row-cols-sm-3 row-cols-md-4 row-cols-lg-6 g-3 g-lg-4 justify-content-center">
+                {% for item in items %}<div class="col">{{ poster_card(item) }}</div>{% endfor %}
+            </div>
+        {% else %}
+            <div class="empty-state compact squircle-card border bg-body-tertiary p-4">
+                <p class="text-body-secondary mb-0">没有符合当前条件的媒体。</p>
+            </div>
+        {% endif %}
+    </section>
+{% endblock %}
+
+{% block scripts %}<script src="{{ url_for('static', filename='home.js') }}"></script>{% endblock %}
