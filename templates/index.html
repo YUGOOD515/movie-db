@@ -6,12 +6,12 @@
 {% block main %}
     <section class="library-section library-section--first mb-5" aria-label="最近观看">
         {% if continue_watching %}
-            <div class="overflow-x-auto pb-2 media-rail media-rail--span-6" tabindex="0" aria-label="最近观看列表">
+            <div class="overflow-x-auto media-rail media-rail--span-6" tabindex="0" aria-label="最近观看列表">
                 <div class="container-xl d-flex gap-3 gap-lg-4 flex-nowrap media-rail-track">
                     {% for item in continue_watching %}
                         <div class="media-rail-item">
                             <article class="continue-card">
-                                <div class="squircle-card ratio ratio-16x9 overflow-hidden bg-body-tertiary shadow-sm">
+                                <div class="continue-frame squircle-card ratio ratio-16x9 overflow-hidden bg-body-tertiary shadow-sm">
                                     <div class="continue-visual">
                                         {% if item.backdrop_path %}
                                             <img class="media-cover" src="{{ url_for('static', filename=item.backdrop_path) }}" alt="{{ item.name }}横版海报" width="960" height="540" data-media-image>
@@ -59,13 +59,13 @@
 
     <section class="library-section mb-5" aria-labelledby="favorites-heading">
         <div class="section-heading container-xl mb-3"><h2 class="h4 mb-0" id="favorites-heading">收藏夹</h2></div>
-        <div class="overflow-x-auto pb-2 media-rail media-rail--span-3" tabindex="0" aria-label="收藏夹列表">
+        <div class="overflow-x-auto media-rail media-rail--span-3" tabindex="0" aria-label="收藏夹列表">
             <div class="container-xl d-flex gap-3 gap-lg-4 flex-nowrap media-rail-track">
                 {% for folder in favorite_folders %}
                     <div class="media-rail-item">
                         <article class="folder-card">
                             <a class="d-block text-body text-decoration-none" href="{{ folder.detail_url }}">
-                                <div class="squircle-card ratio ratio-16x9 overflow-hidden bg-body-tertiary shadow-sm" aria-hidden="true">
+                                <div class="folder-frame squircle-card ratio ratio-16x9 overflow-hidden bg-body-tertiary shadow-sm" aria-hidden="true">
                                     <div class="d-flex align-items-center justify-content-center">
                                         <span class="fs-2 text-primary"><i class="bi bi-{{ folder.icon }}"></i></span>
                                     </div>
@@ -88,7 +88,7 @@
             <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('recent_added_library') }}">查看全部</a>
         </div>
         {% if recent_added %}
-            <div class="overflow-x-auto pb-2 media-rail media-rail--span-2" tabindex="0" aria-label="最近添加列表">
+            <div class="overflow-x-auto media-rail media-rail--span-2" tabindex="0" aria-label="最近添加列表">
                 <div class="container-xl d-flex gap-3 gap-lg-4 flex-nowrap media-rail-track">
                     {% for item in recent_added %}<div class="media-rail-item">{{ poster_card(item) }}</div>{% endfor %}
                 </div>
@@ -104,7 +104,7 @@
             <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('movie_genres_library') }}">查看全部</a>
         </div>
         {% if genre_features %}
-            <div class="overflow-x-auto pb-2 media-rail media-rail--span-6" tabindex="0" aria-label="电影类别列表">
+            <div class="overflow-x-auto media-rail media-rail--span-6" tabindex="0" aria-label="电影类别列表">
                 <div class="container-xl d-flex gap-3 gap-lg-4 flex-nowrap media-rail-track">
                     {% for genre in genre_features %}
                         <div class="media-rail-item">
@@ -124,7 +124,7 @@
             <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('movie_genres_library', media_type='tv') }}">查看全部</a>
         </div>
         {% if tv_genre_features %}
-            <div class="overflow-x-auto pb-2 media-rail media-rail--span-6" tabindex="0" aria-label="剧集类别列表">
+            <div class="overflow-x-auto media-rail media-rail--span-6" tabindex="0" aria-label="剧集类别列表">
                 <div class="container-xl d-flex gap-3 gap-lg-4 flex-nowrap media-rail-track">
                     {% for genre in tv_genre_features %}
                         <div class="media-rail-item">
@@ -144,7 +144,7 @@
             <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('unwatched_library') }}">查看全部</a>
         </div>
         {% if unwatched %}
-            <div class="overflow-x-auto pb-2 media-rail media-rail--span-2" tabindex="0" aria-label="未观看列表">
+            <div class="overflow-x-auto media-rail media-rail--span-2" tabindex="0" aria-label="未观看列表">
                 <div class="container-xl d-flex gap-3 gap-lg-4 flex-nowrap media-rail-track">
                     {% for item in unwatched %}<div class="media-rail-item">{{ poster_card(item) }}</div>{% endfor %}
                 </div>
@@ -160,7 +160,7 @@
             <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('top_rated_library') }}">查看全部</a>
         </div>
         {% if top_rated_movies %}
-            <div class="overflow-x-auto pb-2 media-rail media-rail--span-2" tabindex="0" aria-label="最受好评的电影列表">
+            <div class="overflow-x-auto media-rail media-rail--span-2" tabindex="0" aria-label="最受好评的电影列表">
                 <div class="container-xl d-flex gap-3 gap-lg-4 flex-nowrap media-rail-track">
                     {% for item in top_rated_movies %}<div class="media-rail-item">{{ poster_card(item, true) }}</div>{% endfor %}
                 </div>

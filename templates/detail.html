@@ -55,20 +55,14 @@
                         {% endif %}
 
                         {% if media.play_url %}
-                            {% if media.media_type == "tv" and media.featured_source %}
-                                {% set hero_play_label = ("继续" if media.progress else "播放") ~ " S" ~ "%02d"|format(media.featured_source.season_number) ~ "E" ~ "%02d"|format(media.featured_source.episode_number) %}
+                            {% if media.progress and media.position_label %}
+                                {% set hero_play_label = "继续播放 " ~ media.position_label %}
+                            {% elif media.media_type == "tv" and media.featured_source %}
+                                {% set hero_play_label = "播放 S" ~ media.featured_source.season_number ~ " E" ~ media.featured_source.episode_number %}
                             {% else %}
-                                {% set hero_play_label = "继续播放" if media.progress else "播放电影" %}
+                                {% set hero_play_label = "播放电影" %}
                             {% endif %}
                             {{ play_control(hero_versions, media.featured_source, hero_play_label, "btn btn-primary detail-play w-100 d-inline-flex align-items-center justify-content-center gap-2", "w-100") }}
-                            {% if media.progress %}
-                                <div class="w-100 mt-3">
-                                    <div class="d-flex justify-content-between small text-body-secondary mb-2"><span>观看进度</span><span>{{ media.progress }}%</span></div>
-                                    <div class="progress detail-progress" role="progressbar" aria-label="{{ media.name }}观看进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ media.progress }}">
-                                        <div class="progress-bar" style="width: {{ media.progress }}%"></div>
-                                    </div>
-                                </div>
-                            {% endif %}
                         {% endif %}
                         <form class="w-100 mt-3" action="{{ url_for('toggle_favorite', media_type=media.media_type, media_id=media.media_id) }}" method="post">
                             <button class="btn btn-outline-secondary w-100 d-inline-flex align-items-center justify-content-center gap-2" type="submit" aria-pressed="{{ 'true' if media.is_favorite else 'false' }}">
@@ -79,27 +73,28 @@
                     </div>
 
                     <div class="detail-feature col-12 col-md-9">
-                        {% if media.original_name and media.original_name != media.name %}<p class="small text-body-secondary fw-semibold mb-2">{{ media.original_name }}</p>{% endif %}
-                        {% if media.logo_path %}<h2 class="h2 fw-semibold mb-3">{{ media.name }}</h2>{% endif %}
+                        {% if media.media_type == "tv" and media.featured_source %}
+                            <h2 class="h3 fw-bold mb-3">S{{ media.featured_source.season_number }} E{{ media.featured_source.episode_number }}{% if media.featured_episode and media.featured_episode.episode_name %} {{ media.featured_episode.episode_name }}{% elif media.featured_source.episode_name %} {{ media.featured_source.episode_name }}{% endif %}</h2>
+                        {% endif %}
 
-                        <div class="detail-meta d-flex flex-wrap align-items-center small text-body-secondary fw-semibold mb-3">
-                            {% if media.media_type == "tv" %}
-                                <span>{{ media.year or "首播年份未提供" }}{% if media.in_production %}–至今{% elif media.last_air_date and media.last_air_date[:4] != media.year %}–{{ media.last_air_date[:4] }}{% endif %}</span>
-                                <span>{{ media.number_of_seasons }} 季</span>
-                                <span>{{ media.number_of_episodes }} 集</span>
-                                <span>{{ media.status_label }}</span>
-                            {% else %}
-                                <span>{{ media.year or "上映年份未提供" }}</span>
-                                {% if media.runtime %}<span>{{ media.runtime }} 分钟</span>{% endif %}
-                                <span>{{ media.status_label }}</span>
-                            {% endif %}
-                            {% if media.vote_count %}<span class="text-warning"><i class="bi bi-star-fill me-1" aria-hidden="true"></i>{{ "%.1f"|format(media.vote_average) }} · {{ media.vote_count_label }} 人评分</span>{% endif %}
+                        <div class="detail-meta d-flex flex-wrap align-items-center gap-3 small text-body-secondary fw-semibold mb-3">
+                            {% if media.runtime_label %}<span>{{ media.runtime_label }}</span>{% endif %}
+                            {% if media.date_label %}<span>{{ media.date_label }}</span>{% endif %}
+                            {% if media.resolution %}<span>{{ media.resolution }}</span>{% endif %}
                             {% if media.genres %}<span>{{ media.genres|join(" / ") }}</span>{% endif %}
                         </div>
 
                         {% if media.tagline %}<p class="detail-tagline lead fw-semibold mb-3">{{ media.tagline }}</p>{% endif %}
                         <p class="detail-overview lh-lg mb-0">{{ media.overview or "暂无简介。" }}</p>
 
+                        {% set rating_score = (media.season_vote_average if media.season_vote_average is not none else media.vote_average) %}
+                        {% if rating_score %}
+                            <div class="detail-rating d-inline-flex align-items-center gap-2 mt-3 pt-2">
+                                <img src="{{ url_for('static', filename='imdb.png') }}" alt="IMDb" height="20" class="object-fit-contain">
+                                <span class="fs-5 fw-bold text-warning">{{ "%.1f"|format(rating_score) }}</span>
+                                <span class="small text-body-secondary">/ 10</span>
+                            </div>
+                        {% endif %}
                     </div>
                 </div>
             </div>
@@ -134,7 +129,7 @@
                     {% for season in media.seasons %}
                         {% set season_active = (media.featured_source and media.featured_source.season_number == season.season_number) or (not media.featured_source and loop.first) %}
                         <div class="tab-pane fade{% if season_active %} show active{% endif %}" id="season-pane-{{ season.season_id }}" role="tabpanel" aria-labelledby="season-tab-{{ season.season_id }}" tabindex="0">
-                            <div class="episode-rail overflow-x-auto pb-2" tabindex="0" aria-label="{{ season.season_name }}单集列表">
+                            <div class="episode-rail overflow-x-auto" tabindex="0" aria-label="{{ season.season_name }}单集列表">
                                 <div class="episode-rail-track container-xl d-flex flex-nowrap gap-3 gap-xl-4">
                                     {% for episode in season.episodes %}
                                         <div class="episode-rail-item flex-shrink-0">

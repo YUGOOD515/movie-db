@@ -1,4 +1,5 @@
 import os
+import re
 from pathlib import Path
 
 from flask import abort, Flask, flash, redirect, render_template, request, url_for
@@ -6,6 +7,25 @@ from flask_session import Session
 
 import helpers
 import models
+
+
+def extract_resolution(path_or_name: str | None) -> str:
+    if not path_or_name:
+        return "1080P"
+    text = str(path_or_name).upper()
+    if re.search(r"\b(4K|2160P|UHD)\b", text) or "4K" in text or "2160P" in text:
+        return "4K"
+    if re.search(r"\b(2K|1440P|QHD)\b", text) or "2K" in text or "1440P" in text:
+        return "2K"
+    if re.search(r"\b(1080P|1080I|FHD)\b", text) or "1080P" in text or "1080I" in text:
+        return "1080P"
+    if re.search(r"\b(720P|HD)\b", text) or "720P" in text:
+        return "720P"
+    if re.search(r"\b(480P|SD)\b", text) or "480P" in text:
+        return "480P"
+    if re.search(r"\b(360P)\b", text) or "360P" in text:
+        return "360P"
+    return "1080P"
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -398,27 +418,52 @@ def render_media_detail(media_type: str, media_id: int):
             media_type=media_type,
             source_id=source["source_id"],
         )
-    resumable_sources = [
+    watched_sources = [
         source
         for source in detail["sources"]
-        if source["resume_position_ms"] > 0
+        if source.get("position_ms", 0) > 0 or source.get("updated_at")
     ]
-    detail["featured_source"] = (
-        max(
-            resumable_sources,
+    if watched_sources:
+        latest_watched = max(
+            watched_sources,
             key=lambda source: (
-                source["updated_at"] or "",
-                source["source_id"],
+                source.get("updated_at") or "",
+                source.get("source_id", 0),
             ),
         )
-        if resumable_sources
-        else (detail["sources"][-1] if detail["sources"] else None)
-    )
+        if latest_watched.get("is_completed", False):
+            if media_type == "tv":
+                try:
+                    latest_idx = detail["sources"].index(latest_watched)
+                    if latest_idx + 1 < len(detail["sources"]):
+                        detail["featured_source"] = detail["sources"][latest_idx + 1]
+                    else:
+                        detail["featured_source"] = detail["sources"][0]
+                except (ValueError, IndexError):
+                    detail["featured_source"] = (
+                        detail["sources"][0] if detail["sources"] else None
+                    )
+            else:
+                detail["featured_source"] = latest_watched
+        else:
+            detail["featured_source"] = latest_watched
+    else:
+        detail["featured_source"] = (
+            detail["sources"][0] if detail["sources"] else None
+        )
+
     if detail["featured_source"]:
         detail["play_url"] = detail["featured_source"]["play_url"]
-        detail["progress"] = detail["featured_source"]["progress"]
+        is_completed = detail["featured_source"].get("is_completed", False)
+        if not is_completed and detail["featured_source"].get("resume_position_ms", 0) > 0:
+            detail["progress"] = detail["featured_source"].get("progress", 0)
+            detail["position_label"] = detail["featured_source"].get("position_label", "")
+        else:
+            detail["progress"] = 0
+            detail["position_label"] = ""
     else:
         detail["progress"] = 0
+        detail["position_label"] = ""
 
     detail["featured_episode"] = None
     for season in detail["seasons"]:
@@ -434,7 +479,7 @@ def render_media_detail(media_type: str, media_id: int):
                     ),
                     None,
                 )
-                or (episode["sources"][-1] if episode["sources"] else None)
+                or (episode["sources"][0] if episode["sources"] else None)
             )
             episode["play_url"] = (
                 episode["featured_source"]["play_url"]
@@ -449,7 +494,34 @@ def render_media_detail(media_type: str, media_id: int):
                 detail["featured_episode"] = episode
 
     detail["vote_count_label"] = f'{detail["vote_count"]:,}'
+    source_path = ""
+    if detail.get("featured_source") and detail["featured_source"].get("alist_path"):
+        source_path = detail["featured_source"]["alist_path"]
+    elif detail.get("sources") and detail["sources"] and detail["sources"][0].get("alist_path"):
+        source_path = detail["sources"][0]["alist_path"]
+    detail["resolution"] = extract_resolution(source_path)
+    detail["date_label"] = detail.get("release_date") or detail.get("year") or ""
+
     if media_type == "tv":
+        runtime = None
+        if detail.get("featured_episode") and detail["featured_episode"].get("runtime"):
+            runtime = detail["featured_episode"]["runtime"]
+        elif detail.get("runtime"):
+            runtime = detail["runtime"]
+        detail["runtime_label"] = f"{runtime} 分钟" if runtime else ""
+
+        current_season = next(
+            (
+                s for s in detail.get("seasons", [])
+                if detail.get("featured_source") and s.get("season_number") == detail["featured_source"].get("season_number")
+            ),
+            detail["seasons"][0] if detail.get("seasons") else None,
+        )
+        if current_season and current_season.get("vote_average") is not None and current_season["vote_average"] > 0:
+            detail["season_vote_average"] = current_season["vote_average"]
+        else:
+            detail["season_vote_average"] = detail.get("vote_average")
+
         status_labels = {
             "Ended": "已完结",
             "Canceled": "已取消",
@@ -464,6 +536,8 @@ def render_media_detail(media_type: str, media_id: int):
             )
         )
     else:
+        detail["runtime_label"] = f"{detail['runtime']} 分钟" if detail.get("runtime") else ""
+        detail["season_vote_average"] = detail.get("vote_average")
         detail["status_label"] = {
             "Released": "已上映",
             "Post Production": "后期制作",
@@ -518,13 +592,26 @@ def media():
             app.logger.exception("Importing media failed")
             flash("查询或保存失败，请检查 TMDB、AList 和数据库状态。", "danger")
 
-        return redirect(url_for("media"))
+        return redirect(url_for("media", tab="associate"))
 
-    movie_mappings, episode_mappings = get_media_mappings()
+    tab = request.args.get("tab", "overview")
+    query = request.args.get("q", "").strip()
+    media_filter = request.args.get("type", "all")
+    if media_filter not in ("all", "movie", "tv"):
+        media_filter = "all"
+
+    overview_data = models.get_media_overview_data(
+        app.config["DATABASE"],
+        query=query or None,
+        media_type=media_filter,
+    )
+    for item in overview_data["media_items"]:
+        add_media_routes(item)
+
     return render_template(
         "media.html",
-        movie_mappings=movie_mappings,
-        episode_mappings=episode_mappings,
+        active_tab=tab,
+        overview=overview_data,
         alist_origin=helpers.alist_url,
     )
 

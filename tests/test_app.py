@@ -74,7 +74,7 @@ class ImportWorkflowTest(unittest.TestCase):
         ):
             self.assertIn(f'href="{href}"'.encode(), home_response.data)
         self.assertEqual(media_response.status_code, 200)
-        self.assertIn("媒体资源关联".encode(), media_response.data)
+        self.assertIn("媒体资源管理".encode(), media_response.data)
         self.assertIn('action="/media"'.encode(), media_response.data)
         self.assertEqual(recent_added_response.status_code, 200)
         self.assertIn("最近添加".encode(), recent_added_response.data)
@@ -462,7 +462,7 @@ class ImportWorkflowTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn("已关联".encode(), response.data)
         self.assertIn(
-            "/Quark/测试电影.mkv".encode(),
+            "测试电影".encode(),
             response.data,
         )
         self.assertNotIn(b'href="http://127.0.0.1:5244', response.data)
@@ -911,7 +911,7 @@ class ImportWorkflowTest(unittest.TestCase):
         self.assertEqual(len(episode["sources"]), 2)
         version_response = self.client.get("/series/1396")
         self.assertIn(
-            'aria-label="继续 S01E02，选择版本"'.encode(),
+            'aria-label="继续播放 05:00，选择版本"'.encode(),
             version_response.data,
         )
         self.assertIn(

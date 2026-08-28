@@ -93,6 +93,15 @@ def _is_watch_completed(position_ms: int, duration_ms: int):
     )
 
 
+def _format_time_label(position_ms: int) -> str:
+    total_seconds = max(int(position_ms or 0), 0) // 1000
+    total_minutes, seconds = divmod(total_seconds, 60)
+    hours, minutes = divmod(total_minutes, 60)
+    if hours > 0:
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+    return f"{minutes:02d}:{seconds:02d}"
+
+
 def _add_progress_fields(item: dict):
     position_ms = max(int(item.get("position_ms") or 0), 0)
     duration_ms = max(int(item.get("duration_ms") or 0), 0)
@@ -102,6 +111,8 @@ def _add_progress_fields(item: dict):
 
     item["position_ms"] = position_ms
     item["duration_ms"] = duration_ms
+    item["position_label"] = _format_time_label(position_ms) if position_ms > 0 else ""
+    item["duration_label"] = _format_time_label(duration_ms) if duration_ms > 0 else ""
     item["progress"] = (
         min(round(position_ms * 100 / duration_ms), 100)
         if duration_ms
@@ -2295,3 +2306,206 @@ def get_media_detail(
         detail["seasons"] = seasons
 
     return detail
+
+
+def get_media_overview_data(
+    database_path: str | Path,
+    query: str | None = None,
+    media_type: str = "all",
+):
+    """Return aggregated overview metadata and overall library stats."""
+    if media_type not in ("all", "movie", "tv"):
+        media_type = "all"
+
+    with closing(_connect(database_path)) as db:
+        stats_row = db.execute(
+            """
+            SELECT (SELECT COUNT(*) FROM movie) AS movie_count,
+                   (SELECT COUNT(*) FROM tv_series) AS tv_count,
+                   (SELECT COUNT(*) FROM tv_season) AS season_count,
+                   (SELECT COUNT(*) FROM tv_episode) AS episode_count,
+                   ((SELECT COUNT(*) FROM movie_source) + (SELECT COUNT(*) FROM tv_episode_source)) AS source_count,
+                   ((SELECT COUNT(*) FROM movie_image) + (SELECT COUNT(*) FROM tv_series_image) + (SELECT COUNT(*) FROM tv_episode_image)) AS image_count
+            """
+        ).fetchone()
+        stats = dict(stats_row) if stats_row else {}
+        stats["media_count"] = stats.get("movie_count", 0) + stats.get("tv_count", 0)
+
+        movie_rows = []
+        if media_type in ("all", "movie"):
+            movie_rows = [
+                dict(row)
+                for row in db.execute(
+                    """
+                    SELECT 'movie' AS media_type,
+                           movie.movie_id AS media_id,
+                           movie.title AS name,
+                           movie.original_title AS original_name,
+                           SUBSTR(movie.release_date, 1, 4) AS year,
+                           movie.release_date AS release_date,
+                           movie.vote_average AS vote_average,
+                           movie.vote_count AS vote_count,
+                           movie.overview AS overview,
+                           movie.runtime AS runtime,
+                           movie.release_status AS media_status,
+                           (
+                               SELECT COUNT(*)
+                                 FROM movie_source AS source
+                                WHERE source.movie_id = movie.movie_id
+                           ) AS source_count,
+                           (
+                               SELECT COUNT(*)
+                                 FROM movie_image AS image
+                                WHERE image.movie_id = movie.movie_id
+                           ) AS image_count,
+                           (
+                               SELECT image.local_path
+                                 FROM movie_image AS image
+                                WHERE image.movie_id = movie.movie_id
+                                  AND image.image_type = 'posters'
+                                ORDER BY image.image_position
+                                LIMIT 1
+                           ) AS poster_path,
+                           (
+                               SELECT image.local_path
+                                 FROM movie_image AS image
+                                WHERE image.movie_id = movie.movie_id
+                                  AND image.image_type = 'backdrops'
+                                ORDER BY image.image_position
+                                LIMIT 1
+                           ) AS backdrop_path,
+                           (
+                               SELECT image.local_path
+                                 FROM movie_image AS image
+                                WHERE image.movie_id = movie.movie_id
+                                  AND image.image_type = 'logos'
+                                ORDER BY image.image_position
+                                LIMIT 1
+                           ) AS logo_path,
+                           (
+                               SELECT GROUP_CONCAT(genre.genre_name, ' / ')
+                                 FROM movie_genre AS relation
+                                      INNER JOIN genre
+                                      ON genre.genre_id = relation.genre_id
+                                WHERE relation.movie_id = movie.movie_id
+                           ) AS genres_text,
+                           (
+                               SELECT MAX(source.source_id)
+                                 FROM movie_source AS source
+                                WHERE source.movie_id = movie.movie_id
+                           ) AS source_order
+                      FROM movie
+                     ORDER BY source_order DESC NULLS LAST,
+                              movie.movie_id DESC
+                    """
+                ).fetchall()
+            ]
+
+        tv_rows = []
+        if media_type in ("all", "tv"):
+            tv_rows = [
+                dict(row)
+                for row in db.execute(
+                    """
+                    SELECT 'tv' AS media_type,
+                           series.series_id AS media_id,
+                           series.series_name AS name,
+                           series.original_name AS original_name,
+                           SUBSTR(series.first_air_date, 1, 4) AS year,
+                           series.first_air_date AS release_date,
+                           series.vote_average AS vote_average,
+                           series.vote_count AS vote_count,
+                           series.overview AS overview,
+                           series.series_status AS media_status,
+                           series.number_of_seasons AS season_count,
+                           series.number_of_episodes AS episode_count,
+                           (
+                               SELECT COUNT(*)
+                                 FROM tv_episode_source AS source
+                                      INNER JOIN tv_episode AS episode
+                                      ON episode.episode_id = source.episode_id
+                                      INNER JOIN tv_season AS season
+                                      ON season.season_id = episode.season_id
+                                WHERE season.series_id = series.series_id
+                           ) AS source_count,
+                           (
+                               SELECT COUNT(*)
+                                 FROM tv_series_image AS image
+                                WHERE image.series_id = series.series_id
+                           ) AS image_count,
+                           (
+                               SELECT image.local_path
+                                 FROM tv_series_image AS image
+                                WHERE image.series_id = series.series_id
+                                  AND image.image_type = 'posters'
+                                ORDER BY image.image_position
+                                LIMIT 1
+                           ) AS poster_path,
+                           (
+                               SELECT image.local_path
+                                 FROM tv_series_image AS image
+                                WHERE image.series_id = series.series_id
+                                  AND image.image_type = 'backdrops'
+                                ORDER BY image.image_position
+                                LIMIT 1
+                           ) AS backdrop_path,
+                           (
+                               SELECT image.local_path
+                                 FROM tv_series_image AS image
+                                WHERE image.series_id = series.series_id
+                                  AND image.image_type = 'logos'
+                                ORDER BY image.image_position
+                                LIMIT 1
+                           ) AS logo_path,
+                           (
+                               SELECT GROUP_CONCAT(genre.genre_name, ' / ')
+                                 FROM tv_series_genre AS relation
+                                      INNER JOIN genre
+                                      ON genre.genre_id = relation.genre_id
+                                WHERE relation.series_id = series.series_id
+                           ) AS genres_text,
+                           (
+                               SELECT MAX(source.source_id)
+                                 FROM tv_episode_source AS source
+                                      INNER JOIN tv_episode AS episode
+                                      ON episode.episode_id = source.episode_id
+                                      INNER JOIN tv_season AS season
+                                      ON season.season_id = episode.season_id
+                                WHERE season.series_id = series.series_id
+                           ) AS source_order
+                      FROM tv_series AS series
+                     ORDER BY source_order DESC NULLS LAST,
+                              series.series_id DESC
+                    """
+                ).fetchall()
+            ]
+
+    all_items = sorted(
+        movie_rows + tv_rows,
+        key=lambda item: (item["source_order"] or 0, item["media_id"]),
+        reverse=True,
+    )
+
+    for item in all_items:
+        genres_str = item.get("genres_text") or ""
+        item["genres"] = [g.strip() for g in genres_str.split("/") if g.strip()]
+        item["vote_count_label"] = f"{item['vote_count']:,}" if item.get("vote_count") else "0"
+
+    filtered_items = all_items
+    if query:
+        q = query.strip().casefold()
+        filtered_items = [
+            item
+            for item in all_items
+            if q in str(item["media_id"])
+            or q in str(item.get("name") or "").casefold()
+            or q in str(item.get("original_name") or "").casefold()
+        ]
+
+    return {
+        "stats": stats,
+        "media_items": filtered_items,
+        "total_filtered": len(filtered_items),
+        "query": query or "",
+        "media_type": media_type,
+    }
