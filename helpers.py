@@ -22,6 +22,8 @@ REQUEST_TIMEOUT = 20
 IMAGE_DOWNLOAD_ATTEMPTS = 3
 IMAGE_TYPES = ("posters", "logos", "backdrops")
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".svg"}
+MEDIA_ENDPOINTS = {"movie": "movie", "tv": "tv"}
+MEDIA_LABELS = {"movie": "电影", "tv": "剧集"}
 
 logger = logging.getLogger(__name__)
 
@@ -94,10 +96,18 @@ def tmbd_auth():
     return tmdb_auth()
 
 
-def search_movie(name: str):
-    """Search TMDB for movies by name."""
+def _media_endpoint(media_type: str):
+    try:
+        return MEDIA_ENDPOINTS[media_type]
+    except KeyError as error:
+        raise ValueError("媒体类型无效。") from error
+
+
+def search_media(media_type: str, name: str):
+    """Search TMDB for a movie or TV series by name."""
+    endpoint = _media_endpoint(media_type)
     return _tmdb_get(
-        "/search/movie",
+        f"/search/{endpoint}",
         {
             "query": name,
             "include_adult": "true",
@@ -107,12 +117,59 @@ def search_movie(name: str):
     )
 
 
-def search_id(movie_id: int):
-    """Get a movie's TMDB details by ID."""
+def get_media_details(media_type: str, media_id: int):
+    """Get TMDB details for a movie or TV series."""
+    endpoint = _media_endpoint(media_type)
     return _tmdb_get(
-        f"/movie/{movie_id}",
+        f"/{endpoint}/{media_id}",
         {"language": language},
     )
+
+
+def find_media(media_type: str, name: str):
+    """Return details for the first TMDB match of the requested media type."""
+    results = search_media(media_type, name).get("results", [])
+    label = MEDIA_LABELS.get(media_type, "媒体")
+    if not results:
+        raise ValueError(f"TMDB 中未找到对应{label}。")
+
+    media_id = int(results[0]["id"])
+    details = get_media_details(media_type, media_id)
+    if int(details.get("id", 0)) != media_id:
+        raise ValueError(f"TMDB {label}详情返回异常。")
+
+    return details
+
+
+def search_tv_season(series_id: int, season_number: int):
+    """Get season metadata and every episode in that season from TMDB."""
+    return _tmdb_get(
+        f"/tv/{series_id}/season/{season_number}",
+        {"language": language},
+    )
+
+
+def get_tv_episode(season_details: dict, episode_number: int):
+    """Return one numbered episode from a TMDB season payload."""
+    for episode in season_details.get("episodes", []):
+        if int(episode.get("episode_number", -1)) == episode_number:
+            return episode
+
+    raise ValueError("TMDB 中未找到指定季和集数。")
+
+
+def parse_tv_position(season_value: str, episode_value: str):
+    """Validate form season/episode values and return integers."""
+    try:
+        season_number = int(season_value)
+        episode_number = int(episode_value)
+    except (TypeError, ValueError) as error:
+        raise ValueError("Season 和 Episode 必须填写整数。") from error
+
+    if season_number < 0 or episode_number < 1:
+        raise ValueError("Season 必须大于等于 0，Episode 必须大于等于 1。")
+
+    return season_number, episode_number
 
 
 def build_image_url(file_path: str | None, size: str = "original"):
@@ -123,10 +180,11 @@ def build_image_url(file_path: str | None, size: str = "original"):
     return f"{tmdb_image_url}/{size}/{file_path.lstrip('/')}"
 
 
-def search_img(movie_id: int):
-    """Get Chinese posters/logos and landscape backdrops for a movie."""
+def search_media_images(media_type: str, media_id: int):
+    """Get Chinese posters/logos and landscape backdrops for media."""
+    endpoint = _media_endpoint(media_type)
     images = _tmdb_get(
-        f"/movie/{movie_id}/images",
+        f"/{endpoint}/{media_id}/images",
         {"include_image_language": "zh,en,null"},
     )
 
@@ -245,30 +303,59 @@ def _download_image(image_url: str, temporary_path: Path):
     raise last_error
 
 
-def download_movie_images(movie_id: int, image_links: dict, image_root: str | Path):
-    """Download the first five images per category and return database records."""
+def _image_suffix(image_url_or_path: str):
+    suffix = Path(urlparse(image_url_or_path).path).suffix.lower()
+    return suffix if suffix in IMAGE_SUFFIXES else ".jpg"
+
+
+def _download_to_target(image_url: str, target_path: Path):
+    temporary_path = target_path.with_suffix(target_path.suffix + ".part")
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        _download_image(image_url, temporary_path)
+        temporary_path.replace(target_path)
+    except Exception:
+        temporary_path.unlink(missing_ok=True)
+        raise
+
+
+def _collection_image_paths(
+    image_root: Path,
+    relative_directory: Path,
+    image_type: str,
+    position: int,
+    image_url: str,
+):
+    filename = f"{position}{_image_suffix(image_url)}"
+    relative_path = (
+        Path("images") / relative_directory / image_type / filename
+    )
+    target_path = image_root / relative_directory / image_type / filename
+    return relative_path, target_path
+
+
+def _download_image_collection(
+    image_links: dict,
+    image_root: str | Path,
+    relative_directory: str | Path,
+):
     image_root = Path(image_root)
+    relative_directory = Path(relative_directory)
     records = []
 
     for image_type in IMAGE_TYPES:
         for position, image_url in enumerate(image_links.get(image_type, [])[:5], 1):
-            suffix = Path(urlparse(image_url).path).suffix.lower()
-            if suffix not in IMAGE_SUFFIXES:
-                suffix = ".jpg"
-
-            relative_path = (
-                Path("images")
-                / str(movie_id)
-                / image_type
-                / f"{position}{suffix}"
+            relative_path, target_path = _collection_image_paths(
+                image_root,
+                relative_directory,
+                image_type,
+                position,
+                image_url,
             )
-            target_path = image_root / str(movie_id) / image_type / f"{position}{suffix}"
-            temporary_path = target_path.with_suffix(target_path.suffix + ".part")
-            target_path.parent.mkdir(parents=True, exist_ok=True)
 
             try:
-                _download_image(image_url, temporary_path)
-                temporary_path.replace(target_path)
+                _download_to_target(image_url, target_path)
             except (requests.RequestException, ValueError) as error:
                 logger.warning(
                     "Skipping TMDB %s image %s after %s attempts: %s",
@@ -292,6 +379,62 @@ def download_movie_images(movie_id: int, image_links: dict, image_root: str | Pa
         raise ValueError("TMDB 图片均下载失败。")
 
     return records
+
+
+def download_media_images(
+    media_type: str,
+    media_id: int,
+    image_links: dict,
+    image_root: str | Path,
+):
+    """Download the first five images per category for a movie or TV series."""
+    _media_endpoint(media_type)
+    relative_directory = (
+        Path("tv") / str(media_id)
+        if media_type == "tv"
+        else Path(str(media_id))
+    )
+    return _download_image_collection(
+        image_links,
+        image_root,
+        relative_directory,
+    )
+
+
+def download_tv_episode_still(
+    series_id: int,
+    season_number: int,
+    episode: dict,
+    image_root: str | Path,
+):
+    """Download the selected episode's still and return its local path record."""
+    still_path = episode.get("still_path")
+    if not still_path:
+        return None
+
+    episode_id = int(episode["id"])
+    image_url = build_image_url(still_path)
+    suffix = _image_suffix(still_path)
+
+    relative_path = (
+        Path("images")
+        / "tv"
+        / str(series_id)
+        / f"season-{season_number}"
+        / "episodes"
+        / f"{episode_id}{suffix}"
+    )
+    target_path = Path(image_root) / Path(*relative_path.parts[1:])
+
+    try:
+        _download_to_target(image_url, target_path)
+    except (requests.RequestException, ValueError) as error:
+        raise ValueError("TMDB 单集剧照下载失败。") from error
+
+    return {
+        "episode_id": episode_id,
+        "local_path": relative_path.as_posix(),
+    }
 
 
 def jsonp(data):

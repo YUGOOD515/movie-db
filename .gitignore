@@ -12,3 +12,7 @@ wheels/
 static/images/
 movie.db
 backups/
+
+# Local browser QA artifacts
+.playwright-cli/
+output/playwright/

@@ -1,100 +1,158 @@
 {% extends "layout.html" %}
 
-{% block title %}
-    · 资源关联
-{% endblock %}
+{% macro poster_card(item, show_rating=false) %}
+    <article class="poster-card h-100">
+        <a class="poster-link" href="{{ item.detail_url }}" aria-label="查看{{ item.name }}详情">
+            <span class="poster-frame">
+                {% if item.poster_path %}
+                    <img
+                        class="poster-image"
+                        src="{{ url_for('static', filename=item.poster_path) }}"
+                        alt="{{ item.name }}海报"
+                        width="500"
+                        height="750"
+                        loading="lazy"
+                        data-media-image
+                    >
+                {% endif %}
+                <span class="image-fallback{% if item.poster_path %} d-none{% endif %}" aria-hidden="true">
+                    <i class="bi bi-film"></i>
+                </span>
+            </span>
+            <span class="poster-copy">
+                <span class="poster-title">{{ item.name }}</span>
+                <span class="poster-meta">
+                    <span>{{ "电影" if item.media_type == "movie" else "剧集" }}</span>
+                    {% if item.year %}<span>{{ item.year }}</span>{% endif %}
+                    {% if show_rating %}
+                        <span class="rating"><i class="bi bi-star-fill" aria-hidden="true"></i>{{ "%.1f"|format(item.vote_average) }}</span>
+                    {% endif %}
+                </span>
+            </span>
+        </a>
+    </article>
+{% endmacro %}
+
+{% block title %} - 主页{% endblock %}
 
 {% block main %}
-    <div class="text-start">
-        <div class="mb-4">
-            <h1 class="h3 mb-1">电影资源关联</h1>
-            <p class="text-body-secondary mb-0">查询 TMDB 电影信息并关联本地 AList 文件。</p>
-        </div>
+    <section class="library-section library-section--first" aria-label="最近观看">
+        {% if continue_watching %}
+            <div class="row g-3 g-lg-4 media-rail media-rail--wide" tabindex="0" aria-label="最近观看列表">
+                {% for item in continue_watching %}
+                    <div class="col-12 col-lg-6 media-rail-item">
+                        <article class="continue-card">
+                            <div class="continue-visual">
+                                {% if item.backdrop_path %}
+                                    <img src="{{ url_for('static', filename=item.backdrop_path) }}" alt="{{ item.name }}横版海报" width="960" height="540" data-media-image>
+                                {% endif %}
+                                <span class="image-fallback{% if item.backdrop_path %} d-none{% endif %}" aria-hidden="true"><i class="bi bi-film"></i></span>
+                                <a class="continue-detail-link" href="{{ item.detail_url }}" aria-label="查看{{ item.name }}详情"></a>
+                                {% if item.play_url %}
+                                    <a class="play-button" href="{{ item.play_url }}" aria-label="继续播放{{ item.name }}"><i class="bi bi-play-fill" aria-hidden="true"></i></a>
+                                {% endif %}
+                                <div class="watch-progress" role="progressbar" aria-label="{{ item.name }}观看进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ item.progress }}">
+                                    <span style="width: {{ item.progress }}%"></span>
+                                </div>
+                            </div>
+                            <div class="continue-copy">
+                                <h3>{{ item.name }}</h3>
+                                <p>
+                                    {% if item.media_type == "tv" %}
+                                        第 {{ item.season_number }} 季 第 {{ item.episode_number }} 集{% if item.episode_name %}：{{ item.episode_name }}{% endif %}
+                                    {% else %}
+                                        {{ item.year or "上映年份未知" }}
+                                    {% endif %}
+                                </p>
+                            </div>
+                        </article>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="empty-state">
+                <span class="empty-state-icon" aria-hidden="true"><i class="bi bi-clock-history"></i></span>
+                <div>
+                    <h3>还没有观看记录</h3>
+                    <p>开始播放后，这里会显示最近观看的媒体和播放进度。</p>
+                </div>
+            </div>
+        {% endif %}
+    </section>
 
-        {% with messages = get_flashed_messages(with_categories=true) %}
-            {% for category, message in messages %}
-                <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
-                    {{ message }}
-                    <button class="btn-close" type="button" data-bs-dismiss="alert" aria-label="关闭"></button>
+    <section class="library-section" aria-labelledby="favorites-heading">
+        <div class="section-heading"><h2 id="favorites-heading">收藏夹</h2></div>
+        <div class="row g-3 g-lg-4 media-rail media-rail--folder" tabindex="0" aria-label="收藏夹列表">
+            {% for folder in favorite_folders %}
+                <div class="col-12 col-sm-6 col-lg-3 media-rail-item">
+                    <article class="folder-card">
+                        <div class="folder-visual" aria-hidden="true">
+                            <span class="folder-icon"><i class="bi bi-{{ folder.icon }}"></i></span>
+                        </div>
+                        <div class="folder-copy">
+                            <h3>{{ folder.name }}</h3>
+                            <p>{{ folder.count }} 部作品</p>
+                        </div>
+                    </article>
                 </div>
             {% endfor %}
-        {% endwith %}
+        </div>
+    </section>
 
-        <div class="card mb-5">
-            <div class="card-body">
-                <form action="{{ url_for('index') }}" method="post">
-                    <div class="row g-3 align-items-end">
-                        <div class="col-md-4">
-                            <label class="form-label" for="movie-name">电影名称</label>
-                            <input
-                                class="form-control"
-                                id="movie-name"
-                                name="movie_name"
-                                type="text"
-                                placeholder="例如：星际穿越"
-                                required
-                            >
-                        </div>
-                        <div class="col-md-6">
-                            <label class="form-label" for="alist-url">AList 视频直链</label>
-                            <input
-                                class="form-control"
-                                id="alist-url"
-                                name="alist_url"
-                                type="url"
-                                placeholder="{{ alist_origin }}/d/...?sign=..."
-                                required
-                            >
-                        </div>
-                        <div class="col-md-2 d-grid">
-                            <button class="btn btn-primary" type="submit">查询并关联</button>
-                        </div>
-                    </div>
-                </form>
+    <section class="library-section" aria-labelledby="recent-heading">
+        <div class="section-heading"><h2 id="recent-heading">最近添加</h2></div>
+        {% if recent_added %}
+            <div class="row g-3 g-lg-4 media-rail media-rail--poster" tabindex="0" aria-label="最近添加列表">
+                {% for item in recent_added %}<div class="col-6 col-sm-4 col-lg-2 media-rail-item">{{ poster_card(item) }}</div>{% endfor %}
             </div>
-        </div>
+        {% else %}
+            <div class="empty-state compact"><p>媒体库暂时为空，可先关联电影或剧集。</p></div>
+        {% endif %}
+    </section>
 
-        <div class="d-flex align-items-center justify-content-between mb-3">
-            <h2 class="h5 mb-0">已有对应关系</h2>
-            <span class="badge text-bg-secondary">{{ movie_mappings|length }}</span>
-        </div>
+    <section class="library-section" aria-labelledby="genres-heading">
+        <div class="section-heading"><h2 id="genres-heading">电影类别</h2></div>
+        {% if genre_features %}
+            <div class="row g-3 g-lg-4 media-rail media-rail--wide" tabindex="0" aria-label="电影类别列表">
+                {% for genre in genre_features %}
+                    <div class="col-12 col-lg-6 media-rail-item">
+                        <a class="genre-card" href="{{ genre.detail_url }}" aria-label="查看{{ genre.genre_name }}类别代表电影{{ genre.media_name }}">
+                            {% if genre.backdrop_path %}
+                                <img src="{{ url_for('static', filename=genre.backdrop_path) }}" alt="{{ genre.media_name }}横版海报" width="960" height="420" loading="lazy" data-media-image>
+                            {% endif %}
+                            <span class="image-fallback{% if genre.backdrop_path %} d-none{% endif %}" aria-hidden="true"><i class="bi bi-film"></i></span>
+                            <span class="genre-overlay"></span>
+                            <span class="genre-name">{{ genre.genre_name }}</span>
+                        </a>
+                    </div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="empty-state compact"><p>录入包含类型信息的电影后，这里会自动整理类别。</p></div>
+        {% endif %}
+    </section>
 
-        <div class="table-responsive">
-            <table class="table table-striped table-hover align-middle">
-                <thead>
-                    <tr>
-                        <th scope="col">电影</th>
-                        <th scope="col">上映日期</th>
-                        <th scope="col">TMDB ID</th>
-                        <th scope="col">AList 文件</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for mapping in movie_mappings %}
-                        <tr>
-                            <td>
-                                <div class="fw-semibold">{{ mapping.title }}</div>
-                                {% if mapping.original_title != mapping.title %}
-                                    <div class="small text-body-secondary">{{ mapping.original_title }}</div>
-                                {% endif %}
-                            </td>
-                            <td class="text-nowrap">{{ mapping.release_date or "—" }}</td>
-                            <td>{{ mapping.movie_id }}</td>
-                            <td class="text-break">
-                                <a href="{{ mapping.alist_url }}" target="_blank" rel="noopener noreferrer">
-                                    查看
-                                </a>
-                            </td>
-                        </tr>
-                    {% else %}
-                        <tr>
-                            <td class="py-4 text-center text-body-secondary" colspan="4">
-                                暂无电影与 AList 文件的对应关系。
-                            </td>
-                        </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </div>
+    <section class="library-section" aria-labelledby="unwatched-heading">
+        <div class="section-heading"><h2 id="unwatched-heading">未观看</h2></div>
+        {% if unwatched %}
+            <div class="row g-3 g-lg-4 media-rail media-rail--poster" tabindex="0" aria-label="未观看列表">
+                {% for item in unwatched %}<div class="col-6 col-sm-4 col-lg-2 media-rail-item">{{ poster_card(item) }}</div>{% endfor %}
+            </div>
+        {% else %}
+            <div class="empty-state compact"><p>目前没有未观看的媒体。</p></div>
+        {% endif %}
+    </section>
+
+    <section class="library-section" aria-labelledby="rated-heading">
+        <div class="section-heading"><h2 id="rated-heading">最受好评的电影</h2></div>
+        {% if top_rated_movies %}
+            <div class="row g-3 g-lg-4 media-rail media-rail--poster" tabindex="0" aria-label="最受好评的电影列表">
+                {% for item in top_rated_movies %}<div class="col-6 col-sm-4 col-lg-2 media-rail-item">{{ poster_card(item, true) }}</div>{% endfor %}
+            </div>
+        {% else %}
+            <div class="empty-state compact"><p>录入电影后，这里会按 TMDB 评分排序。</p></div>
+        {% endif %}
+    </section>
 {% endblock %}
+
+{% block scripts %}<script src="{{ url_for('static', filename='home.js') }}"></script>{% endblock %}

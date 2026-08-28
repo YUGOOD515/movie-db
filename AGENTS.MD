@@ -4,25 +4,27 @@
 
 当前项目是一个本地影视资源管理网页，遵循 MVC 架构原则，即Model、Connector、View原则。
 
-当前完成了基础的 TMDB API 对接，配置好了相关API等，经测试也可以接入 AList，下一步是继续完善 @helpers.py，创建本地数据库，制作前端。
+当前已完成电影与剧集单集的 TMDB、AList 对接，可保存媒体详情、季与单集数据、AList 文件对应关系，并将中文海报、中文 Logo、背景图及单集剧照下载到本地。电影和剧集的共用查询、图片及数据库写入流程已经合并整理。
 
 ## Model
 
-SQLite数据库存储，@helpers.py 用于对接 TMDB API、AList
+使用 SQLite 存储电影、剧集、季、单集、图片和 AList 来源关系，数据库操作集中在 @models.py；@helpers.py 负责对接 TMDB、AList 及图片下载。
 
 SQL 代码书写准则：https://www.sqlstyle.guide/zh/
 
 ## Connector
 
-采用 flask +jinja 结构
+采用 Flask + Jinja 结构，@app.py 负责请求处理与业务流程编排，不直接书写外部请求或 SQL。
 
 ## View
 
-不要花哨、绚丽，使用 html、css、JavaScript 完成即可，适当引入第三方库用于加快进度
+不要花哨、绚丽，使用 HTML、CSS、JavaScript 完成即可，适当引入第三方库用于加快进度。当前已有精简的 Bootstrap 媒体关联页面。
 
 ## 进度存储区
 
-这里用于存放进度
+当前阶段：电影和剧集录入、图片本地化、数据库关系存储及基础关联页面已经完成。
+
+下一阶段：整理现有影视数据并规范入库，在此基础上制作媒体资源浏览前端。
 
 ## Tips
 
