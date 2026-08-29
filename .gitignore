@@ -16,3 +16,5 @@ backups/
 # Local browser QA artifacts
 .playwright-cli/
 output/playwright/
+.flask_session/
+flask_session/

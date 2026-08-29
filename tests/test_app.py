@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from contextlib import closing
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import requests
@@ -36,6 +37,7 @@ class ImportWorkflowTest(unittest.TestCase):
     def test_home_contains_library_sections_and_media_route_contains_import_page(self):
         home_response = self.client.get("/")
         media_response = self.client.get("/media")
+        media_associate_response = self.client.get("/media?tab=associate")
         recent_added_response = self.client.get("/recent-added")
         unwatched_response = self.client.get("/unwatched")
         favorites_response = self.client.get("/favorites")
@@ -76,6 +78,9 @@ class ImportWorkflowTest(unittest.TestCase):
         self.assertEqual(media_response.status_code, 200)
         self.assertIn("媒体资源管理".encode(), media_response.data)
         self.assertIn('action="/media"'.encode(), media_response.data)
+        self.assertEqual(media_associate_response.status_code, 200)
+        self.assertIn(b"media-primary-action", media_associate_response.data)
+        self.assertNotIn(b"btn-primary", media_associate_response.data)
         self.assertEqual(recent_added_response.status_code, 200)
         self.assertIn("最近添加".encode(), recent_added_response.data)
         self.assertIn("媒体库暂时为空".encode(), recent_added_response.data)
@@ -87,6 +92,16 @@ class ImportWorkflowTest(unittest.TestCase):
         self.assertEqual(genre_response.status_code, 200)
         self.assertIn("制作国家".encode(), genre_response.data)
         self.assertIn("筛选结果".encode(), genre_response.data)
+        self.assertGreaterEqual(
+            genre_response.data.count(
+                b"btn btn-sm btn-outline-secondary dropdown-toggle genre-dropdown-toggle"
+            ),
+            3,
+        )
+        self.assertIn(
+            b'class="btn btn-sm genre-pill-btn" for="genre-all">',
+            genre_response.data,
+        )
         self.assertEqual(top_rated_response.status_code, 200)
         self.assertIn("最受好评的电影".encode(), top_rated_response.data)
 
@@ -377,6 +392,7 @@ class ImportWorkflowTest(unittest.TestCase):
             ).exists()
         )
 
+    @patch("app.probe_alist_source")
     @patch("helpers.download_media_images")
     @patch("helpers.validate_alist_video_url")
     @patch("helpers.search_media_images")
@@ -387,7 +403,23 @@ class ImportWorkflowTest(unittest.TestCase):
         mocked_search_media_images,
         mocked_validate_alist_video_url,
         mocked_download_media_images,
+        mocked_probe_alist_source,
     ):
+        mocked_probe_alist_source.return_value = {
+            "media_duration_ms": 7_200_000,
+            "file_size_bytes": 4_294_967_296,
+            "bit_rate": 4_772_186,
+            "container_format": "matroska,webm",
+            "video_codec": "hevc",
+            "video_width": 3840,
+            "video_height": 2160,
+            "video_frame_rate": 23.976,
+            "video_pixel_format": "yuv420p10le",
+            "video_dynamic_range": "HDR10 / PQ",
+            "audio_codec": "eac3",
+            "audio_channels": 6,
+            "audio_channel_layout": "5.1(side)",
+        }
         mocked_find_media.return_value = {
             "adult": False,
             "backdrop_path": "/ignored.jpg",
@@ -444,7 +476,37 @@ class ImportWorkflowTest(unittest.TestCase):
                 "image_position": 1,
                 "image_url": "https://image.tmdb.org/poster.jpg",
                 "local_path": "images/157336/posters/1.jpg",
-            }
+            },
+            {
+                "image_type": "posters",
+                "image_position": 2,
+                "image_url": "https://image.tmdb.org/poster-2.jpg",
+                "local_path": "images/157336/posters/2.jpg",
+            },
+            {
+                "image_type": "backdrops",
+                "image_position": 1,
+                "image_url": "https://image.tmdb.org/backdrop.jpg",
+                "local_path": "images/157336/backdrops/1.jpg",
+            },
+            {
+                "image_type": "backdrops",
+                "image_position": 2,
+                "image_url": "https://image.tmdb.org/backdrop-2.jpg",
+                "local_path": "images/157336/backdrops/2.jpg",
+            },
+            {
+                "image_type": "logos",
+                "image_position": 1,
+                "image_url": "https://image.tmdb.org/logo.png",
+                "local_path": "images/157336/logos/1.png",
+            },
+            {
+                "image_type": "logos",
+                "image_position": 2,
+                "image_url": "https://image.tmdb.org/logo-2.png",
+                "local_path": "images/157336/logos/2.png",
+            },
         ]
 
         response = self.client.post(
@@ -487,7 +549,19 @@ class ImportWorkflowTest(unittest.TestCase):
                 database.execute("SELECT alist_path FROM movie_source").fetchone()[0],
                 "/Quark/测试电影.mkv",
             )
-            self.assertEqual(database.execute("SELECT COUNT(*) FROM movie_image").fetchone()[0], 1)
+            source_metadata = database.execute(
+                """
+                SELECT media_duration_ms,
+                       video_codec,
+                       video_width,
+                       video_height,
+                       probed_at
+                  FROM movie_source
+                """
+            ).fetchone()
+            self.assertEqual(source_metadata[:4], (7_200_000, "hevc", 3840, 2160))
+            self.assertIsNotNone(source_metadata[4])
+            self.assertEqual(database.execute("SELECT COUNT(*) FROM movie_image").fetchone()[0], 6)
             self.assertEqual(database.execute("SELECT COUNT(*) FROM movie_genre").fetchone()[0], 1)
             self.assertEqual(
                 database.execute("SELECT COUNT(*) FROM production_company").fetchone()[0],
@@ -498,7 +572,14 @@ class ImportWorkflowTest(unittest.TestCase):
                 1,
             )
             self.assertEqual(
-                database.execute("SELECT local_path FROM movie_image").fetchone()[0],
+                database.execute(
+                    """
+                    SELECT local_path
+                      FROM movie_image
+                     WHERE image_type = 'posters'
+                       AND image_position = 1
+                    """
+                ).fetchone()[0],
                 "images/157336/posters/1.jpg",
             )
 
@@ -531,6 +612,8 @@ class ImportWorkflowTest(unittest.TestCase):
         detail_response = self.client.get("/movies/157336")
         self.assertEqual(home_response.status_code, 200)
         self.assertIn("测试电影".encode(), home_response.data)
+        self.assertIn(b"play-button btn media-primary-action", home_response.data)
+        self.assertNotIn(b"play-button btn btn-dark", home_response.data)
         self.assertIn("最近添加".encode(), home_response.data)
         self.assertIn("media-rail--span-6".encode(), home_response.data)
         self.assertIn("media-rail--span-2".encode(), home_response.data)
@@ -549,18 +632,28 @@ class ImportWorkflowTest(unittest.TestCase):
         self.assertEqual(detail_response.status_code, 200)
         self.assertIn("测试简介".encode(), detail_response.data)
         self.assertIn("继续播放".encode(), detail_response.data)
+        self.assertIn(b"media-primary-action detail-play", detail_response.data)
+        self.assertNotIn(b"btn-primary detail-play", detail_response.data)
         self.assertIn(b'href="/play/movie/1"', detail_response.data)
         self.assertNotIn(b'href="http://127.0.0.1:5244', detail_response.data)
         self.assertIn(b"site-sidebar", detail_response.data)
         self.assertIn(b"detail-main", detail_response.data)
         self.assertIn("年龄分级".encode(), detail_response.data)
         self.assertIn("未提供".encode(), detail_response.data)
-        self.assertIn("媒体信息".encode(), detail_response.data)
+        self.assertIn("作品信息".encode(), detail_response.data)
+        self.assertIn("当前播放文件".encode(), detail_response.data)
         self.assertIn("Test Movie".encode(), detail_response.data)
         self.assertIn("剧情".encode(), detail_response.data)
         self.assertIn("美国".encode(), detail_response.data)
         self.assertIn("英语".encode(), detail_response.data)
         self.assertIn("测试公司".encode(), detail_response.data)
+        self.assertIn("3840 × 2160".encode(), detail_response.data)
+        self.assertIn(b">4K<", detail_response.data)
+        self.assertIn(b"HEVC", detail_response.data)
+        self.assertIn(b"HDR10 / PQ", detail_response.data)
+        self.assertIn("播放版本".encode(), detail_response.data)
+        self.assertIn(b"detail-external-links", detail_response.data)
+        self.assertNotIn(b"data-episode-browser", detail_response.data)
         self.assertIn('action="/favorites/movie/157336/toggle"'.encode(), detail_response.data)
         self.assertIn(">收藏<".encode(), detail_response.data)
 
@@ -619,6 +712,82 @@ class ImportWorkflowTest(unittest.TestCase):
                 (1_200_000, 7_200_000),
             )
 
+        management_response = self.client.get("/media?tab=overview")
+        self.assertEqual(management_response.status_code, 200)
+        self.assertIn("横版海报".encode(), management_response.data)
+        self.assertIn("竖版海报".encode(), management_response.data)
+        self.assertIn(b"data-artwork-confirm", management_response.data)
+        self.assertNotIn("Logo 叠加预览".encode(), management_response.data)
+        self.assertIn(b"images/157336/posters/1.jpg", management_response.data)
+        self.assertIn(b"images/157336/posters/2.jpg", management_response.data)
+        self.assertIn(b"overview-media-list", management_response.data)
+        self.assertIn(b"artwork-backdrop-logo position-absolute", management_response.data)
+        self.assertGreaterEqual(
+            management_response.data.count(b"artwork-preview"),
+            2,
+        )
+        self.assertIn(b"overview-artwork-col--backdrop", management_response.data)
+        self.assertIn(b"overview-artwork-col--poster", management_response.data)
+
+        selected_paths = {
+            "backdrops": "images/157336/backdrops/2.jpg",
+            "posters": "images/157336/posters/2.jpg",
+            "logos": "images/157336/logos/2.png",
+        }
+        for image_type in selected_paths:
+            selection_response = self.client.post(
+                "/media/movie/157336/artwork",
+                data={
+                    "image_type": image_type,
+                    "image_position": "2",
+                    "type": "movie",
+                },
+                follow_redirects=True,
+            )
+            self.assertEqual(selection_response.status_code, 200)
+            self.assertIn("已更新".encode(), selection_response.data)
+
+        with closing(sqlite3.connect(self.database_path)) as database:
+            primary_images = dict(
+                database.execute(
+                    """
+                    SELECT image_type,
+                           local_path
+                      FROM movie_image
+                     WHERE movie_id = 157336
+                       AND image_position = 1
+                    """
+                ).fetchall()
+            )
+            self.assertEqual(primary_images, selected_paths)
+            self.assertEqual(database.execute("PRAGMA foreign_key_check").fetchall(), [])
+
+        selected_detail = movie_app.models.get_media_detail(
+            self.database_path,
+            "movie",
+            157336,
+        )
+        self.assertEqual(selected_detail["backdrop_path"], selected_paths["backdrops"])
+        self.assertEqual(selected_detail["poster_path"], selected_paths["posters"])
+        self.assertEqual(selected_detail["logo_path"], selected_paths["logos"])
+
+        movie_app.models.save_movie(
+            self.database_path,
+            mocked_find_media.return_value,
+            mocked_download_media_images.return_value,
+            "/Quark/测试电影.mkv",
+            mocked_probe_alist_source.return_value,
+        )
+        refreshed_detail = movie_app.models.get_media_detail(
+            self.database_path,
+            "movie",
+            157336,
+        )
+        self.assertEqual(refreshed_detail["backdrop_path"], selected_paths["backdrops"])
+        self.assertEqual(refreshed_detail["poster_path"], selected_paths["posters"])
+        self.assertEqual(refreshed_detail["logo_path"], selected_paths["logos"])
+
+    @patch("app.probe_alist_source")
     @patch("helpers.download_tv_episode_still")
     @patch("helpers.download_media_images")
     @patch("helpers.search_media_images")
@@ -633,7 +802,23 @@ class ImportWorkflowTest(unittest.TestCase):
         mocked_search_media_images,
         mocked_download_media_images,
         mocked_download_tv_episode_still,
+        mocked_probe_alist_source,
     ):
+        mocked_probe_alist_source.return_value = {
+            "media_duration_ms": 2_880_000,
+            "file_size_bytes": 2_147_483_648,
+            "bit_rate": 5_965_232,
+            "container_format": "matroska,webm",
+            "video_codec": "h264",
+            "video_width": 1920,
+            "video_height": 1080,
+            "video_frame_rate": 24.0,
+            "video_pixel_format": "yuv420p",
+            "video_dynamic_range": None,
+            "audio_codec": "aac",
+            "audio_channels": 2,
+            "audio_channel_layout": "stereo",
+        }
         episodes = [
             {
                 "air_date": "2008-01-20",
@@ -822,6 +1007,18 @@ class ImportWorkflowTest(unittest.TestCase):
             ).fetchone()
             self.assertEqual(source_episode[0], 62086)
             self.assertEqual(source_episode[1], "/Quark/测试剧集.S01E02.mkv")
+            source_metadata = database.execute(
+                """
+                SELECT media_duration_ms,
+                       video_codec,
+                       video_width,
+                       video_height,
+                       probed_at
+                  FROM tv_episode_source
+                """
+            ).fetchone()
+            self.assertEqual(source_metadata[:4], (2_880_000, "h264", 1920, 1080))
+            self.assertIsNotNone(source_metadata[4])
             self.assertEqual(
                 database.execute(
                     "SELECT last_episode_id FROM tv_series WHERE series_id = 1396"
@@ -878,20 +1075,51 @@ class ImportWorkflowTest(unittest.TestCase):
             self.client.get("/favorites?folder_id=2").data,
         )
         self.assertEqual(detail_response.status_code, 200)
-        self.assertIn("选集".encode(), detail_response.data)
-        self.assertIn("S01E02".encode(), detail_response.data)
-        self.assertNotIn("第二集简介".encode(), detail_response.data)
+        self.assertNotIn(">选集<".encode(), detail_response.data)
+        self.assertIn("S1 · E2".encode(), detail_response.data)
+        self.assertIn("第二集简介".encode(), detail_response.data)
         self.assertIn("48 分钟".encode(), detail_response.data)
         self.assertIn("2008-01-27".encode(), detail_response.data)
         self.assertIn(b"episode-card", detail_response.data)
-        self.assertIn(b"season-tabs", detail_response.data)
-        self.assertNotIn(b"season-tab-overview", detail_response.data)
-        self.assertIn(b"episode-rail", detail_response.data)
-        self.assertIn(b"episode-rail-track container-xl", detail_response.data)
+        self.assertNotIn(b"episode-play", detail_response.data)
+        self.assertIn(b'data-episode-hero="62086"', detail_response.data)
+        self.assertIn(b'data-episode-hero-control="62086"', detail_response.data)
+        self.assertIn(b'data-episode-target="62086"', detail_response.data)
+        self.assertNotIn(b"data-episode-detail", detail_response.data)
+        self.assertNotIn(b"episode-feature", detail_response.data)
+        self.assertNotIn(b"season-tabs", detail_response.data)
+        self.assertNotIn(b"episode-grid", detail_response.data)
+        self.assertIn(b"episode-rail media-rail", detail_response.data)
+        self.assertIn(
+            b"episode-rail-track media-rail-track container-xl",
+            detail_response.data,
+        )
+        self.assertNotIn("选择季".encode(), detail_response.data)
         self.assertIn("第 1 季".encode(), detail_response.data)
+        self.assertIn("2008".encode(), detail_response.data)
+        self.assertIn("2 集".encode(), detail_response.data)
+        self.assertIn("2.00 GiB".encode(), detail_response.data)
+        self.assertIn("1080P".encode(), detail_response.data)
+        self.assertIn(b"AAC", detail_response.data)
+        self.assertIn("当前播放文件".encode(), detail_response.data)
+        self.assertIn(b"detail-action-row", detail_response.data)
+        self.assertIn(b"detail-play-slot", detail_response.data)
+        self.assertIn(b"detail-favorite-form", detail_response.data)
+        self.assertIn(b"detail-favorite", detail_response.data)
+        self.assertIn(
+            b"season-summary-panel d-flex flex-wrap align-items-center gap-3",
+            detail_response.data,
+        )
+        self.assertNotIn(b"detail-hero-rating-row", detail_response.data)
+        self.assertLess(
+            detail_response.data.find(b'data-episode-hero-control="62086"'),
+            detail_response.data.find(b"detail-favorite-form"),
+        )
         self.assertIn("测试创作者".encode(), detail_response.data)
         self.assertIn("AMC".encode(), detail_response.data)
-        self.assertIn("已观看 10%".encode(), detail_response.data)
+        self.assertIn("作品信息".encode(), detail_response.data)
+        self.assertIn("当前播放文件".encode(), detail_response.data)
+        self.assertNotIn("外部链接".encode(), detail_response.data)
         self.assertIn(b'href="/play/tv/1"', detail_response.data)
         self.assertNotIn(b'href="http://127.0.0.1:5244', detail_response.data)
         self.assertIn(b"images/tv/1396/season-1/episodes/62086.jpg", detail_response.data)
@@ -914,16 +1142,19 @@ class ImportWorkflowTest(unittest.TestCase):
             'aria-label="继续播放 05:00，选择版本"'.encode(),
             version_response.data,
         )
-        self.assertIn(
-            'aria-label="播放 S1E2，选择版本"'.encode(),
-            version_response.data,
+        self.assertGreaterEqual(
+            version_response.data.count(
+                'aria-label="继续播放 05:00，选择版本"'.encode()
+            ),
+            1,
         )
         self.assertGreaterEqual(
             version_response.data.count(b'data-bs-toggle="dropdown"'),
-            2,
+            1,
         )
         self.assertIn(b'href="/play/tv/1"', version_response.data)
         self.assertIn(b'href="/play/tv/2"', version_response.data)
+        self.assertIn(b'data-episode-facts="62086"', version_response.data)
 
         with (
             patch(
@@ -955,6 +1186,204 @@ class ImportWorkflowTest(unittest.TestCase):
                 ).fetchone(),
                 (600_000, 2_880_000),
             )
+            with database:
+                database.execute(
+                    """
+                    INSERT INTO tv_series_image (
+                        series_id,
+                        image_type,
+                        image_position,
+                        image_url,
+                        local_path
+                    )
+                         VALUES (?, 'posters', 2, ?, ?)
+                    """,
+                    (
+                        1396,
+                        "https://image.tmdb.org/tv-poster-2.jpg",
+                        "images/tv/1396/posters/2.jpg",
+                    ),
+                )
+
+        tv_artwork_response = self.client.post(
+            "/media/tv/1396/artwork",
+            data={"image_type": "posters", "image_position": "2"},
+            follow_redirects=True,
+        )
+        self.assertEqual(tv_artwork_response.status_code, 200)
+        with closing(sqlite3.connect(self.database_path)) as database:
+            self.assertEqual(
+                database.execute(
+                    """
+                    SELECT local_path
+                      FROM tv_series_image
+                     WHERE series_id = 1396
+                       AND image_type = 'posters'
+                       AND image_position = 1
+                    """
+                ).fetchone()[0],
+                "images/tv/1396/posters/2.jpg",
+            )
+
+    @patch("helpers.subprocess.run")
+    def test_probe_video_parses_real_media_parameters(self, mocked_run):
+        mocked_run.return_value = SimpleNamespace(
+            returncode=0,
+            stderr="",
+            stdout=json.dumps(
+                {
+                    "format": {
+                        "format_name": "matroska,webm",
+                        "duration": "3723.456",
+                        "size": "4294967296",
+                        "bit_rate": "9223372",
+                    },
+                    "streams": [
+                        {
+                            "codec_type": "video",
+                            "codec_name": "hevc",
+                            "codec_tag_string": "hvc1",
+                            "width": 3840,
+                            "height": 2160,
+                            "avg_frame_rate": "24000/1001",
+                            "pix_fmt": "yuv420p10le",
+                            "color_transfer": "smpte2084",
+                        },
+                        {
+                            "codec_type": "audio",
+                            "codec_name": "eac3",
+                            "channels": 6,
+                            "channel_layout": "5.1(side)",
+                        },
+                    ],
+                }
+            ),
+        )
+
+        metadata = movie_app.helpers.probe_video(
+            "https://alist.example/raw/movie.mkv"
+        )
+
+        self.assertEqual(
+            metadata,
+            {
+                "media_duration_ms": 3_723_456,
+                "file_size_bytes": 4_294_967_296,
+                "bit_rate": 9_223_372,
+                "container_format": "matroska,webm",
+                "video_codec": "hevc",
+                "video_width": 3840,
+                "video_height": 2160,
+                "video_frame_rate": 23.976,
+                "video_pixel_format": "yuv420p10le",
+                "video_dynamic_range": "HDR10 / PQ",
+                "audio_codec": "eac3",
+                "audio_channels": 6,
+                "audio_channel_layout": "5.1(side)",
+            },
+        )
+        command = mocked_run.call_args.args[0]
+        self.assertEqual(command[0], movie_app.helpers.FFPROBE_PATH)
+        self.assertEqual(command[-1], "https://alist.example/raw/movie.mkv")
+
+    def test_detail_prefers_next_episode_and_keeps_all_populated_seasons(self):
+        season_one_episode_one = {
+            "source_id": 1,
+            "season_number": 1,
+            "episode_number": 1,
+            "episode_id": 101,
+            "alist_path": "/series.S01E01.mkv",
+            "position_ms": 2_700_000,
+            "updated_at": "2026-08-28 10:00:00",
+            "is_completed": True,
+            "resume_position_ms": 0,
+        }
+        alternate_version = {
+            "source_id": 2,
+            "season_number": 1,
+            "episode_number": 1,
+            "episode_id": 101,
+            "alist_path": "/series.S01E01.1080p.mkv",
+            "position_ms": 0,
+            "updated_at": None,
+            "is_completed": False,
+            "resume_position_ms": 0,
+        }
+        season_one_episode_two = {
+            "source_id": 3,
+            "season_number": 1,
+            "episode_number": 2,
+            "episode_id": 102,
+            "alist_path": "/series.S01E02.mkv",
+            "position_ms": 0,
+            "updated_at": None,
+            "is_completed": False,
+            "resume_position_ms": 0,
+        }
+        season_two_episode_one = {
+            "source_id": 4,
+            "season_number": 2,
+            "episode_number": 1,
+            "episode_id": 201,
+            "alist_path": "/series.S02E01.mkv",
+            "position_ms": 0,
+            "updated_at": None,
+            "is_completed": False,
+            "resume_position_ms": 0,
+        }
+        detail = {
+            "media_type": "tv",
+            "media_id": 1,
+            "sources": [
+                season_one_episode_one,
+                alternate_version,
+                season_one_episode_two,
+                season_two_episode_one,
+            ],
+            "seasons": [
+                {
+                    "season_number": 0,
+                    "episodes": [],
+                },
+                {
+                    "season_number": 1,
+                    "episodes": [
+                        {
+                            "episode_id": 101,
+                            "sources": [
+                                season_one_episode_one,
+                                alternate_version,
+                            ],
+                        },
+                        {
+                            "episode_id": 102,
+                            "sources": [season_one_episode_two],
+                        },
+                    ],
+                },
+                {
+                    "season_number": 2,
+                    "episodes": [
+                        {
+                            "episode_id": 201,
+                            "sources": [season_two_episode_one],
+                        }
+                    ],
+                },
+            ],
+        }
+
+        with movie_app.app.test_request_context():
+            movie_app._prepare_detail_sources(detail, "tv")
+            movie_app._prepare_detail_episodes(detail)
+
+        self.assertEqual(detail["featured_source"]["source_id"], 3)
+        self.assertEqual(detail["featured_episode"]["episode_id"], 102)
+        self.assertEqual(detail["current_season"]["season_number"], 1)
+        self.assertEqual(
+            [season["season_number"] for season in detail["seasons"]],
+            [1, 2],
+        )
 
 
 if __name__ == "__main__":

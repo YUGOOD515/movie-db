@@ -28,6 +28,159 @@ def extract_resolution(path_or_name: str | None) -> str:
     return "1080P"
 
 
+def is_dolby_vision(path_or_name: str | None) -> bool:
+    if not path_or_name:
+        return False
+    text = str(path_or_name)
+    if "杜比视界" in text or "DOLBY VISION" in text.upper() or "DOLBYVISION" in text.upper():
+        return True
+    pattern = r"(?i)(?:^|[\b\._\-\[\]\(\)])(?:DV|DOVI|DOLBY[\.\s_\-]?VISION)(?:$|[\b\._\-\[\]\(\)])"
+    return bool(re.search(pattern, text))
+
+
+def _format_duration_ms(duration_ms: int | None):
+    if not duration_ms:
+        return ""
+    total_seconds = max(round(duration_ms / 1000), 0)
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+
+def _format_file_size(file_size_bytes: int | None):
+    if not file_size_bytes:
+        return ""
+    size = float(file_size_bytes)
+    for unit in ("B", "KiB", "MiB", "GiB", "TiB"):
+        if size < 1024 or unit == "TiB":
+            precision = 0 if unit == "B" else 2
+            return f"{size:.{precision}f} {unit}"
+        size /= 1024
+    return ""
+
+
+def _format_bit_rate(bit_rate: int | None):
+    if not bit_rate:
+        return ""
+    if bit_rate >= 1_000_000:
+        return f"{bit_rate / 1_000_000:.2f} Mbps"
+    return f"{bit_rate / 1000:.0f} kbps"
+
+
+def _format_resolution_label(
+    width: int | None,
+    height: int | None,
+    path_or_name: str | None,
+):
+    """Return a concise consumer-facing resolution tier."""
+    width = int(width or 0)
+    height = int(height or 0)
+    if width >= 3840 or height >= 2160:
+        return "4K"
+    if width >= 2560 or height >= 1440:
+        return "2K"
+    if width >= 1920 or height >= 1080:
+        return "1080P"
+    if width >= 1280 or height >= 720:
+        return "720P"
+
+    fallback = extract_resolution(path_or_name)
+    return {
+        "2160P": "4K",
+        "1440P": "2K",
+    }.get(fallback, fallback)
+
+
+def _build_media_facts(source: dict | None):
+    if not source:
+        return []
+
+    facts = []
+    if source.get("source_label"):
+        facts.append({"label": "播放版本", "value": source["source_label"]})
+    container = str(source.get("container_format") or "").replace(",", " / ")
+    if container:
+        facts.append({"label": "容器", "value": container.upper()})
+
+    video_parts = []
+    if source.get("video_codec"):
+        video_parts.append(str(source["video_codec"]).upper())
+    if source.get("video_width") and source.get("video_height"):
+        video_parts.append(
+            f'{source["video_width"]} × {source["video_height"]}'
+        )
+    if source.get("video_frame_rate"):
+        video_parts.append(f'{source["video_frame_rate"]:g} fps')
+    if source.get("video_pixel_format"):
+        video_parts.append(source["video_pixel_format"])
+    if source.get("video_dynamic_range"):
+        video_parts.append(source["video_dynamic_range"])
+    if video_parts:
+        facts.append({"label": "视频", "value": " · ".join(video_parts)})
+
+    audio_parts = []
+    if source.get("audio_codec"):
+        audio_parts.append(str(source["audio_codec"]).upper())
+    if source.get("audio_channel_layout"):
+        audio_parts.append(source["audio_channel_layout"])
+    if source.get("audio_channels"):
+        audio_parts.append(f'{source["audio_channels"]} 声道')
+    if audio_parts:
+        facts.append({"label": "音频", "value": " · ".join(audio_parts)})
+
+    technical_parts = [
+        value
+        for value in (
+            _format_duration_ms(source.get("media_duration_ms")),
+            _format_file_size(source.get("file_size_bytes")),
+            _format_bit_rate(source.get("bit_rate")),
+        )
+        if value
+    ]
+    if technical_parts:
+        facts.append({"label": "文件参数", "value": " · ".join(technical_parts)})
+
+    return facts
+
+
+def _build_source_summary(source: dict | None):
+    """Return compact source labels suitable for a detail Hero."""
+    if not source:
+        return {
+            "duration_label": "",
+            "dynamic_range_label": "",
+            "file_size_label": "",
+            "frame_rate_label": "",
+            "is_dolby_vision": False,
+            "resolution_label": "",
+            "video_codec_label": "",
+        }
+
+    source_path = source.get("alist_path") or ""
+    frame_rate = source.get("video_frame_rate")
+    dynamic_range = source.get("video_dynamic_range") or ""
+    return {
+        "duration_label": _format_duration_ms(source.get("media_duration_ms")),
+        "dynamic_range_label": dynamic_range,
+        "file_size_label": _format_file_size(source.get("file_size_bytes")),
+        "frame_rate_label": (
+            f"{int(float(frame_rate) + 0.5)}帧"
+            if frame_rate
+            else ""
+        ),
+        "is_dolby_vision": (
+            is_dolby_vision(source_path)
+            or is_dolby_vision(dynamic_range)
+        ),
+        "resolution_label": _format_resolution_label(
+            source.get("video_width"),
+            source.get("video_height"),
+            source_path,
+        ),
+        "video_codec_label": str(source.get("video_codec") or "").upper(),
+    }
+
+
 BASE_DIR = Path(__file__).resolve().parent
 DATABASE_PATH = BASE_DIR / "movie.db"
 IMAGE_ROOT = BASE_DIR / "static" / "images"
@@ -57,6 +210,7 @@ app.config["SECRET_KEY"] = os.environ.get(
 )
 app.config["SESSION_PERMANENT"] = False
 app.config["SESSION_TYPE"] = "filesystem"
+app.config["SESSION_FILE_DIR"] = str(BASE_DIR / ".flask_session")
 Session(app)
 
 
@@ -81,7 +235,7 @@ def add_media_routes(item: dict):
             series_id=item["media_id"],
         )
 
-    source_id = item.get("source_order")
+    source_id = item.get("source_id")
     item["play_url"] = (
         url_for(
             "play_media_source",
@@ -175,7 +329,13 @@ def prepare_genre_page(filters: dict):
     return items, options
 
 
+def probe_alist_source(alist_path: str):
+    """Resolve one AList path and read its real media parameters."""
+    return helpers.probe_video(helpers.get_video_link(alist_path))
+
+
 def import_movie(movie_name: str, alist_path: str):
+    source_metadata = probe_alist_source(alist_path)
     details = helpers.find_media("movie", movie_name)
     movie_id = int(details["id"])
     images = helpers.download_media_images(
@@ -189,6 +349,7 @@ def import_movie(movie_name: str, alist_path: str):
         details,
         images,
         alist_path,
+        source_metadata,
     )
 
     return f"已关联电影《{details.get('title') or movie_name}》与 AList 文件。"
@@ -200,6 +361,7 @@ def import_tv_episode(
     episode_number: int,
     alist_path: str,
 ):
+    source_metadata = probe_alist_source(alist_path)
     series_details = helpers.find_media("tv", series_name)
     series_id = int(series_details["id"])
     season_details = helpers.search_tv_season(series_id, season_number)
@@ -229,6 +391,7 @@ def import_tv_episode(
         alist_path,
         series_images,
         episode_still,
+        source_metadata,
     )
 
     display_name = series_details.get("name") or series_name
@@ -397,20 +560,7 @@ def play_media_source(media_type: str, source_id: int):
     return "", 204
 
 
-def render_media_detail(media_type: str, media_id: int):
-    detail = models.get_media_detail(
-        app.config["DATABASE"],
-        media_type,
-        media_id,
-    )
-    if detail is None:
-        abort(404)
-
-    detail["is_favorite"] = models.is_media_favorite(
-        app.config["DATABASE"],
-        media_type,
-        media_id,
-    )
+def _prepare_detail_sources(detail: dict, media_type: str):
     add_media_routes(detail)
     for source in detail["sources"]:
         source["play_url"] = url_for(
@@ -418,6 +568,7 @@ def render_media_detail(media_type: str, media_id: int):
             media_type=media_type,
             source_id=source["source_id"],
         )
+        source["is_dolby_vision"] = is_dolby_vision(source.get("alist_path"))
     watched_sources = [
         source
         for source in detail["sources"]
@@ -431,26 +582,41 @@ def render_media_detail(media_type: str, media_id: int):
                 source.get("source_id", 0),
             ),
         )
-        if latest_watched.get("is_completed", False):
-            if media_type == "tv":
-                try:
-                    latest_idx = detail["sources"].index(latest_watched)
-                    if latest_idx + 1 < len(detail["sources"]):
-                        detail["featured_source"] = detail["sources"][latest_idx + 1]
-                    else:
-                        detail["featured_source"] = detail["sources"][0]
-                except (ValueError, IndexError):
-                    detail["featured_source"] = (
-                        detail["sources"][0] if detail["sources"] else None
-                    )
-            else:
-                detail["featured_source"] = latest_watched
-        else:
-            detail["featured_source"] = latest_watched
+        detail["featured_source"] = latest_watched
     else:
         detail["featured_source"] = (
             detail["sources"][0] if detail["sources"] else None
         )
+
+    featured_source = detail["featured_source"]
+    if (
+        media_type == "tv"
+        and featured_source
+        and featured_source.get("is_completed", False)
+    ):
+        featured_position = (
+            featured_source["season_number"],
+            featured_source["episode_number"],
+        )
+        next_sources = [
+            source
+            for source in detail["sources"]
+            if (source["season_number"], source["episode_number"])
+            > featured_position
+        ]
+        if next_sources:
+            detail["featured_source"] = min(
+                next_sources,
+                key=lambda source: (
+                    source["season_number"],
+                    source["episode_number"],
+                    source["source_id"],
+                ),
+            )
+        else:
+            detail["featured_source"] = (
+                detail["sources"][0] if detail["sources"] else None
+            )
 
     if detail["featured_source"]:
         detail["play_url"] = detail["featured_source"]["play_url"]
@@ -465,6 +631,8 @@ def render_media_detail(media_type: str, media_id: int):
         detail["progress"] = 0
         detail["position_label"] = ""
 
+
+def _prepare_detail_episodes(detail: dict):
     detail["featured_episode"] = None
     for season in detail["seasons"]:
         for episode in season["episodes"]:
@@ -486,6 +654,17 @@ def render_media_detail(media_type: str, media_id: int):
                 if episode["featured_source"]
                 else None
             )
+            episode["source_summary"] = _build_source_summary(
+                episode["featured_source"]
+            )
+            episode["media_facts"] = _build_media_facts(
+                episode["featured_source"]
+            )
+            episode["runtime_label"] = (
+                f'{episode["runtime"]} 分钟'
+                if episode.get("runtime")
+                else episode["source_summary"]["duration_label"]
+            )
             if (
                 detail["featured_source"]
                 and episode["episode_id"]
@@ -493,30 +672,84 @@ def render_media_detail(media_type: str, media_id: int):
             ):
                 detail["featured_episode"] = episode
 
+    if detail["media_type"] != "tv":
+        detail["current_season"] = None
+        return
+
+    detail["seasons"] = [
+        season
+        for season in detail["seasons"]
+        if season["episodes"]
+    ]
+    featured_source = detail.get("featured_source")
+    current_season = next(
+        (
+            season
+            for season in detail["seasons"]
+            if featured_source
+            and season["season_number"] == featured_source.get("season_number")
+        ),
+        detail["seasons"][0] if detail["seasons"] else None,
+    )
+    detail["current_season"] = current_season
+    if (
+        detail["featured_episode"] is None
+        and current_season
+        and current_season["episodes"]
+    ):
+        detail["featured_episode"] = current_season["episodes"][0]
+
+
+def _prepare_detail_labels(detail: dict, media_type: str):
     detail["vote_count_label"] = f'{detail["vote_count"]:,}'
+    featured_source = detail.get("featured_source")
     source_path = ""
-    if detail.get("featured_source") and detail["featured_source"].get("alist_path"):
-        source_path = detail["featured_source"]["alist_path"]
+    if featured_source and featured_source.get("alist_path"):
+        source_path = featured_source["alist_path"]
     elif detail.get("sources") and detail["sources"] and detail["sources"][0].get("alist_path"):
         source_path = detail["sources"][0]["alist_path"]
-    detail["resolution"] = extract_resolution(source_path)
-    detail["date_label"] = detail.get("release_date") or detail.get("year") or ""
+    detail["resolution"] = _format_resolution_label(
+        featured_source.get("video_width") if featured_source else None,
+        featured_source.get("video_height") if featured_source else None,
+        source_path,
+    )
+    detail["is_dolby_vision"] = (
+        is_dolby_vision(source_path)
+        or (featured_source and is_dolby_vision(featured_source.get("video_dynamic_range")))
+    )
+    detail["video_codec_label"] = (
+        str(featured_source.get("video_codec") or "").upper()
+        if featured_source
+        else ""
+    )
+    detail["dynamic_range_label"] = (
+        featured_source.get("video_dynamic_range") or ""
+        if featured_source
+        else ""
+    )
+    detail["media_facts"] = _build_media_facts(featured_source)
+    measured_runtime = _format_duration_ms(
+        featured_source.get("media_duration_ms")
+        if featured_source
+        else None
+    )
 
     if media_type == "tv":
-        runtime = None
-        if detail.get("featured_episode") and detail["featured_episode"].get("runtime"):
-            runtime = detail["featured_episode"]["runtime"]
-        elif detail.get("runtime"):
-            runtime = detail["runtime"]
-        detail["runtime_label"] = f"{runtime} 分钟" if runtime else ""
-
-        current_season = next(
-            (
-                s for s in detail.get("seasons", [])
-                if detail.get("featured_source") and s.get("season_number") == detail["featured_source"].get("season_number")
-            ),
-            detail["seasons"][0] if detail.get("seasons") else None,
+        featured_episode = detail.get("featured_episode")
+        runtime = (
+            featured_episode.get("runtime")
+            if featured_episode and featured_episode.get("runtime")
+            else detail.get("runtime")
         )
+        detail["runtime_label"] = (
+            measured_runtime or (f"{runtime} 分钟" if runtime else "")
+        )
+        detail["date_label"] = (
+            featured_episode.get("air_date")
+            if featured_episode and featured_episode.get("air_date")
+            else detail.get("release_date") or detail.get("year") or ""
+        )
+        current_season = detail.get("current_season")
         if current_season and current_season.get("vote_average") is not None and current_season["vote_average"] > 0:
             detail["season_vote_average"] = current_season["vote_average"]
         else:
@@ -536,7 +769,10 @@ def render_media_detail(media_type: str, media_id: int):
             )
         )
     else:
-        detail["runtime_label"] = f"{detail['runtime']} 分钟" if detail.get("runtime") else ""
+        detail["runtime_label"] = measured_runtime or (
+            f"{detail['runtime']} 分钟" if detail.get("runtime") else ""
+        )
+        detail["date_label"] = detail.get("release_date") or detail.get("year") or ""
         detail["season_vote_average"] = detail.get("vote_average")
         detail["status_label"] = {
             "Released": "已上映",
@@ -546,6 +782,12 @@ def render_media_detail(media_type: str, media_id: int):
             "Canceled": "已取消",
         }.get(detail["media_status"], detail["media_status"])
 
+
+def _prepare_detail_external_links(
+    detail: dict,
+    media_type: str,
+    media_id: int,
+):
     detail["external_links"] = [
         {
             "label": "TMDB",
@@ -568,6 +810,26 @@ def render_media_detail(media_type: str, media_id: int):
             {"label": "官网", "url": detail["homepage"]}
         )
 
+
+def render_media_detail(media_type: str, media_id: int):
+    detail = models.get_media_detail(
+        app.config["DATABASE"],
+        media_type,
+        media_id,
+    )
+    if detail is None:
+        abort(404)
+
+    detail["is_favorite"] = models.is_media_favorite(
+        app.config["DATABASE"],
+        media_type,
+        media_id,
+    )
+    _prepare_detail_sources(detail, media_type)
+    _prepare_detail_episodes(detail)
+    _prepare_detail_labels(detail, media_type)
+    _prepare_detail_external_links(detail, media_type, media_id)
+
     return render_template("detail.html", media=detail)
 
 
@@ -579,6 +841,68 @@ def movie_detail(movie_id: int):
 @app.route("/series/<int:series_id>")
 def tv_detail(series_id: int):
     return render_media_detail("tv", series_id)
+
+
+@app.post("/media/<media_type>/<int:media_id>/artwork")
+def select_media_artwork(media_type: str, media_id: int):
+    if media_type not in ("movie", "tv"):
+        abort(404)
+
+    positions = {}
+    if request.form.get("image_type") and request.form.get("image_position", type=int):
+        positions[request.form.get("image_type")] = request.form.get("image_position", type=int)
+    else:
+        for img_type, form_key in [
+            ("backdrops", "backdrop_position"),
+            ("posters", "poster_position"),
+            ("logos", "logo_position"),
+        ]:
+            pos = request.form.get(form_key, type=int)
+            if pos and pos > 1:
+                positions[img_type] = pos
+
+    if not positions:
+        redirect_values = {"tab": "overview"}
+        query = request.form.get("q", "").strip()
+        media_filter = request.form.get("type", "all")
+        if query:
+            redirect_values["q"] = query
+        if media_filter in ("movie", "tv"):
+            redirect_values["type"] = media_filter
+        return redirect(url_for("media", **redirect_values))
+
+    updated_labels = []
+    image_label_map = {
+        "backdrops": "横板海报",
+        "posters": "竖版海报",
+        "logos": "Logo",
+    }
+
+    try:
+        for image_type, image_position in positions.items():
+            if image_type in ("backdrops", "posters", "logos") and image_position >= 1:
+                models.set_primary_media_image(
+                    app.config["DATABASE"],
+                    media_type,
+                    media_id,
+                    image_type,
+                    image_position,
+                )
+                updated_labels.append(image_label_map.get(image_type, image_type))
+    except ValueError:
+        abort(404)
+
+    if updated_labels:
+        flash(f"已更新{'、'.join(updated_labels)}。", "success")
+
+    redirect_values = {"tab": "overview"}
+    query = request.form.get("q", "").strip()
+    media_filter = request.form.get("type", "all")
+    if query:
+        redirect_values["q"] = query
+    if media_filter in ("movie", "tv"):
+        redirect_values["type"] = media_filter
+    return redirect(url_for("media", **redirect_values))
 
 
 @app.route("/media", methods=["GET", "POST"])

@@ -5,25 +5,38 @@
 
 {% block main %}
     <section class="container-xl" aria-labelledby="favorites-page-heading">
-        <header class="mb-4">
-            <h1 class="h3 mb-2" id="favorites-page-heading">收藏</h1>
-            <p class="text-body-secondary mb-0">{{ selected_folder.name if selected_folder else "全部收藏" }} · {{ items|length }} 部作品</p>
+        <!-- 页面标题与结果统计 -->
+        <header class="d-flex align-items-baseline justify-content-between gap-3 mb-3">
+            <div>
+                <h1 class="h4 fw-bold mb-0" id="favorites-page-heading">收藏</h1>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                <span class="small text-body-secondary">{{ selected_folder.name if selected_folder else "全部收藏" }} · 共 {{ items|length }} 部作品</span>
+            </div>
         </header>
 
-        <nav class="d-flex flex-wrap gap-2 mb-4" aria-label="收藏夹筛选">
-            <a class="btn {{ 'btn-primary' if not selected_folder else 'btn-outline-secondary' }}" href="{{ url_for('favorites_library') }}"><i class="bi bi-collection me-2" aria-hidden="true"></i>全部</a>
+        <!-- 收藏夹 G2 药丸型切换栏 -->
+        <nav class="genre-pills d-flex flex-wrap align-items-center gap-1 mb-4 pb-3 border-bottom" aria-label="收藏夹筛选">
+            <a class="btn btn-sm genre-pill-btn{% if not selected_folder %} active{% endif %}" href="{{ url_for('favorites_library') }}">全部</a>
             {% for folder in folders %}
-                <a class="btn {{ 'btn-primary' if selected_folder and selected_folder.folder_id == folder.folder_id else 'btn-outline-secondary' }}" href="{{ url_for('favorites_library', folder_id=folder.folder_id) }}"><i class="bi bi-{{ folder.icon }} me-2" aria-hidden="true"></i>{{ folder.name }} <span class="ms-1 opacity-75">{{ folder.count }}</span></a>
+                <a class="btn btn-sm genre-pill-btn{% if selected_folder and selected_folder.folder_id == folder.folder_id %} active{% endif %}" href="{{ url_for('favorites_library', folder_id=folder.folder_id) }}">
+                    {{ folder.name }} <span class="ms-1 small opacity-75">({{ folder.count }})</span>
+                </a>
             {% endfor %}
         </nav>
 
+        <!-- 海报网格展示区域 -->
         {% if items %}
-            <div class="row row-cols-2 row-cols-sm-3 row-cols-md-4 row-cols-lg-6 g-3 g-lg-4 justify-content-center">
-                {% for item in items %}<div class="col">{{ poster_card(item) }}</div>{% endfor %}
+            <div class="row row-cols-2 row-cols-sm-3 row-cols-md-4 row-cols-lg-6 g-3 g-lg-4">
+                {% for item in items %}
+                    <div class="col">{{ poster_card(item) }}</div>
+                {% endfor %}
             </div>
         {% else %}
-            <div class="empty-state compact squircle-card border bg-body-tertiary p-4">
-                <p class="text-body-secondary mb-0">当前收藏夹还没有媒体。</p>
+            <div class="empty-state compact squircle-card border bg-body-tertiary p-5 text-center my-4">
+                <p class="text-body-secondary mb-2 fs-5"><i class="bi bi-bookmark-heart me-2"></i>当前收藏夹还没有媒体。</p>
+                <p class="small text-body-secondary mb-3">在电影或剧集详情页点击“加入收藏”即可归档至此</p>
+                <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('index') }}">浏览媒体库</a>
             </div>
         {% endif %}
     </section>

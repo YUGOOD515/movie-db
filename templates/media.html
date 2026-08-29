@@ -7,19 +7,46 @@
 
 {% block main %}
     <div class="container-xl text-start">
-        <header class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
-            <div>
-                <h1 class="h3 mb-1">媒体资源管理</h1>
-                <p class="text-body-secondary mb-0">管理本地媒体资源、查看资源全景与关联 AList 视频文件。</p>
+        <header class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-5">
+            <div class="d-flex align-items-center gap-3">
+                <h1 class="h3 mb-0">媒体资源管理</h1>
+                <div class="btn-group btn-group-sm segmented-control text-nowrap" role="group" aria-label="管理页面板块切换">
+                    <a class="btn {{ 'active' if active_tab != 'associate' else '' }}" href="{{ url_for('media', tab='overview') }}">
+                        概览
+                    </a>
+                    <a class="btn {{ 'active' if active_tab == 'associate' else '' }}" href="{{ url_for('media', tab='associate') }}">
+                        关联
+                    </a>
+                </div>
             </div>
-            <nav class="d-flex gap-2" aria-label="管理页面板块切换">
-                <a class="btn {{ 'btn-primary' if active_tab != 'associate' else 'btn-outline-secondary' }}" href="{{ url_for('media', tab='overview') }}">
-                    概览
-                </a>
-                <a class="btn {{ 'btn-primary' if active_tab == 'associate' else 'btn-outline-secondary' }}" href="{{ url_for('media', tab='associate') }}">
-                    关联
-                </a>
-            </nav>
+
+            {% if active_tab != 'associate' %}
+            <form class="d-flex flex-wrap align-items-center gap-2 mb-0" action="{{ url_for('media') }}" method="get" id="overview-search-form">
+                <input type="hidden" name="tab" value="overview">
+                <div class="min-w-0" style="width: 18rem; max-width: 100%;">
+                    <input
+                        class="form-control form-control-sm bg-body-tertiary"
+                        id="overview-search-input"
+                        name="q"
+                        type="search"
+                        value="{{ overview.query }}"
+                        placeholder="按名称或 TMDB ID 搜索..."
+                        aria-label="搜索媒体"
+                        autocomplete="off"
+                    >
+                </div>
+                <div class="btn-group btn-group-sm segmented-control text-nowrap flex-shrink-0" role="group" aria-label="媒体类型筛选">
+                    <input class="btn-check" type="radio" name="type" id="filter-type-all" value="all"{% if overview.media_type == 'all' %} checked{% endif %}>
+                    <label class="btn btn-outline-secondary" for="filter-type-all">全部</label>
+
+                    <input class="btn-check" type="radio" name="type" id="filter-type-movie" value="movie"{% if overview.media_type == 'movie' %} checked{% endif %}>
+                    <label class="btn btn-outline-secondary" for="filter-type-movie">电影</label>
+
+                    <input class="btn-check" type="radio" name="type" id="filter-type-tv" value="tv"{% if overview.media_type == 'tv' %} checked{% endif %}>
+                    <label class="btn btn-outline-secondary" for="filter-type-tv">剧集</label>
+                </div>
+            </form>
+            {% endif %}
         </header>
 
         {% with messages = get_flashed_messages(with_categories=true) %}
@@ -36,90 +63,21 @@
             <section class="overview-section" aria-labelledby="overview-heading">
                 <h2 class="visually-hidden" id="overview-heading">媒体库概览</h2>
 
-                <!-- 汇总统计条 -->
-                <div class="row row-cols-2 row-cols-sm-3 row-cols-lg-6 g-3 mb-4">
-                    <div class="col">
-                        <div class="squircle-card border bg-body-tertiary p-3 text-start">
-                            <div class="small text-body-secondary mb-1">媒体总数</div>
-                            <div class="h4 mb-0 fw-bold">{{ overview.stats.media_count }}</div>
-                        </div>
-                    </div>
-                    <div class="col">
-                        <div class="squircle-card border bg-body-tertiary p-3 text-start">
-                            <div class="small text-body-secondary mb-1">电影总数</div>
-                            <div class="h4 mb-0 fw-bold">{{ overview.stats.movie_count }}</div>
-                        </div>
-                    </div>
-                    <div class="col">
-                        <div class="squircle-card border bg-body-tertiary p-3 text-start">
-                            <div class="small text-body-secondary mb-1">剧集总数</div>
-                            <div class="h4 mb-0 fw-bold">{{ overview.stats.tv_count }}</div>
-                        </div>
-                    </div>
-                    <div class="col">
-                        <div class="squircle-card border bg-body-tertiary p-3 text-start">
-                            <div class="small text-body-secondary mb-1">剧集单集</div>
-                            <div class="h4 mb-0 fw-bold">{{ overview.stats.episode_count }}</div>
-                        </div>
-                    </div>
-                    <div class="col">
-                        <div class="squircle-card border bg-body-tertiary p-3 text-start">
-                            <div class="small text-body-secondary mb-1">已关联源</div>
-                            <div class="h4 mb-0 fw-bold text-primary">{{ overview.stats.source_count }}</div>
-                        </div>
-                    </div>
-                    <div class="col">
-                        <div class="squircle-card border bg-body-tertiary p-3 text-start">
-                            <div class="small text-body-secondary mb-1">本地图片</div>
-                            <div class="h4 mb-0 fw-bold">{{ overview.stats.image_count }}</div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- 搜索与类型筛选 -->
-                <form class="d-flex align-items-center gap-2 flex-nowrap mb-4" action="{{ url_for('media') }}" method="get" id="overview-search-form">
-                    <input type="hidden" name="tab" value="overview">
-                    <div class="input-group flex-grow-1 min-w-0">
-                        <span class="input-group-text bg-body-tertiary border-end-0"><i class="bi bi-search text-body-secondary" aria-hidden="true"></i></span>
-                        <input
-                            class="form-control bg-body-tertiary border-start-0"
-                            id="overview-search-input"
-                            name="q"
-                            type="search"
-                            value="{{ overview.query }}"
-                            placeholder="按电影/剧集名称、原名或 TMDB ID 搜索..."
-                            aria-label="搜索媒体"
-                            autocomplete="off"
-                        >
-                    </div>
-                    <div class="btn-group text-nowrap flex-shrink-0" role="group" aria-label="媒体类型筛选">
-                        <input class="btn-check" type="radio" name="type" id="filter-type-all" value="all"{% if overview.media_type == 'all' %} checked{% endif %}>
-                        <label class="btn btn-outline-secondary" for="filter-type-all">全部</label>
-
-                        <input class="btn-check" type="radio" name="type" id="filter-type-movie" value="movie"{% if overview.media_type == 'movie' %} checked{% endif %}>
-                        <label class="btn btn-outline-secondary" for="filter-type-movie">电影</label>
-
-                        <input class="btn-check" type="radio" name="type" id="filter-type-tv" value="tv"{% if overview.media_type == 'tv' %} checked{% endif %}>
-                        <label class="btn btn-outline-secondary" for="filter-type-tv">剧集</label>
-                    </div>
-                    <button class="btn btn-primary text-nowrap flex-shrink-0 px-3" type="submit">筛选</button>
-                </form>
-
-                <!-- 搜索与筛选结果网格 -->
-                <div class="d-flex align-items-baseline justify-content-between gap-3 mb-3">
-                    <h3 class="h5 mb-0">媒体列表</h3>
+                <!-- 搜索与筛选结果列表 -->
+                <div class="overview-header d-flex align-items-center justify-content-between gap-3 mb-4">
+                    <h3 class="h6 text-body-secondary text-uppercase fw-semibold mb-0" style="letter-spacing: 0.05em;">媒体列表</h3>
                     <span class="small text-body-secondary" id="overview-count-label">共 {{ overview.media_items|length }} 部作品</span>
                 </div>
 
-                <div class="row row-cols-2 row-cols-sm-3 row-cols-md-4 row-cols-lg-6 g-3 g-lg-4 justify-content-start" id="overview-card-grid">
+                <div class="overview-media-list row row-cols-1 row-cols-md-2 row-cols-lg-3 gx-4 gy-5" id="overview-card-grid">
                     {% for item in overview.media_items %}
                         <div class="col overview-col" data-media-item data-id="{{ item.media_id }}" data-type="{{ item.media_type }}" data-name="{{ item.name|lower }}" data-original-name="{{ (item.original_name or '')|lower }}">
-                            {{ overview_card(item) }}
+                            {{ overview_card(item, overview.query, overview.media_type) }}
                         </div>
                     {% endfor %}
                 </div>
 
-                <div class="empty-state compact squircle-card border bg-body-tertiary p-5 text-center mt-3{% if overview.media_items %} d-none{% endif %}" id="overview-empty-state">
+                <div class="empty-state compact squircle-card border bg-body-tertiary p-5 text-center my-4{% if overview.media_items %} d-none{% endif %}" id="overview-empty-state">
                     <p class="text-body-secondary mb-0">没有找到匹配的媒体资源。可检查搜索关键词或前往“关联”板块录入新媒体。</p>
                 </div>
             </section>
@@ -190,7 +148,7 @@
                             >
                         </div>
                         <div class="col-12 col-md-auto d-grid">
-                            <button class="btn btn-primary text-nowrap px-4" type="submit">查询并关联</button>
+                            <button class="btn media-primary-action text-nowrap px-4" type="submit">查询并关联</button>
                         </div>
                     </div>
                 </form>

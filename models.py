@@ -26,10 +26,26 @@ MEDIA_IMAGES = {
     "movie": ("movie_image", "movie_id"),
     "tv": ("tv_series_image", "series_id"),
 }
+MEDIA_IMAGE_TYPES = ("backdrops", "posters", "logos")
 MEDIA_SOURCES = {
     "movie": ("movie_source", "movie_id"),
     "tv": ("tv_episode_source", "episode_id"),
 }
+SOURCE_MEDIA_COLUMNS = (
+    "media_duration_ms",
+    "file_size_bytes",
+    "bit_rate",
+    "container_format",
+    "video_codec",
+    "video_width",
+    "video_height",
+    "video_frame_rate",
+    "video_pixel_format",
+    "video_dynamic_range",
+    "audio_codec",
+    "audio_channels",
+    "audio_channel_layout",
+)
 MEDIA_PROGRESS = {
     "movie": ("movie_watch_progress", "movie_id"),
     "tv": ("tv_episode_watch_progress", "episode_id"),
@@ -226,6 +242,7 @@ def _upsert_source(
     media_type: str,
     owner_id: int,
     alist_path: str,
+    media_metadata: dict | None = None,
 ):
     table_name, owner_column = MEDIA_SOURCES[media_type]
     db.execute(
@@ -237,6 +254,99 @@ def _upsert_source(
         """,
         (owner_id, alist_path),
     )
+    if media_metadata is not None:
+        _update_source_media_metadata(
+            db,
+            media_type,
+            alist_path,
+            media_metadata,
+        )
+
+
+def _update_source_media_metadata(
+    db: sqlite3.Connection,
+    media_type: str,
+    alist_path: str,
+    media_metadata: dict,
+):
+    table_name, _ = MEDIA_SOURCES[media_type]
+    assignments = ",\n                       ".join(
+        f"{column} = :{column}" for column in SOURCE_MEDIA_COLUMNS
+    )
+    values = {
+        column: media_metadata.get(column)
+        for column in SOURCE_MEDIA_COLUMNS
+    }
+    values["alist_path"] = alist_path
+    db.execute(
+        f"""
+        UPDATE {table_name}
+           SET {assignments},
+               probed_at = CURRENT_TIMESTAMP
+         WHERE alist_path = :alist_path
+        """,
+        values,
+    )
+
+
+def save_source_media_metadata(
+    database_path: str | Path,
+    media_type: str,
+    source_id: int,
+    media_metadata: dict,
+):
+    """Persist ffprobe metadata for one existing movie or episode source."""
+    if media_type not in MEDIA_SOURCES:
+        raise ValueError("不支持的媒体类型。")
+
+    table_name, _ = MEDIA_SOURCES[media_type]
+    assignments = ",\n                       ".join(
+        f"{column} = :{column}" for column in SOURCE_MEDIA_COLUMNS
+    )
+    values = {
+        column: media_metadata.get(column)
+        for column in SOURCE_MEDIA_COLUMNS
+    }
+    values["source_id"] = source_id
+    with closing(_connect(database_path)) as db:
+        with db:
+            cursor = db.execute(
+                f"""
+                UPDATE {table_name}
+                   SET {assignments},
+                       probed_at = CURRENT_TIMESTAMP
+                 WHERE source_id = :source_id
+                """,
+                values,
+            )
+            if cursor.rowcount == 0:
+                raise ValueError("媒体来源不存在。")
+
+
+def get_sources_missing_media_metadata(database_path: str | Path):
+    """Return sources that have not yet been successfully read by ffprobe."""
+    with closing(_connect(database_path)) as db:
+        rows = db.execute(
+            """
+            SELECT 'movie' AS media_type,
+                   source_id,
+                   alist_path
+              FROM movie_source
+             WHERE probed_at IS NULL
+
+             UNION ALL
+
+            SELECT 'tv' AS media_type,
+                   source_id,
+                   alist_path
+              FROM tv_episode_source
+             WHERE probed_at IS NULL
+             ORDER BY media_type,
+                      source_id
+            """
+        ).fetchall()
+
+    return [dict(row) for row in rows]
 
 
 def get_source_paths(database_path: str | Path):
@@ -287,24 +397,42 @@ def find_tv_episode_id(
     return int(row["episode_id"]) if row else None
 
 
-def add_movie_source(database_path: str | Path, movie_id: int, alist_path: str):
+def add_movie_source(
+    database_path: str | Path,
+    movie_id: int,
+    alist_path: str,
+    media_metadata: dict | None = None,
+):
     """Attach an extra AList file to an already stored movie."""
     with closing(_connect(database_path)) as db:
         with db:
             _assert_source_available(db, "movie", alist_path)
-            _upsert_source(db, "movie", movie_id, alist_path)
+            _upsert_source(
+                db,
+                "movie",
+                movie_id,
+                alist_path,
+                media_metadata,
+            )
 
 
 def add_tv_episode_source(
     database_path: str | Path,
     episode_id: int,
     alist_path: str,
+    media_metadata: dict | None = None,
 ):
     """Attach an extra AList file to an already stored episode."""
     with closing(_connect(database_path)) as db:
         with db:
             _assert_source_available(db, "tv", alist_path)
-            _upsert_source(db, "tv", episode_id, alist_path)
+            _upsert_source(
+                db,
+                "tv",
+                episode_id,
+                alist_path,
+                media_metadata,
+            )
 
 
 def find_episodes_missing_stills(database_path: str | Path):
@@ -549,26 +677,55 @@ def _replace_media_images(
     images: list[dict],
 ):
     table_name, owner_column = MEDIA_IMAGES[media_type]
+    preferred_paths = {
+        row["image_type"]: row["local_path"]
+        for row in db.execute(
+            f"""
+            SELECT image_type,
+                   local_path
+              FROM {table_name}
+             WHERE {owner_column} = ?
+               AND image_position = 1
+            """,
+            (owner_id,),
+        )
+    }
     db.execute(
         f"DELETE FROM {table_name} WHERE {owner_column} = ?",
         (owner_id,),
     )
-    for image in images:
-        db.execute(
-            f"""
-            INSERT INTO {table_name} (
-                {owner_column}, image_type, image_position, image_url, local_path
-            )
-                 VALUES (?, ?, ?, ?, ?)
-            """,
+    for image_type in MEDIA_IMAGE_TYPES:
+        type_images = sorted(
             (
-                owner_id,
-                image["image_type"],
+                image
+                for image in images
+                if image["image_type"] == image_type
+            ),
+            key=lambda image: (
+                image["local_path"] != preferred_paths.get(image_type),
                 image["image_position"],
-                image["image_url"],
-                image["local_path"],
             ),
         )
+        for image_position, image in enumerate(type_images, start=1):
+            db.execute(
+                f"""
+                INSERT INTO {table_name} (
+                    {owner_column},
+                    image_type,
+                    image_position,
+                    image_url,
+                    local_path
+                )
+                     VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    owner_id,
+                    image_type,
+                    image_position,
+                    image["image_url"],
+                    image["local_path"],
+                ),
+            )
 
 
 def save_movie(
@@ -576,12 +733,19 @@ def save_movie(
     details: dict,
     images: list[dict],
     alist_path: str,
+    source_metadata: dict | None = None,
 ):
     """Persist TMDB details, local images and an AList mapping atomically."""
     with closing(_connect(database_path)) as db:
         with db:
             _assert_source_available(db, "movie", alist_path)
-            _save_movie(db, details, images, alist_path)
+            _save_movie(
+                db,
+                details,
+                images,
+                alist_path,
+                source_metadata,
+            )
 
 
 def _save_movie(
@@ -589,6 +753,7 @@ def _save_movie(
     details: dict,
     images: list[dict],
     alist_path: str,
+    source_metadata: dict | None,
 ):
     movie_id = int(details["id"])
     collection = details.get("belongs_to_collection")
@@ -711,7 +876,13 @@ def _save_movie(
 
     _replace_shared_relations(db, "movie", movie_id, details)
     _replace_media_images(db, "movie", movie_id, images)
-    _upsert_source(db, "movie", movie_id, alist_path)
+    _upsert_source(
+        db,
+        "movie",
+        movie_id,
+        alist_path,
+        source_metadata,
+    )
 
 
 def _json_text(value):
@@ -726,6 +897,7 @@ def save_tv_episode(
     alist_path: str,
     series_images: list[dict] | None = None,
     episode_still: dict | None = None,
+    source_metadata: dict | None = None,
 ):
     """Persist a series, selected season, all its episodes, and one source."""
     with closing(_connect(database_path)) as db:
@@ -739,6 +911,7 @@ def save_tv_episode(
                 alist_path,
                 series_images,
                 episode_still,
+                source_metadata,
             )
 
 
@@ -750,6 +923,7 @@ def _save_tv_episode(
     alist_path: str,
     series_images: list[dict] | None,
     episode_still: dict | None,
+    source_metadata: dict | None,
 ):
     series_id = int(series_details["id"])
     series_values = {
@@ -882,7 +1056,13 @@ def _save_tv_episode(
         series_details,
         season_by_number,
     )
-    _upsert_source(db, "tv", selected_episode_id, alist_path)
+    _upsert_source(
+        db,
+        "tv",
+        selected_episode_id,
+        alist_path,
+        source_metadata,
+    )
 
     if series_images is not None:
         _replace_media_images(db, "tv", series_id, series_images)
@@ -1195,6 +1375,95 @@ def get_tv_series_images(database_path: str | Path, series_id: int):
     return [dict(row) for row in rows]
 
 
+def set_primary_media_image(
+    database_path: str | Path,
+    media_type: str,
+    media_id: int,
+    image_type: str,
+    image_position: int,
+):
+    """Make one stored image the primary image for its media and type."""
+    if media_type not in MEDIA_IMAGES:
+        raise ValueError("不支持的媒体类型。")
+    if image_type not in MEDIA_IMAGE_TYPES:
+        raise ValueError("不支持的图片类型。")
+
+    table_name, owner_column = MEDIA_IMAGES[media_type]
+    with closing(_connect(database_path)) as db:
+        with db:
+            rows = db.execute(
+                f"""
+                SELECT image_position,
+                       image_url,
+                       local_path
+                  FROM {table_name}
+                 WHERE {owner_column} = ?
+                   AND image_type = ?
+                   AND image_position IN (1, ?)
+                 ORDER BY image_position
+                """,
+                (media_id, image_type, image_position),
+            ).fetchall()
+            images = {
+                row["image_position"]: dict(row)
+                for row in rows
+            }
+            selected = images.get(image_position)
+            if selected is None:
+                raise ValueError("指定图片不存在。")
+            if image_position == 1:
+                return
+
+            primary = images.get(1)
+            db.execute(
+                f"""
+                DELETE FROM {table_name}
+                 WHERE {owner_column} = ?
+                   AND image_type = ?
+                   AND image_position IN (1, ?)
+                """,
+                (media_id, image_type, image_position),
+            )
+            db.execute(
+                f"""
+                INSERT INTO {table_name} (
+                    {owner_column},
+                    image_type,
+                    image_position,
+                    image_url,
+                    local_path
+                )
+                     VALUES (?, ?, 1, ?, ?)
+                """,
+                (
+                    media_id,
+                    image_type,
+                    selected["image_url"],
+                    selected["local_path"],
+                ),
+            )
+            if primary:
+                db.execute(
+                    f"""
+                    INSERT INTO {table_name} (
+                        {owner_column},
+                        image_type,
+                        image_position,
+                        image_url,
+                        local_path
+                    )
+                         VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        media_id,
+                        image_type,
+                        image_position,
+                        primary["image_url"],
+                        primary["local_path"],
+                    ),
+                )
+
+
 def _get_homepage_movie_items(db: sqlite3.Connection):
     rows = db.execute(
         """
@@ -1206,7 +1475,7 @@ def _get_homepage_movie_items(db: sqlite3.Connection):
                movie.release_date AS release_date,
                movie.vote_average AS vote_average,
                movie.overview AS overview,
-               source.source_id AS source_order,
+               source.source_id AS source_id,
                source.alist_path AS alist_path,
                (
                    SELECT image.local_path
@@ -1278,7 +1547,7 @@ def _get_homepage_tv_items(db: sqlite3.Connection):
                series.first_air_date AS release_date,
                series.vote_average AS vote_average,
                series.overview AS overview,
-               linked.source_id AS source_order,
+               linked.source_id AS source_id,
                linked.alist_path AS alist_path,
                linked.season_number AS season_number,
                linked.episode_number AS episode_number,
@@ -1471,7 +1740,7 @@ def get_filtered_library_items(
 
     return sorted(
         items,
-        key=lambda item: (item["source_order"], item["media_id"]),
+        key=lambda item: (item["source_id"], item["media_id"]),
         reverse=True,
     )
 
@@ -1575,7 +1844,7 @@ def _get_continue_watching_items(
                movie.release_date AS release_date,
                movie.vote_average AS vote_average,
                movie.overview AS overview,
-               source.source_id AS source_order,
+               source.source_id AS source_id,
                NULL AS season_number,
                NULL AS episode_number,
                NULL AS episode_name,
@@ -1632,7 +1901,7 @@ def _get_continue_watching_items(
                series.first_air_date AS release_date,
                series.vote_average AS vote_average,
                series.overview AS overview,
-               source.source_id AS source_order,
+               source.source_id AS source_id,
                season.season_number,
                episode.episode_number,
                episode.episode_name,
@@ -1686,7 +1955,7 @@ def _get_continue_watching_items(
 
     items = [_add_progress_fields(dict(row)) for row in movie_rows + tv_rows]
     items.sort(
-        key=lambda item: (item["updated_at"], item["source_order"]),
+        key=lambda item: (item["updated_at"], item["source_id"]),
         reverse=True,
     )
 
@@ -1737,7 +2006,7 @@ def _get_started_media_keys(db: sqlite3.Connection):
 def _get_recent_added_items(db: sqlite3.Connection):
     return sorted(
         _get_homepage_movie_items(db) + _get_homepage_tv_items(db),
-        key=lambda item: (item["source_order"], item["media_id"]),
+        key=lambda item: (item["source_id"], item["media_id"]),
         reverse=True,
     )
 
@@ -1948,7 +2217,7 @@ def get_homepage_data(database_path: str | Path, item_limit: int = 12):
         favorite_folders = _get_favorite_folders(db)
         media_items = sorted(
             movie_items + tv_items,
-            key=lambda item: (item["source_order"], item["media_id"]),
+            key=lambda item: (item["source_id"], item["media_id"]),
             reverse=True,
         )
         unwatched_items = _get_unwatched_items(db, media_items)
@@ -2039,6 +2308,20 @@ def get_media_detail(
                 """
                 SELECT source.source_id,
                        source.alist_path,
+                       source.media_duration_ms,
+                       source.file_size_bytes,
+                       source.bit_rate,
+                       source.container_format,
+                       source.video_codec,
+                       source.video_width,
+                       source.video_height,
+                       source.video_frame_rate,
+                       source.video_pixel_format,
+                       source.video_dynamic_range,
+                       source.audio_codec,
+                       source.audio_channels,
+                       source.audio_channel_layout,
+                       source.probed_at,
                        progress.position_ms,
                        progress.duration_ms,
                        progress.updated_at
@@ -2132,6 +2415,20 @@ def get_media_detail(
                 """
                 SELECT source.source_id,
                        source.alist_path,
+                       source.media_duration_ms,
+                       source.file_size_bytes,
+                       source.bit_rate,
+                       source.container_format,
+                       source.video_codec,
+                       source.video_width,
+                       source.video_height,
+                       source.video_frame_rate,
+                       source.video_pixel_format,
+                       source.video_dynamic_range,
+                       source.audio_codec,
+                       source.audio_channels,
+                       source.audio_channel_layout,
+                       source.probed_at,
                        episode.episode_id,
                        episode.episode_number,
                        episode.episode_name,
@@ -2393,9 +2690,9 @@ def get_media_overview_data(
                                SELECT MAX(source.source_id)
                                  FROM movie_source AS source
                                 WHERE source.movie_id = movie.movie_id
-                           ) AS source_order
+                           ) AS source_id
                       FROM movie
-                     ORDER BY source_order DESC NULLS LAST,
+                     ORDER BY source_id DESC NULLS LAST,
                               movie.movie_id DESC
                     """
                 ).fetchall()
@@ -2472,24 +2769,62 @@ def get_media_overview_data(
                                       INNER JOIN tv_season AS season
                                       ON season.season_id = episode.season_id
                                 WHERE season.series_id = series.series_id
-                           ) AS source_order
+                           ) AS source_id
                       FROM tv_series AS series
-                     ORDER BY source_order DESC NULLS LAST,
+                     ORDER BY source_id DESC NULLS LAST,
                               series.series_id DESC
                     """
                 ).fetchall()
             ]
 
+        image_rows = db.execute(
+            """
+            SELECT 'movie' AS media_type,
+                   movie_id AS media_id,
+                   image_type,
+                   image_position,
+                   local_path
+              FROM movie_image
+
+             UNION ALL
+
+            SELECT 'tv' AS media_type,
+                   series_id AS media_id,
+                   image_type,
+                   image_position,
+                   local_path
+              FROM tv_series_image
+             ORDER BY media_type,
+                      media_id,
+                      image_type,
+                      image_position
+            """
+        ).fetchall()
+
     all_items = sorted(
         movie_rows + tv_rows,
-        key=lambda item: (item["source_order"] or 0, item["media_id"]),
+        key=lambda item: (item["source_id"] or 0, item["media_id"]),
         reverse=True,
     )
+
+    image_options = {}
+    for image_row in image_rows:
+        image = dict(image_row)
+        media_key = (image.pop("media_type"), image.pop("media_id"))
+        media_images = image_options.setdefault(
+            media_key,
+            {"backdrops": [], "posters": [], "logos": []},
+        )
+        media_images[image["image_type"]].append(image)
 
     for item in all_items:
         genres_str = item.get("genres_text") or ""
         item["genres"] = [g.strip() for g in genres_str.split("/") if g.strip()]
         item["vote_count_label"] = f"{item['vote_count']:,}" if item.get("vote_count") else "0"
+        item["image_options"] = image_options.get(
+            (item["media_type"], item["media_id"]),
+            {"backdrops": [], "posters": [], "logos": []},
+        )
 
     filtered_items = all_items
     if query:

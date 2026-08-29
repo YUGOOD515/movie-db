@@ -1,37 +1,41 @@
 (() => {
+    // Theme toggle
     const themeToggle = document.getElementById("theme-toggle");
-    if (!themeToggle) {
-        return;
-    }
+    if (themeToggle) {
+        const icon = themeToggle.querySelector("i");
+        const label = themeToggle.querySelector(".theme-label");
 
-    const icon = themeToggle.querySelector("i");
-    const label = themeToggle.querySelector(".theme-label");
-
-    function syncThemeControl() {
-        const isDark = document.documentElement.dataset.bsTheme === "dark";
-        if (icon) {
-            icon.className = isDark ? "bi bi-sun" : "bi bi-moon";
+        function syncThemeControl() {
+            const isDark = document.documentElement.dataset.bsTheme === "dark";
+            if (icon) {
+                icon.className = isDark ? "bi bi-sun-fill" : "bi bi-moon-stars-fill";
+            }
+            if (label) {
+                label.textContent = isDark ? "深色" : "浅色";
+            }
+            themeToggle.setAttribute(
+                "aria-label",
+                isDark ? "切换为浅色主题" : "切换为深色主题",
+            );
+            themeToggle.setAttribute(
+                "title",
+                isDark ? "切换为浅色主题" : "切换为深色主题",
+            );
         }
-        if (label) {
-            label.textContent = isDark ? "深色" : "浅色";
-        }
-        themeToggle.setAttribute(
-            "aria-label",
-            isDark ? "切换为浅色主题" : "切换为深色主题",
-        );
-    }
 
-    themeToggle.addEventListener("click", () => {
-        const nextTheme = document.documentElement.dataset.bsTheme === "dark"
-            ? "light"
-            : "dark";
-        document.documentElement.dataset.bsTheme = nextTheme;
-        localStorage.setItem("media-theme", nextTheme);
+        themeToggle.addEventListener("click", () => {
+            const nextTheme = document.documentElement.dataset.bsTheme === "dark"
+                ? "light"
+                : "dark";
+            document.documentElement.dataset.bsTheme = nextTheme;
+            localStorage.setItem("media-theme", nextTheme);
+            syncThemeControl();
+        });
+
         syncThemeControl();
-    });
+    }
 
-    syncThemeControl();
-
+    // Sidebar active states
     const isDetailPage = /^\/(movies|series)\/\d+\/?$/.test(
         window.location.pathname,
     );
@@ -45,5 +49,422 @@
             link.removeAttribute("aria-current");
             link.classList.remove("active");
         }
+    });
+
+    // Detail overview inline 2-line clamp toggle with smooth transition.
+    document.querySelectorAll("[data-detail-overview-wrap]").forEach((overviewWrap) => {
+        const overviewEl = overviewWrap.querySelector("[data-detail-overview]");
+        const textEl = overviewWrap.querySelector("[data-detail-overview-text]");
+        const overviewToggle = overviewWrap.querySelector("[data-detail-overview-toggle]");
+        if (!overviewEl || !textEl || !overviewToggle) {
+            return;
+        }
+
+        const fullText = overviewWrap.dataset.fullText || textEl.textContent.trim();
+        let isExpanded = false;
+        let isAnimating = false;
+
+        function getMaxHeight() {
+            const computed = window.getComputedStyle(overviewEl);
+            let lineHeight = parseFloat(computed.lineHeight);
+            if (isNaN(lineHeight) || lineHeight <= 0) {
+                lineHeight = parseFloat(computed.fontSize) * 1.6;
+            }
+            return lineHeight * 2 + 2;
+        }
+
+        function getClampedText(maxHeight) {
+            overviewToggle.textContent = "...更多";
+            overviewToggle.classList.remove("d-none");
+            let low = 0;
+            let high = fullText.length;
+            let best = 0;
+
+            while (low <= high) {
+                const mid = Math.floor((low + high) / 2);
+                textEl.textContent = fullText.slice(0, mid);
+                if (overviewEl.scrollHeight <= maxHeight) {
+                    best = mid;
+                    low = mid + 1;
+                } else {
+                    high = mid - 1;
+                }
+            }
+            return fullText.slice(0, best);
+        }
+
+        function updateClamp() {
+            if (isExpanded || isAnimating || overviewWrap.offsetParent === null) {
+                return;
+            }
+
+            overviewToggle.classList.add("d-none");
+            overviewToggle.setAttribute("aria-expanded", "false");
+            textEl.textContent = fullText;
+
+            const maxHeight = getMaxHeight();
+            if (overviewEl.scrollHeight <= maxHeight) {
+                return;
+            }
+
+            const clamped = getClampedText(maxHeight);
+            textEl.textContent = clamped;
+        }
+
+        function toggleExpand() {
+            if (isAnimating) {
+                return;
+            }
+
+            const maxHeight = getMaxHeight();
+
+            if (!isExpanded) {
+                isAnimating = true;
+                const startHeight = overviewEl.offsetHeight;
+
+                textEl.textContent = fullText + " ";
+                overviewToggle.textContent = "收起";
+                overviewToggle.setAttribute("aria-expanded", "true");
+
+                const targetHeight = overviewEl.scrollHeight;
+
+                overviewEl.style.overflow = "hidden";
+                overviewEl.style.height = `${startHeight}px`;
+                void overviewEl.offsetHeight;
+
+                overviewEl.style.transition = "height 0.28s cubic-bezier(0.4, 0, 0.2, 1)";
+                overviewEl.style.height = `${targetHeight}px`;
+
+                const onEnd = (e) => {
+                    if (e.target !== overviewEl) return;
+                    overviewEl.removeEventListener("transitionend", onEnd);
+                    overviewEl.style.height = "";
+                    overviewEl.style.overflow = "";
+                    overviewEl.style.transition = "";
+                    isExpanded = true;
+                    isAnimating = false;
+                };
+                overviewEl.addEventListener("transitionend", onEnd);
+            } else {
+                isAnimating = true;
+                const startHeight = overviewEl.offsetHeight;
+
+                overviewEl.style.overflow = "hidden";
+                overviewEl.style.height = `${startHeight}px`;
+                void overviewEl.offsetHeight;
+
+                overviewEl.style.transition = "height 0.28s cubic-bezier(0.4, 0, 0.2, 1)";
+                overviewEl.style.height = `${maxHeight}px`;
+
+                const onEnd = (e) => {
+                    if (e.target !== overviewEl) return;
+                    overviewEl.removeEventListener("transitionend", onEnd);
+                    overviewToggle.textContent = "...更多";
+                    overviewToggle.setAttribute("aria-expanded", "false");
+
+                    const clamped = getClampedText(maxHeight);
+                    textEl.textContent = clamped;
+
+                    overviewEl.style.height = "";
+                    overviewEl.style.overflow = "";
+                    overviewEl.style.transition = "";
+                    isExpanded = false;
+                    isAnimating = false;
+                };
+                overviewEl.addEventListener("transitionend", onEnd);
+            }
+        }
+
+        updateClamp();
+        window.addEventListener("resize", updateClamp);
+        overviewToggle.addEventListener("click", toggleExpand);
+        overviewWrap.closest("[data-episode-hero]")?.addEventListener(
+            "detail:shown",
+            () => window.requestAnimationFrame(updateClamp),
+        );
+    });
+
+    // Episode cards drive the Hero; playback remains an explicit action.
+    document.querySelectorAll("[data-episode-browser]").forEach((browser) => {
+        const selectors = browser.querySelectorAll("[data-episode-target]");
+        const heroPanels = browser.querySelectorAll("[data-episode-hero]");
+        const heroControls = browser.querySelectorAll("[data-episode-hero-control]");
+        const factsPanels = browser.querySelectorAll("[data-episode-facts]");
+        const seasonControls = browser.querySelectorAll("[data-season-target]");
+        const seasonPanes = browser.querySelectorAll("[data-season-pane]");
+        const seasonSummaries = browser.querySelectorAll("[data-season-summary]");
+        const seasonLabel = browser.querySelector("[data-season-label]");
+        const backdropStage = browser.querySelector("[data-backdrop-stage]");
+        const backdropFallback = browser.querySelector(".detail-backdrop-fallback");
+
+        let currentSeasonNum = null;
+        let currentEpisodeNum = null;
+
+        const initialActivePanel = Array.from(heroPanels).find(
+            (panel) => !panel.classList.contains("d-none") && !panel.hidden,
+        ) || heroPanels[0];
+        if (initialActivePanel) {
+            currentSeasonNum = parseInt(initialActivePanel.dataset.seasonNumber, 10) || 0;
+            currentEpisodeNum = parseInt(initialActivePanel.dataset.episodeNumber, 10) || 0;
+        }
+
+        function switchBackdrop(backdropUrl, direction) {
+            if (!backdropStage) {
+                const legacyBackdrop = browser.querySelector("[data-detail-backdrop]");
+                if (legacyBackdrop && backdropUrl) {
+                    legacyBackdrop.src = backdropUrl;
+                    legacyBackdrop.classList.remove("d-none");
+                    backdropFallback?.classList.add("d-none");
+                    backdropFallback?.classList.remove("d-flex");
+                } else if (legacyBackdrop) {
+                    legacyBackdrop.classList.add("d-none");
+                    backdropFallback?.classList.remove("d-none");
+                    backdropFallback?.classList.add("d-flex");
+                }
+                return;
+            }
+
+            if (!backdropUrl) {
+                backdropStage.innerHTML = "";
+                backdropFallback?.classList.remove("d-none");
+                backdropFallback?.classList.add("d-flex");
+                return;
+            }
+
+            backdropFallback?.classList.add("d-none");
+            backdropFallback?.classList.remove("d-flex");
+
+            const currentActiveImg = backdropStage.querySelector(".detail-backdrop--active")
+                || backdropStage.querySelector(".detail-backdrop:not(.detail-backdrop--to-left):not(.detail-backdrop--to-right)");
+
+            if (currentActiveImg && (currentActiveImg.getAttribute("src") === backdropUrl || currentActiveImg.src.endsWith(backdropUrl))) {
+                return;
+            }
+
+            // Immediately remove any elements already animating out to keep animation crisp under fast clicks
+            backdropStage.querySelectorAll(".detail-backdrop--to-left, .detail-backdrop--to-right").forEach((el) => el.remove());
+
+            const nextImg = document.createElement("img");
+            nextImg.className = `detail-backdrop detail-backdrop--${direction}`;
+            nextImg.src = backdropUrl;
+            nextImg.alt = "";
+            nextImg.width = 1920;
+            nextImg.height = 1080;
+            nextImg.setAttribute("data-media-image", "");
+            nextImg.setAttribute("data-detail-backdrop", "");
+
+            backdropStage.appendChild(nextImg);
+
+            // Force reflow
+            void nextImg.offsetWidth;
+
+            nextImg.classList.add("detail-backdrop--sliding");
+            if (currentActiveImg) {
+                currentActiveImg.classList.add("detail-backdrop--sliding");
+                currentActiveImg.classList.remove("detail-backdrop--active");
+                currentActiveImg.classList.add(direction === "from-left" ? "detail-backdrop--to-right" : "detail-backdrop--to-left");
+            }
+
+            requestAnimationFrame(() => {
+                nextImg.classList.remove(`detail-backdrop--${direction}`);
+                nextImg.classList.add("detail-backdrop--active");
+            });
+
+            setTimeout(() => {
+                if (currentActiveImg && currentActiveImg.parentNode === backdropStage) {
+                    currentActiveImg.remove();
+                }
+                nextImg.classList.remove("detail-backdrop--sliding");
+            }, 550);
+        }
+
+        function selectEpisode(selector) {
+            const targetKey = selector.dataset.episodeTarget;
+            const target = Array.from(heroPanels).find(
+                (panel) => panel.dataset.episodeHero === targetKey,
+            );
+            if (!target) {
+                return;
+            }
+
+            heroPanels.forEach((panel) => {
+                const isSelected = panel === target;
+                panel.hidden = !isSelected;
+                panel.classList.toggle("d-none", !isSelected);
+            });
+            heroControls.forEach((control) => {
+                const isSelected = control.dataset.episodeHeroControl === targetKey;
+                control.hidden = !isSelected;
+                control.classList.toggle("d-none", !isSelected);
+            });
+            factsPanels.forEach((panel) => {
+                const isSelected = panel.dataset.episodeFacts === targetKey;
+                panel.hidden = !isSelected;
+                panel.classList.toggle("d-none", !isSelected);
+            });
+
+            selectors.forEach((item) => {
+                const isSelected = item === selector;
+                item.setAttribute("aria-pressed", String(isSelected));
+                item.closest("[data-episode-card]")?.classList.toggle(
+                    "active",
+                    isSelected,
+                );
+            });
+
+            const seasonPane = selector.closest("[data-season-pane]");
+            if (seasonPane) {
+                seasonPane.dataset.selectedEpisode = targetKey;
+            }
+
+            const newSeasonNum = parseInt(target.dataset.seasonNumber, 10) || 0;
+            const newEpisodeNum = parseInt(target.dataset.episodeNumber, 10) || 0;
+
+            let direction = "from-right";
+            if (currentSeasonNum !== null && currentEpisodeNum !== null) {
+                const currentScore = currentSeasonNum * 10000 + currentEpisodeNum;
+                const newScore = newSeasonNum * 10000 + newEpisodeNum;
+                if (newScore < currentScore) {
+                    direction = "from-left";
+                } else if (newScore > currentScore) {
+                    direction = "from-right";
+                }
+            }
+
+            currentSeasonNum = newSeasonNum;
+            currentEpisodeNum = newEpisodeNum;
+
+            const backdropUrl = target.dataset.heroBackdropUrl;
+            switchBackdrop(backdropUrl, direction);
+
+            target.dispatchEvent(new Event("detail:shown"));
+        }
+
+        selectors.forEach((selector) => {
+            selector.addEventListener("click", () => selectEpisode(selector));
+        });
+
+        seasonControls.forEach((control) => {
+            control.addEventListener("click", () => {
+                const targetId = control.dataset.seasonTarget;
+                const targetPane = targetId
+                    ? document.getElementById(targetId)
+                    : null;
+                if (!targetPane || !browser.contains(targetPane)) {
+                    return;
+                }
+
+                seasonPanes.forEach((pane) => {
+                    const isSelected = pane === targetPane;
+                    pane.hidden = !isSelected;
+                    pane.classList.toggle("d-none", !isSelected);
+                });
+                seasonControls.forEach((item) => {
+                    const isSelected = item === control;
+                    item.classList.toggle("active", isSelected);
+                    item.classList.toggle("genre-dropdown-toggle--active", isSelected);
+                    item.setAttribute("aria-pressed", String(isSelected));
+                    item.setAttribute("aria-selected", String(isSelected));
+                });
+                seasonSummaries.forEach((summary) => {
+                    const isSelected = summary.dataset.seasonSummary
+                        === control.dataset.seasonKey;
+                    summary.hidden = !isSelected;
+                    summary.classList.toggle("d-none", !isSelected);
+                });
+                if (seasonLabel && control.dataset.seasonName) {
+                    seasonLabel.textContent = control.dataset.seasonName;
+                }
+
+                const preferredKey = targetPane.dataset.selectedEpisode;
+                const targetSelector = Array.from(
+                    targetPane.querySelectorAll("[data-episode-target]"),
+                ).find((item) => item.dataset.episodeTarget === preferredKey)
+                    || targetPane.querySelector("[data-episode-target]");
+                if (targetSelector) {
+                    selectEpisode(targetSelector);
+                }
+            });
+        });
+    });
+
+    // Overview cards artwork preview trial and confirmation
+    document.querySelectorAll(".overview-card").forEach((card) => {
+        const form = card.querySelector(".overview-card-form");
+        const confirmBtn = card.querySelector("[data-artwork-confirm]");
+        if (!form || !confirmBtn) {
+            return;
+        }
+
+        const options = card.querySelectorAll("[data-artwork-option]");
+        options.forEach((btn) => {
+            btn.addEventListener("click", () => {
+                const imageType = btn.dataset.type;
+                const position = btn.dataset.position;
+                const src = btn.dataset.src;
+
+                // 1. Update preview image in card
+                const previewImg = card.querySelector(
+                    `[data-preview-type="${imageType}"]`,
+                );
+                if (previewImg && src) {
+                    previewImg.src = src;
+                    previewImg.classList.remove("d-none");
+                    const fallback = previewImg.parentElement?.querySelector(".image-fallback");
+                    if (fallback) {
+                        fallback.classList.add("d-none");
+                    }
+                }
+
+                // 2. Update hidden form input
+                const hiddenInput = form.querySelector(
+                    `[data-artwork-input="${imageType}"]`,
+                );
+                if (hiddenInput) {
+                    hiddenInput.value = position;
+                }
+
+                // 3. Update dropdown items status & active states
+                const siblings = card.querySelectorAll(
+                    `[data-artwork-option][data-type="${imageType}"]`,
+                );
+                siblings.forEach((sib) => {
+                    const statusSpan = sib.querySelector(".artwork-option-status");
+                    const checkBadge = sib.querySelector(".artwork-poster-check");
+                    if (sib === btn) {
+                        sib.classList.add("active");
+                        if (statusSpan) {
+                            statusSpan.textContent = position === "1" ? "当前使用" : "试用中";
+                        }
+                        if (checkBadge) {
+                            checkBadge.classList.remove("d-none");
+                        }
+                    } else {
+                        sib.classList.remove("active");
+                        if (statusSpan) {
+                            statusSpan.textContent = sib.dataset.position === "1" ? "原首选" : "点击试用";
+                        }
+                        if (checkBadge) {
+                            checkBadge.classList.add("d-none");
+                        }
+                    }
+                });
+
+                // 4. Check if any image is changed from default (position !== "1")
+                const inputs = form.querySelectorAll("[data-artwork-input]");
+                let hasChanges = false;
+                inputs.forEach((input) => {
+                    if (input.value !== "1") {
+                        hasChanges = true;
+                    }
+                });
+
+                if (hasChanges) {
+                    confirmBtn.classList.remove("d-none");
+                } else {
+                    confirmBtn.classList.add("d-none");
+                }
+            });
+        });
     });
 })();

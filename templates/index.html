@@ -22,7 +22,7 @@
                                             <img class="continue-logo position-absolute" src="{{ url_for('static', filename=item.logo_path) }}" alt="" width="320" height="120" loading="lazy" data-media-logo>
                                         {% endif %}
                                         {% if item.play_url %}
-                                            <a class="play-button btn btn-dark position-absolute top-50 start-50 translate-middle d-flex align-items-center justify-content-center p-0" href="{{ item.play_url }}" aria-label="继续播放{{ item.name }}"><i class="bi bi-play-fill fs-4" aria-hidden="true"></i></a>
+                                            <a class="play-button btn media-primary-action position-absolute top-50 start-50 translate-middle d-flex align-items-center justify-content-center p-0" href="{{ item.play_url }}" aria-label="继续播放{{ item.name }}"><i class="bi bi-play-fill fs-4" aria-hidden="true"></i></a>
                                         {% endif %}
                                         <div class="progress watch-progress rounded-0" role="progressbar" aria-label="{{ item.name }}观看进度" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ item.progress }}">
                                             <div class="progress-bar" style="width: {{ item.progress }}%"></div>
@@ -47,7 +47,7 @@
         {% else %}
             <div class="container-xl">
                 <div class="empty-state squircle-card d-flex align-items-center gap-3 border bg-body-tertiary p-4">
-                    <span class="fs-4 text-primary" aria-hidden="true"><i class="bi bi-clock-history"></i></span>
+                    <span class="fs-4 media-accent-text" aria-hidden="true"><i class="bi bi-clock-history"></i></span>
                     <div>
                         <h3 class="h6 mb-1">还没有观看记录</h3>
                         <p class="text-body-secondary mb-0">开始播放后，这里会显示最近观看的媒体和播放进度。</p>
@@ -67,7 +67,7 @@
                             <a class="d-block text-body text-decoration-none" href="{{ folder.detail_url }}">
                                 <div class="folder-frame squircle-card ratio ratio-16x9 overflow-hidden bg-body-tertiary shadow-sm" aria-hidden="true">
                                     <div class="d-flex align-items-center justify-content-center">
-                                        <span class="fs-2 text-primary"><i class="bi bi-{{ folder.icon }}"></i></span>
+                                        <span class="fs-2 media-accent-text"><i class="bi bi-{{ folder.icon }}"></i></span>
                                     </div>
                                 </div>
                                 <div class="pt-3">

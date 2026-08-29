@@ -80,15 +80,43 @@ CREATE TABLE movie (
 );
 
 CREATE TABLE movie_source (
-    source_id  INTEGER NOT NULL,
-    movie_id   INTEGER NOT NULL,
-    alist_path TEXT    NOT NULL,
+    source_id            INTEGER NOT NULL,
+    movie_id             INTEGER NOT NULL,
+    alist_path           TEXT    NOT NULL,
+    media_duration_ms    INTEGER,
+    file_size_bytes      INTEGER,
+    bit_rate             INTEGER,
+    container_format     TEXT,
+    video_codec          TEXT,
+    video_width          INTEGER,
+    video_height         INTEGER,
+    video_frame_rate     NUMERIC,
+    video_pixel_format   TEXT,
+    video_dynamic_range  TEXT,
+    audio_codec          TEXT,
+    audio_channels       INTEGER,
+    audio_channel_layout TEXT,
+    probed_at            TEXT,
     PRIMARY KEY (source_id),
          UNIQUE (alist_path),
     FOREIGN KEY (movie_id)
      REFERENCES movie (movie_id)
       ON DELETE CASCADE
-      ON UPDATE CASCADE
+      ON UPDATE CASCADE,
+     CONSTRAINT movie_source_duration_nonnegative
+          CHECK (media_duration_ms IS NULL OR media_duration_ms >= 0),
+     CONSTRAINT movie_source_size_nonnegative
+          CHECK (file_size_bytes IS NULL OR file_size_bytes >= 0),
+     CONSTRAINT movie_source_bitrate_nonnegative
+          CHECK (bit_rate IS NULL OR bit_rate >= 0),
+     CONSTRAINT movie_source_width_positive
+          CHECK (video_width IS NULL OR video_width > 0),
+     CONSTRAINT movie_source_height_positive
+          CHECK (video_height IS NULL OR video_height > 0),
+     CONSTRAINT movie_source_frame_rate_positive
+          CHECK (video_frame_rate IS NULL OR video_frame_rate > 0),
+     CONSTRAINT movie_source_audio_channels_positive
+          CHECK (audio_channels IS NULL OR audio_channels > 0)
 );
 
 CREATE TABLE genre (
@@ -346,15 +374,43 @@ CREATE TABLE tv_episode (
 );
 
 CREATE TABLE tv_episode_source (
-    source_id  INTEGER NOT NULL,
-    episode_id INTEGER NOT NULL,
-    alist_path TEXT    NOT NULL,
+    source_id            INTEGER NOT NULL,
+    episode_id           INTEGER NOT NULL,
+    alist_path           TEXT    NOT NULL,
+    media_duration_ms    INTEGER,
+    file_size_bytes      INTEGER,
+    bit_rate             INTEGER,
+    container_format     TEXT,
+    video_codec          TEXT,
+    video_width          INTEGER,
+    video_height         INTEGER,
+    video_frame_rate     NUMERIC,
+    video_pixel_format   TEXT,
+    video_dynamic_range  TEXT,
+    audio_codec          TEXT,
+    audio_channels       INTEGER,
+    audio_channel_layout TEXT,
+    probed_at            TEXT,
     PRIMARY KEY (source_id),
          UNIQUE (alist_path),
     FOREIGN KEY (episode_id)
      REFERENCES tv_episode (episode_id)
       ON DELETE CASCADE
-      ON UPDATE CASCADE
+      ON UPDATE CASCADE,
+     CONSTRAINT tv_source_duration_nonnegative
+          CHECK (media_duration_ms IS NULL OR media_duration_ms >= 0),
+     CONSTRAINT tv_source_size_nonnegative
+          CHECK (file_size_bytes IS NULL OR file_size_bytes >= 0),
+     CONSTRAINT tv_source_bitrate_nonnegative
+          CHECK (bit_rate IS NULL OR bit_rate >= 0),
+     CONSTRAINT tv_source_width_positive
+          CHECK (video_width IS NULL OR video_width > 0),
+     CONSTRAINT tv_source_height_positive
+          CHECK (video_height IS NULL OR video_height > 0),
+     CONSTRAINT tv_source_frame_rate_positive
+          CHECK (video_frame_rate IS NULL OR video_frame_rate > 0),
+     CONSTRAINT tv_source_audio_channels_positive
+          CHECK (audio_channels IS NULL OR audio_channels > 0)
 );
 
 CREATE TABLE movie_watch_progress (
