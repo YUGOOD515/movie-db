@@ -1385,6 +1385,1063 @@ class ImportWorkflowTest(unittest.TestCase):
             [1, 2],
         )
 
+    def test_ratings_storage_and_constraints(self):
+        # 1. Insert a movie with null ratings and verify default values
+        with closing(sqlite3.connect(self.database_path)) as db:
+            db.row_factory = sqlite3.Row
+            db.execute(
+                """
+                INSERT INTO movie (
+                    movie_id, adult, softcore, video, budget, revenue, popularity,
+                    vote_average, vote_count, original_language, original_title,
+                    title, release_status, imdb_id
+                ) VALUES (
+                    101, 0, 0, 0, 0, 0, 10.0, 8.5, 1000, 'en', 'Test Movie',
+                    '测试电影', 'Released', 'tt1234567'
+                )
+                """
+            )
+            db.commit()
+
+            # 2. Update ratings via save_media_ratings
+            movie_app.models.save_media_ratings(
+                self.database_path,
+                "movie",
+                101,
+                {
+                    "imdb_rating": 8.7,
+                    "imdb_vote_count": 2500000,
+                    "rotten_tomatoes_tomatometer": 93,
+                    "rotten_tomatoes_popcornmeter": None,
+                    "metacritic_rating": 74,
+                    "ratings_updated_at": "2026-08-29 12:00:00",
+                },
+            )
+
+            row = dict(
+                db.execute(
+                    """
+                    SELECT imdb_rating,
+                           imdb_vote_count,
+                           rotten_tomatoes_tomatometer,
+                           rotten_tomatoes_popcornmeter,
+                           metacritic_rating,
+                           ratings_updated_at
+                      FROM movie
+                     WHERE movie_id = 101
+                    """
+                ).fetchone()
+            )
+            self.assertEqual(row["imdb_rating"], 8.7)
+            self.assertEqual(row["imdb_vote_count"], 2500000)
+            self.assertEqual(row["rotten_tomatoes_tomatometer"], 93)
+            self.assertIsNone(row["rotten_tomatoes_popcornmeter"])
+            self.assertEqual(row["metacritic_rating"], 74)
+            self.assertEqual(row["ratings_updated_at"], "2026-08-29 12:00:00")
+
+            # 3. A partial refresh must not erase scores omitted by the provider.
+            movie_app.models.save_media_ratings(
+                self.database_path,
+                "movie",
+                101,
+                {"imdb_rating": 8.8},
+            )
+            refreshed = db.execute(
+                """
+                SELECT imdb_rating,
+                       imdb_vote_count,
+                       rotten_tomatoes_tomatometer,
+                       metacritic_rating
+                  FROM movie
+                 WHERE movie_id = 101
+                """
+            ).fetchone()
+            self.assertEqual(refreshed["imdb_rating"], 8.8)
+            self.assertEqual(refreshed["imdb_vote_count"], 2500000)
+            self.assertEqual(refreshed["rotten_tomatoes_tomatometer"], 93)
+            self.assertEqual(refreshed["metacritic_rating"], 74)
+
+            # 4. Test check constraint violations on invalid ratings
+            with self.assertRaises(sqlite3.IntegrityError):
+                db.execute(
+                    "UPDATE movie SET imdb_rating = 11 WHERE movie_id = 101"
+                )
+            with self.assertRaises(sqlite3.IntegrityError):
+                db.execute(
+                    "UPDATE movie SET rotten_tomatoes_tomatometer = 101 WHERE movie_id = 101"
+                )
+            with self.assertRaises(sqlite3.IntegrityError):
+                db.execute(
+                    "UPDATE movie SET metacritic_rating = -1 WHERE movie_id = 101"
+                )
+            with self.assertRaises(sqlite3.IntegrityError):
+                db.execute(
+                    "UPDATE movie SET imdb_vote_count = -5 WHERE movie_id = 101"
+                )
+
+            # 5. Test tv_series ratings and imdb_id
+            db.execute(
+                """
+                INSERT INTO tv_series (
+                    series_id, adult, softcore, in_production, number_of_episodes,
+                    number_of_seasons, popularity, vote_average, vote_count,
+                    original_language, original_name, series_name, series_status,
+                    series_type, created_by_json, networks_json,
+                    episode_runtime_json, imdb_id
+                ) VALUES (
+                    201, 0, 0, 0, 10, 1, 15.0, 9.0, 500, 'en', 'Test Series',
+                    '测试剧集', 'Ended', 'Scripted', '[]', '[]', '[]', 'tt7654321'
+                )
+                """
+            )
+            db.commit()
+
+            movie_app.models.save_media_ratings(
+                self.database_path,
+                "tv",
+                201,
+                {
+                    "imdb_rating": 9.5,
+                    "imdb_vote_count": 2600000,
+                    "rotten_tomatoes_tomatometer": 96,
+                    "rotten_tomatoes_popcornmeter": 98,
+                    "metacritic_rating": 89,
+                },
+            )
+
+            tv_row = dict(
+                db.execute(
+                    """
+                    SELECT imdb_id,
+                           imdb_rating,
+                           imdb_vote_count,
+                           rotten_tomatoes_tomatometer,
+                           rotten_tomatoes_popcornmeter,
+                           metacritic_rating,
+                           ratings_updated_at
+                      FROM tv_series
+                     WHERE series_id = 201
+                    """
+                ).fetchone()
+            )
+            self.assertEqual(tv_row["imdb_id"], "tt7654321")
+            self.assertEqual(tv_row["imdb_rating"], 9.5)
+            self.assertEqual(tv_row["imdb_vote_count"], 2600000)
+            self.assertEqual(tv_row["rotten_tomatoes_tomatometer"], 96)
+            self.assertEqual(tv_row["rotten_tomatoes_popcornmeter"], 98)
+            self.assertEqual(tv_row["metacritic_rating"], 89)
+            self.assertIsNotNone(tv_row["ratings_updated_at"])
+
+    def test_parse_omdb_ratings_various_payloads(self):
+        # 1. Full payload
+        full_payload = {
+            "Response": "True",
+            "imdbRating": "8.7",
+            "imdbVotes": "2,516,752",
+            "Metascore": "74",
+            "Ratings": [
+                {"Source": "Internet Movie Database", "Value": "8.7/10"},
+                {"Source": "Rotten Tomatoes", "Value": "73%"},
+                {"Source": "Metacritic", "Value": "74/100"},
+            ],
+        }
+        parsed = movie_app.helpers.parse_omdb_ratings(full_payload)
+        self.assertEqual(parsed["imdb_rating"], 8.7)
+        self.assertEqual(parsed["imdb_vote_count"], 2516752)
+        self.assertEqual(parsed["rotten_tomatoes_tomatometer"], 73)
+        self.assertIsNone(parsed["rotten_tomatoes_popcornmeter"])
+        self.assertEqual(parsed["metacritic_rating"], 74)
+
+        # 2. Payload with N/A, empty strings, missing fields and custom Ratings order
+        partial_payload = {
+            "Response": "True",
+            "imdbRating": "N/A",
+            "imdbVotes": "N/A",
+            "Metascore": "N/A",
+            "Ratings": [
+                {"Source": "Rotten Tomatoes", "Value": "95%"},
+                {"Source": "Internet Movie Database", "Value": "8.2/10"},
+            ],
+        }
+        parsed_partial = movie_app.helpers.parse_omdb_ratings(partial_payload)
+        self.assertEqual(parsed_partial["imdb_rating"], 8.2)
+        self.assertIsNone(parsed_partial["imdb_vote_count"])
+        self.assertEqual(parsed_partial["rotten_tomatoes_tomatometer"], 95)
+        self.assertIsNone(parsed_partial["rotten_tomatoes_popcornmeter"])
+        self.assertIsNone(parsed_partial["metacritic_rating"])
+
+        # 3. Response: False or empty/invalid payloads
+        false_payload = {"Response": "False", "Error": "Error getting data."}
+        parsed_false = movie_app.helpers.parse_omdb_ratings(false_payload)
+        self.assertEqual(
+            parsed_false,
+            {
+                "imdb_rating": None,
+                "imdb_vote_count": None,
+                "rotten_tomatoes_tomatometer": None,
+                "rotten_tomatoes_popcornmeter": None,
+                "metacritic_rating": None,
+            },
+        )
+        self.assertEqual(
+            movie_app.helpers.parse_omdb_ratings(None),
+            {
+                "imdb_rating": None,
+                "imdb_vote_count": None,
+                "rotten_tomatoes_tomatometer": None,
+                "rotten_tomatoes_popcornmeter": None,
+                "metacritic_rating": None,
+            },
+        )
+
+    @patch("helpers.requests.get")
+    def test_fetch_omdb_ratings_and_error_handling(self, mocked_get):
+        # 1. Missing API key raises RatingFetchError
+        with self.assertRaises(movie_app.helpers.RatingFetchError):
+            movie_app.helpers.fetch_omdb_ratings("tt1234567", apikey="")
+
+        # 2. Invalid or missing ID returns None without crashing
+        self.assertIsNone(movie_app.helpers.fetch_omdb_ratings("", apikey="test_key"))
+        self.assertIsNone(movie_app.helpers.fetch_omdb_ratings("invalid_id", apikey="test_key"))
+
+        # 3. Network error / Timeout raises RatingFetchError
+        mocked_get.side_effect = requests.Timeout("Connection timed out")
+        with self.assertRaises(movie_app.helpers.RatingFetchError):
+            movie_app.helpers.fetch_omdb_ratings("tt1234567", apikey="test_key")
+
+        # 4. HTTP 500 error raises RatingFetchError
+        mocked_get.side_effect = requests.HTTPError("500 Server Error")
+        with self.assertRaises(movie_app.helpers.RatingFetchError):
+            movie_app.helpers.fetch_omdb_ratings("tt1234567", apikey="test_key")
+
+        # 5. OMDb API service limit / auth error raises RatingFetchError
+        mock_limit_resp = unittest.mock.Mock()
+        mock_limit_resp.raise_for_status.return_value = None
+        mock_limit_resp.json.return_value = {
+            "Response": "False",
+            "Error": "Request limit reached!",
+        }
+        mocked_get.side_effect = None
+        mocked_get.return_value = mock_limit_resp
+        with self.assertRaises(movie_app.helpers.RatingFetchError):
+            movie_app.helpers.fetch_omdb_ratings("tt1234567", apikey="test_key")
+
+        # 6. OMDb "Movie not found!" returns None cleanly (valid response, no scores)
+        mock_not_found = unittest.mock.Mock()
+        mock_not_found.raise_for_status.return_value = None
+        mock_not_found.json.return_value = {
+            "Response": "False",
+            "Error": "Movie not found!",
+        }
+        mocked_get.return_value = mock_not_found
+        self.assertIsNone(movie_app.helpers.fetch_omdb_ratings("tt1234567", apikey="test_key"))
+
+        # 7. Successful response
+        mock_response = unittest.mock.Mock()
+        mock_response.raise_for_status.return_value = None
+        mock_response.json.return_value = {
+            "Response": "True",
+            "imdbRating": "9.0",
+            "imdbVotes": "100,000",
+        }
+        mocked_get.return_value = mock_response
+
+        res = movie_app.helpers.fetch_omdb_ratings("tt1234567", apikey="test_key")
+        self.assertEqual(res["imdbRating"], "9.0")
+        self.assertEqual(res["imdbVotes"], "100,000")
+
+    @patch("helpers.fetch_omdb_ratings")
+    @patch("helpers.get_media_external_ids")
+    def test_fetch_media_ratings_retrieves_imdb_id_for_tv(
+        self, mocked_get_ext, mocked_fetch_omdb
+    ):
+        mocked_get_ext.return_value = {"imdb_id": "tt9999999"}
+        mocked_fetch_omdb.return_value = {
+            "Response": "True",
+            "imdbRating": "8.5",
+            "imdbVotes": "50,000",
+            "Ratings": [{"Source": "Rotten Tomatoes", "Value": "88%"}],
+        }
+
+        ratings = movie_app.helpers.fetch_media_ratings("tv", 12345, apikey="test_key")
+        self.assertEqual(ratings["imdb_id"], "tt9999999")
+        self.assertEqual(ratings["imdb_rating"], 8.5)
+        self.assertEqual(ratings["imdb_vote_count"], 50000)
+        self.assertEqual(ratings["rotten_tomatoes_tomatometer"], 88)
+        self.assertIsNone(ratings["rotten_tomatoes_popcornmeter"])
+        mocked_get_ext.assert_called_once_with("tv", 12345)
+        mocked_fetch_omdb.assert_called_once_with("tt9999999", apikey="test_key")
+
+    @patch("helpers._tmdb_get", side_effect=requests.Timeout("TMDB timed out"))
+    def test_external_id_failure_is_not_converted_to_an_empty_result(self, mocked_get):
+        with self.assertRaises(movie_app.helpers.RatingFetchError):
+            movie_app.helpers.get_media_external_ids("tv", 12345)
+
+        mocked_get.assert_called_once_with("/tv/12345/external_ids")
+
+    @patch("app.helpers.fetch_media_ratings")
+    @patch("app.helpers.download_media_images")
+    @patch("app.helpers.search_media_images")
+    @patch("app.helpers.find_media")
+    @patch("app.probe_alist_source")
+    def test_import_movie_saves_ratings(
+        self,
+        mock_probe,
+        mock_find_media,
+        mock_search_images,
+        mock_download_images,
+        mock_fetch_ratings,
+    ):
+        mock_probe.return_value = {
+            "media_duration_ms": 7200000,
+            "file_size_bytes": 1000000,
+            "bit_rate": 2000000,
+            "container_format": "mkv",
+            "video_codec": "hevc",
+            "video_width": 3840,
+            "video_height": 2160,
+            "video_frame_rate": 24,
+            "video_pixel_format": "yuv420p10le",
+            "video_dynamic_range": "HDR10",
+            "audio_codec": "aac",
+            "audio_channels": 2,
+            "audio_channel_layout": "stereo",
+        }
+        mock_find_media.return_value = {
+            "id": 999,
+            "adult": False,
+            "budget": 0,
+            "genres": [],
+            "homepage": "",
+            "imdb_id": "tt1239999",
+            "origin_country": ["US"],
+            "original_language": "en",
+            "original_title": "Integration Test Movie",
+            "overview": "Overview",
+            "popularity": 10.0,
+            "production_companies": [],
+            "production_countries": [],
+            "release_date": "2026-08-29",
+            "revenue": 0,
+            "runtime": 100,
+            "softcore": False,
+            "spoken_languages": [],
+            "status": "Released",
+            "tagline": "",
+            "title": "集成测试电影",
+            "video": False,
+            "vote_average": 8.1,
+            "vote_count": 500,
+        }
+        mock_search_images.return_value = {"posters": [], "logos": [], "backdrops": []}
+        mock_download_images.return_value = []
+        mock_fetch_ratings.return_value = {
+            "imdb_id": "tt1239999",
+            "imdb_rating": 8.3,
+            "imdb_vote_count": 12000,
+            "rotten_tomatoes_tomatometer": 85,
+            "rotten_tomatoes_popcornmeter": None,
+            "metacritic_rating": 79,
+        }
+
+        with movie_app.app.app_context():
+            msg = movie_app.import_movie("集成测试电影", "/Quark/test.mkv")
+            self.assertIn("已关联电影", msg)
+
+        with closing(sqlite3.connect(self.database_path)) as db:
+            db.row_factory = sqlite3.Row
+            row = db.execute(
+                """
+                SELECT imdb_id, imdb_rating, imdb_vote_count,
+                       rotten_tomatoes_tomatometer, rotten_tomatoes_popcornmeter,
+                       metacritic_rating, ratings_updated_at
+                  FROM movie
+                 WHERE movie_id = 999
+                """
+            ).fetchone()
+            self.assertEqual(row["imdb_id"], "tt1239999")
+            self.assertEqual(row["imdb_rating"], 8.3)
+            self.assertEqual(row["imdb_vote_count"], 12000)
+            self.assertEqual(row["rotten_tomatoes_tomatometer"], 85)
+            self.assertIsNone(row["rotten_tomatoes_popcornmeter"])
+            self.assertEqual(row["metacritic_rating"], 79)
+            self.assertIsNotNone(row["ratings_updated_at"])
+
+    @patch("app.helpers.fetch_media_ratings")
+    @patch("app.helpers.download_media_images")
+    @patch("app.helpers.search_media_images")
+    @patch("app.helpers.find_media")
+    @patch("app.probe_alist_source")
+    def test_import_movie_preserves_ratings_on_omdb_failure_and_skips_when_cached(
+        self,
+        mock_probe,
+        mock_find_media,
+        mock_search_images,
+        mock_download_images,
+        mock_fetch_ratings,
+    ):
+        mock_probe.return_value = {
+            "media_duration_ms": 7200000,
+            "file_size_bytes": 1000000,
+            "bit_rate": 2000000,
+            "container_format": "mkv",
+            "video_codec": "hevc",
+            "video_width": 3840,
+            "video_height": 2160,
+            "video_frame_rate": 24,
+            "video_pixel_format": "yuv420p10le",
+            "video_dynamic_range": "HDR10",
+            "audio_codec": "aac",
+            "audio_channels": 2,
+            "audio_channel_layout": "stereo",
+        }
+        mock_find_media.return_value = {
+            "id": 998,
+            "adult": False,
+            "budget": 0,
+            "genres": [],
+            "homepage": "",
+            "imdb_id": "tt1239998",
+            "origin_country": ["US"],
+            "original_language": "en",
+            "original_title": "Existing Movie",
+            "overview": "Overview",
+            "popularity": 10.0,
+            "production_companies": [],
+            "production_countries": [],
+            "release_date": "2026-08-29",
+            "revenue": 0,
+            "runtime": 100,
+            "softcore": False,
+            "spoken_languages": [],
+            "status": "Released",
+            "tagline": "",
+            "title": "已评分电影",
+            "video": False,
+            "vote_average": 8.1,
+            "vote_count": 500,
+        }
+        mock_search_images.return_value = {"posters": [], "logos": [], "backdrops": []}
+        mock_download_images.return_value = []
+
+        # 1. Pre-insert movie with existing ratings
+        with closing(sqlite3.connect(self.database_path)) as db:
+            db.execute(
+                """
+                INSERT INTO movie (
+                    movie_id, adult, softcore, video, budget, revenue, popularity,
+                    vote_average, vote_count, original_language, original_title,
+                    title, release_status, imdb_id, imdb_rating, imdb_vote_count,
+                    rotten_tomatoes_tomatometer, rotten_tomatoes_popcornmeter,
+                    metacritic_rating, ratings_updated_at
+                ) VALUES (
+                    998, 0, 0, 0, 0, 0, 10.0, 8.1, 500, 'en', 'Existing Movie',
+                    '已评分电影', 'Released', 'tt1239998', 8.8, 90000, 95, NULL, 88,
+                    CURRENT_TIMESTAMP
+                )
+                """
+            )
+            db.commit()
+
+        # 2. Re-importing this movie with a second source must SKIP calling fetch_media_ratings
+        with movie_app.app.app_context():
+            msg = movie_app.import_movie("已评分电影", "/Quark/second_source.mkv")
+            self.assertIn("已关联电影", msg)
+            mock_fetch_ratings.assert_not_called()
+
+        # Check existing ratings were completely preserved
+        with closing(sqlite3.connect(self.database_path)) as db:
+            db.row_factory = sqlite3.Row
+            row = db.execute("SELECT * FROM movie WHERE movie_id = 998").fetchone()
+            self.assertEqual(row["imdb_rating"], 8.8)
+            self.assertEqual(row["rotten_tomatoes_tomatometer"], 95)
+            self.assertEqual(row["metacritic_rating"], 88)
+            self.assertIsNotNone(row["ratings_updated_at"])
+
+        # 3. An expired cache is retried; a fetch failure must preserve the old data.
+        with closing(sqlite3.connect(self.database_path)) as db:
+            db.execute(
+                "UPDATE movie SET ratings_updated_at = '2000-01-01 00:00:00' WHERE movie_id = 998"
+            )
+            db.commit()
+
+        mock_fetch_ratings.side_effect = movie_app.helpers.RatingFetchError(
+            "OMDb network timeout"
+        )
+        with movie_app.app.app_context():
+            msg = movie_app.import_movie(
+                "已评分电影",
+                "/Quark/third_source.mkv",
+            )
+            self.assertIn("已关联电影", msg)
+            mock_fetch_ratings.assert_called_once_with(
+                "movie",
+                998,
+                imdb_id="tt1239998",
+            )
+
+        with closing(sqlite3.connect(self.database_path)) as db:
+            db.row_factory = sqlite3.Row
+            row = db.execute("SELECT * FROM movie WHERE movie_id = 998").fetchone()
+            self.assertEqual(row["imdb_rating"], 8.8)
+            self.assertEqual(row["rotten_tomatoes_tomatometer"], 95)
+            self.assertEqual(row["metacritic_rating"], 88)
+            self.assertEqual(row["ratings_updated_at"], "2000-01-01 00:00:00")
+
+    @patch(
+        "app._sync_media_ratings",
+        side_effect=sqlite3.OperationalError("ratings write failed"),
+    )
+    @patch("app.models.save_movie")
+    @patch("app.helpers.download_media_images", return_value=[])
+    @patch("app.helpers.search_media_images", return_value={})
+    @patch(
+        "app.helpers.find_media",
+        return_value={"id": 997, "title": "数据库错误测试", "imdb_id": "tt1239997"},
+    )
+    @patch("app.probe_alist_source", return_value={})
+    def test_import_movie_does_not_hide_rating_database_errors(
+        self,
+        mock_probe,
+        mock_find_media,
+        mock_search_images,
+        mock_download_images,
+        mock_save_movie,
+        mock_sync_ratings,
+    ):
+        with movie_app.app.app_context():
+            with self.assertRaises(sqlite3.OperationalError):
+                movie_app.import_movie("数据库错误测试", "/Quark/db-error.mkv")
+
+        mock_sync_ratings.assert_called_once_with(
+            "movie",
+            997,
+            imdb_id="tt1239997",
+        )
+
+    @patch("app.helpers.fetch_media_ratings")
+    @patch("app.helpers.download_tv_episode_still")
+    @patch("app.helpers.get_tv_episode")
+    @patch("app.helpers.search_tv_season")
+    @patch("app.helpers.find_media")
+    @patch("app.probe_alist_source")
+    def test_import_tv_episode_ratings_reuse(
+        self,
+        mock_probe,
+        mock_find_media,
+        mock_search_season,
+        mock_get_episode,
+        mock_download_still,
+        mock_fetch_ratings,
+    ):
+        mock_probe.return_value = {
+            "media_duration_ms": 3600000,
+            "file_size_bytes": 500000,
+            "bit_rate": 1000000,
+            "container_format": "mkv",
+            "video_codec": "h264",
+            "video_width": 1920,
+            "video_height": 1080,
+            "video_frame_rate": 24,
+            "video_pixel_format": "yuv420p",
+            "video_dynamic_range": "SDR",
+            "audio_codec": "aac",
+            "audio_channels": 2,
+            "audio_channel_layout": "stereo",
+        }
+        mock_find_media.return_value = {
+            "id": 888,
+            "adult": False,
+            "in_production": False,
+            "number_of_episodes": 10,
+            "number_of_seasons": 1,
+            "popularity": 15.0,
+            "vote_average": 8.7,
+            "vote_count": 300,
+            "original_language": "en",
+            "original_name": "Integration Test Series",
+            "name": "集成测试剧集",
+            "overview": "Overview",
+            "status": "Ended",
+            "type": "Scripted",
+            "created_by": [],
+            "networks": [],
+            "episode_run_time": [45],
+            "genres": [],
+            "spoken_languages": [],
+            "production_companies": [],
+            "production_countries": [],
+        }
+        mock_search_season.return_value = {
+            "id": 1888,
+            "season_number": 1,
+            "name": "第 1 季",
+            "overview": "",
+            "air_date": "2026-01-01",
+            "poster_path": None,
+            "episodes": [
+                {
+                    "id": 88801,
+                    "season_number": 1,
+                    "episode_number": 1,
+                    "name": "第 1 集",
+                    "overview": "E01 Overview",
+                    "air_date": "2026-01-01",
+                    "runtime": 45,
+                    "still_path": None,
+                    "vote_average": 8.5,
+                    "vote_count": 100,
+                },
+                {
+                    "id": 88802,
+                    "season_number": 1,
+                    "episode_number": 2,
+                    "name": "第 2 集",
+                    "overview": "E02 Overview",
+                    "air_date": "2026-01-08",
+                    "runtime": 45,
+                    "still_path": None,
+                    "vote_average": 8.6,
+                    "vote_count": 120,
+                },
+            ],
+        }
+        mock_get_episode.side_effect = [
+            mock_search_season.return_value["episodes"][0],
+            mock_search_season.return_value["episodes"][1],
+        ]
+        mock_download_still.return_value = None
+        mock_fetch_ratings.return_value = {
+            "imdb_id": "tt8888888",
+            "imdb_rating": 8.9,
+            "imdb_vote_count": 45000,
+            "rotten_tomatoes_tomatometer": 92,
+            "rotten_tomatoes_popcornmeter": None,
+            "metacritic_rating": 84,
+        }
+
+        with movie_app.app.app_context():
+            # 1. Import Episode 1
+            msg1 = movie_app.import_tv_episode("集成测试剧集", 1, 1, "/Quark/S01E01.mkv")
+            self.assertIn("S01E01", msg1)
+            self.assertEqual(mock_fetch_ratings.call_count, 1)
+
+            # Check DB has ratings
+            self.assertTrue(movie_app.models.has_series_ratings(self.database_path, 888))
+
+            # 2. Import Episode 2 (should reuse ratings and NOT call fetch_media_ratings again)
+            msg2 = movie_app.import_tv_episode("集成测试剧集", 1, 2, "/Quark/S01E02.mkv")
+            self.assertIn("S01E02", msg2)
+            self.assertEqual(mock_fetch_ratings.call_count, 1)
+
+    @patch("app.helpers.fetch_media_ratings")
+    @patch("app.helpers.download_tv_episode_still")
+    @patch("app.helpers.get_tv_episode")
+    @patch("app.helpers.search_tv_season")
+    @patch("app.helpers.find_media")
+    @patch("app.probe_alist_source")
+    def test_import_tv_episode_retries_on_next_episode_if_first_failed(
+        self,
+        mock_probe,
+        mock_find_media,
+        mock_search_season,
+        mock_get_episode,
+        mock_download_still,
+        mock_fetch_ratings,
+    ):
+        mock_probe.return_value = {
+            "media_duration_ms": 3600000,
+            "file_size_bytes": 500000,
+            "bit_rate": 1000000,
+            "container_format": "mkv",
+            "video_codec": "h264",
+            "video_width": 1920,
+            "video_height": 1080,
+            "video_frame_rate": 24,
+            "video_pixel_format": "yuv420p",
+            "video_dynamic_range": "SDR",
+            "audio_codec": "aac",
+            "audio_channels": 2,
+            "audio_channel_layout": "stereo",
+        }
+        mock_find_media.return_value = {
+            "id": 887,
+            "adult": False,
+            "in_production": False,
+            "number_of_episodes": 10,
+            "number_of_seasons": 1,
+            "popularity": 15.0,
+            "vote_average": 8.7,
+            "vote_count": 300,
+            "original_language": "en",
+            "original_name": "Retry Test Series",
+            "name": "重试测试剧集",
+            "overview": "Overview",
+            "status": "Ended",
+            "type": "Scripted",
+            "created_by": [],
+            "networks": [],
+            "episode_run_time": [45],
+            "genres": [],
+            "spoken_languages": [],
+            "production_companies": [],
+            "production_countries": [],
+        }
+        mock_search_season.return_value = {
+            "id": 1887,
+            "season_number": 1,
+            "name": "第 1 季",
+            "overview": "",
+            "air_date": "2026-01-01",
+            "poster_path": None,
+            "episodes": [
+                {
+                    "id": 88701,
+                    "season_number": 1,
+                    "episode_number": 1,
+                    "name": "第 1 集",
+                    "overview": "E01 Overview",
+                    "air_date": "2026-01-01",
+                    "runtime": 45,
+                    "still_path": None,
+                    "vote_average": 8.5,
+                    "vote_count": 100,
+                },
+                {
+                    "id": 88702,
+                    "season_number": 1,
+                    "episode_number": 2,
+                    "name": "第 2 集",
+                    "overview": "E02 Overview",
+                    "air_date": "2026-01-08",
+                    "runtime": 45,
+                    "still_path": None,
+                    "vote_average": 8.6,
+                    "vote_count": 120,
+                },
+            ],
+        }
+        mock_get_episode.side_effect = [
+            mock_search_season.return_value["episodes"][0],
+            mock_search_season.return_value["episodes"][1],
+        ]
+        mock_download_still.return_value = None
+
+        # Episode 1 fails with RatingFetchError
+        mock_fetch_ratings.side_effect = [
+            movie_app.helpers.RatingFetchError("OMDb network timeout"),
+            {
+                "imdb_id": "tt8878877",
+                "imdb_rating": 8.7,
+                "imdb_vote_count": 30000,
+                "rotten_tomatoes_tomatometer": 90,
+                "rotten_tomatoes_popcornmeter": None,
+                "metacritic_rating": 80,
+            },
+        ]
+
+        with movie_app.app.app_context():
+            # 1. Import Episode 1 (rating failed, series has_series_ratings must remain False)
+            msg1 = movie_app.import_tv_episode("重试测试剧集", 1, 1, "/Quark/S01E01.mkv")
+            self.assertIn("S01E01", msg1)
+            self.assertFalse(movie_app.models.has_series_ratings(self.database_path, 887))
+
+            # 2. Import Episode 2 (should RETRY and succeed)
+            msg2 = movie_app.import_tv_episode("重试测试剧集", 1, 2, "/Quark/S01E02.mkv")
+            self.assertIn("S01E02", msg2)
+            self.assertTrue(movie_app.models.has_series_ratings(self.database_path, 887))
+            self.assertEqual(mock_fetch_ratings.call_count, 2)
+
+        with closing(sqlite3.connect(self.database_path)) as db:
+            db.row_factory = sqlite3.Row
+            row = db.execute("SELECT * FROM tv_series WHERE series_id = 887").fetchone()
+            self.assertEqual(row["imdb_rating"], 8.7)
+            self.assertEqual(row["rotten_tomatoes_tomatometer"], 90)
+            self.assertEqual(row["metacritic_rating"], 80)
+            self.assertIsNotNone(row["ratings_updated_at"])
+
+    @patch("helpers.requests.get")
+    def test_fetch_omdb_season_episodes(self, mocked_get):
+        # 1. Missing API key
+        with self.assertRaises(movie_app.helpers.RatingFetchError):
+            movie_app.helpers.fetch_omdb_season_episodes("tt1870479", 1, apikey="")
+
+        # 2. Invalid or missing ID returns []
+        self.assertEqual(movie_app.helpers.fetch_omdb_season_episodes("", 1, apikey="test_key"), [])
+        self.assertEqual(movie_app.helpers.fetch_omdb_season_episodes("invalid_id", 1, apikey="test_key"), [])
+
+        # 3. Network error / Timeout raises RatingFetchError
+        mocked_get.side_effect = requests.Timeout("Connection timed out")
+        with self.assertRaises(movie_app.helpers.RatingFetchError):
+            movie_app.helpers.fetch_omdb_season_episodes("tt1870479", 1, apikey="test_key")
+
+        # 4. Service error (e.g. rate limit) raises RatingFetchError
+        mock_limit = unittest.mock.Mock()
+        mock_limit.raise_for_status.return_value = None
+        mock_limit.json.return_value = {"Response": "False", "Error": "Request limit reached!"}
+        mocked_get.side_effect = None
+        mocked_get.return_value = mock_limit
+        with self.assertRaises(movie_app.helpers.RatingFetchError):
+            movie_app.helpers.fetch_omdb_season_episodes("tt1870479", 1, apikey="test_key")
+
+        # 5. Season not found returns [] cleanly
+        mock_not_found = unittest.mock.Mock()
+        mock_not_found.raise_for_status.return_value = None
+        mock_not_found.json.return_value = {"Response": "False", "Error": "Series or season not found!"}
+        mocked_get.return_value = mock_not_found
+        self.assertEqual(movie_app.helpers.fetch_omdb_season_episodes("tt1870479", 99, apikey="test_key"), [])
+
+        # 6. Successful response with mixed "N/A" and valid ratings
+        mock_success = unittest.mock.Mock()
+        mock_success.raise_for_status.return_value = None
+        mock_success.json.return_value = {
+            "Title": "Test Show",
+            "Season": "1",
+            "Episodes": [
+                {"Title": "Ep 1", "Episode": "1", "imdbRating": "N/A", "imdbID": "tt101"},
+                {"Title": "Ep 2", "Episode": "2", "imdbRating": "8.8", "imdbID": "tt102"},
+                {"Title": "Ep 3", "Episode": "3", "imdbRating": "", "imdbID": None},
+            ],
+            "Response": "True",
+        }
+        mocked_get.return_value = mock_success
+        res = movie_app.helpers.fetch_omdb_season_episodes("tt1870479", 1, apikey="test_key")
+        self.assertEqual(len(res), 3)
+        self.assertEqual(res[0], {"episode_number": 1, "imdb_id": "tt101", "imdb_rating": None})
+        self.assertEqual(res[1], {"episode_number": 2, "imdb_id": "tt102", "imdb_rating": 8.8})
+        self.assertEqual(res[2], {"episode_number": 3, "imdb_id": None, "imdb_rating": None})
+
+    @patch("app.helpers.fetch_omdb_season_episodes")
+    @patch("app.helpers.fetch_media_ratings")
+    @patch("app.helpers.download_tv_episode_still")
+    @patch("app.helpers.get_tv_episode")
+    @patch("app.helpers.search_tv_season")
+    @patch("app.helpers.find_media")
+    @patch("app.probe_alist_source")
+    def test_import_tv_episode_season_imdb_ratings_pipeline(
+        self,
+        mock_probe,
+        mock_find_media,
+        mock_search_season,
+        mock_get_episode,
+        mock_download_still,
+        mock_fetch_series_ratings,
+        mock_fetch_season_episodes,
+    ):
+        mock_probe.return_value = {
+            "media_duration_ms": 3600000,
+            "file_size_bytes": 500000,
+            "bit_rate": 1000000,
+            "container_format": "mkv",
+            "video_codec": "h264",
+            "video_width": 1920,
+            "video_height": 1080,
+            "video_frame_rate": 24,
+            "video_pixel_format": "yuv420p",
+            "video_dynamic_range": "SDR",
+            "audio_codec": "aac",
+            "audio_channels": 2,
+            "audio_channel_layout": "stereo",
+        }
+        mock_find_media.return_value = {
+            "id": 666,
+            "adult": False,
+            "in_production": False,
+            "number_of_episodes": 10,
+            "number_of_seasons": 1,
+            "popularity": 15.0,
+            "vote_average": 8.7,
+            "vote_count": 300,
+            "original_language": "en",
+            "original_name": "Season Test Series",
+            "name": "季单集评分测试剧集",
+            "overview": "Overview",
+            "status": "Ended",
+            "type": "Scripted",
+            "created_by": [],
+            "networks": [],
+            "episode_run_time": [45],
+            "genres": [],
+            "spoken_languages": [],
+            "production_companies": [],
+            "production_countries": [],
+        }
+        mock_search_season.return_value = {
+            "id": 1666,
+            "season_number": 1,
+            "name": "第 1 季",
+            "overview": "",
+            "air_date": "2026-01-01",
+            "poster_path": None,
+            "episodes": [
+                {
+                    "id": 66601,
+                    "season_number": 1,
+                    "episode_number": 1,
+                    "name": "第 1 集",
+                    "overview": "E01 Overview",
+                    "air_date": "2026-01-01",
+                    "runtime": 45,
+                    "still_path": None,
+                    "vote_average": 8.1,
+                    "vote_count": 100,
+                },
+                {
+                    "id": 66602,
+                    "season_number": 1,
+                    "episode_number": 2,
+                    "name": "第 2 集",
+                    "overview": "E02 Overview",
+                    "air_date": "2026-01-08",
+                    "runtime": 45,
+                    "still_path": None,
+                    "vote_average": 8.4,
+                    "vote_count": 120,
+                },
+            ],
+        }
+        mock_get_episode.side_effect = [
+            mock_search_season.return_value["episodes"][0],
+            mock_search_season.return_value["episodes"][1],
+        ]
+        mock_download_still.return_value = None
+        mock_fetch_series_ratings.return_value = {
+            "imdb_id": "tt6666666",
+            "imdb_rating": 8.9,
+            "imdb_vote_count": 45000,
+            "rotten_tomatoes_tomatometer": 92,
+            "rotten_tomatoes_popcornmeter": None,
+            "metacritic_rating": 84,
+        }
+        mock_fetch_season_episodes.side_effect = [
+            [
+                {"episode_number": 1, "imdb_id": "tt66601", "imdb_rating": 8.5},
+            ],
+            [
+                {"episode_number": 1, "imdb_id": "tt66601", "imdb_rating": 8.5},
+                {"episode_number": 2, "imdb_id": "tt66602", "imdb_rating": 9.1},
+            ],
+        ]
+
+        with movie_app.app.app_context():
+            # 1. Import Episode 1
+            msg1 = movie_app.import_tv_episode("季单集评分测试剧集", 1, 1, "/Quark/S01E01.mkv")
+            self.assertIn("S01E01", msg1)
+            self.assertEqual(mock_fetch_season_episodes.call_count, 1)
+            mock_fetch_season_episodes.assert_called_with("tt6666666", 1)
+
+            # A partial OMDb response must not mark the whole season as complete.
+            self.assertFalse(movie_app.models.has_season_episode_ratings(self.database_path, 666, 1))
+            with closing(sqlite3.connect(self.database_path)) as db:
+                db.row_factory = sqlite3.Row
+                ep1 = db.execute("SELECT * FROM tv_episode WHERE episode_id = 66601").fetchone()
+                ep2 = db.execute("SELECT * FROM tv_episode WHERE episode_id = 66602").fetchone()
+                self.assertEqual(ep1["imdb_id"], "tt66601")
+                self.assertEqual(ep1["imdb_rating"], 8.5)
+                self.assertEqual(ep1["vote_average"], 8.1)
+                self.assertIsNone(ep2["imdb_id"])
+                self.assertIsNone(ep2["imdb_rating"])
+                self.assertIsNone(ep2["imdb_rating_updated_at"])
+                self.assertEqual(ep2["vote_average"], 8.4)
+
+            # 2. Import Episode 2; the incomplete season must be fetched again.
+            msg2 = movie_app.import_tv_episode("季单集评分测试剧集", 1, 2, "/Quark/S01E02.mkv")
+            self.assertIn("S01E02", msg2)
+            self.assertEqual(mock_fetch_season_episodes.call_count, 2)
+            self.assertTrue(movie_app.models.has_season_episode_ratings(self.database_path, 666, 1))
+
+            with closing(sqlite3.connect(self.database_path)) as db:
+                db.row_factory = sqlite3.Row
+                ep2 = db.execute("SELECT * FROM tv_episode WHERE episode_id = 66602").fetchone()
+                self.assertEqual(ep2["imdb_id"], "tt66602")
+                self.assertEqual(ep2["imdb_rating"], 9.1)
+
+    def test_detail_page_renders_ratings_cleanly(self):
+        # Insert movie with ratings
+        with closing(sqlite3.connect(self.database_path)) as db:
+            db.execute(
+                """
+                INSERT INTO movie (
+                    movie_id, adult, softcore, video, budget, revenue, popularity,
+                    vote_average, vote_count, original_language, original_title,
+                    title, release_status, imdb_id, imdb_rating, imdb_vote_count,
+                    rotten_tomatoes_tomatometer, rotten_tomatoes_popcornmeter,
+                    metacritic_rating, ratings_updated_at
+                ) VALUES (
+                    777, 0, 0, 0, 0, 0, 10.0, 8.5, 1000, 'en', 'Detail Movie',
+                    '详情页评分测试电影', 'Released', 'tt7777777', 8.8, 50000, 94, NULL, 86,
+                    '2026-08-29 12:00:00'
+                )
+                """
+            )
+            # Insert TV series with season and episode ratings
+            db.execute(
+                """
+                INSERT INTO tv_series (
+                    series_id, adult, softcore, in_production, number_of_episodes,
+                    number_of_seasons, popularity, vote_average, vote_count,
+                    original_language, original_name, series_name, series_status,
+                    series_type, created_by_json, networks_json, episode_runtime_json,
+                    imdb_id, imdb_rating, imdb_vote_count, rotten_tomatoes_tomatometer,
+                    metacritic_rating, ratings_updated_at
+                ) VALUES (
+                    888, 0, 0, 0, 2, 1, 15.0, 8.7, 300, 'en', 'Detail Series',
+                    '详情页剧集测试', 'Ended', 'Scripted', '[]', '[]', '[45]',
+                    'tt8888888', 8.9, 45000, 92, 84, '2026-08-29 12:00:00'
+                )
+                """
+            )
+            db.execute(
+                """
+                INSERT INTO tv_season (
+                    season_id, series_id, season_number, episode_count, season_name,
+                    vote_average, networks_json
+                ) VALUES (
+                    1888, 888, 1, 2, '第 1 季', 8.6, '[]'
+                )
+                """
+            )
+            db.execute(
+                """
+                INSERT INTO tv_episode (
+                    episode_id, season_id, episode_number, episode_name, overview,
+                    vote_average, vote_count, crew_json, guest_stars_json,
+                    imdb_id, imdb_rating, imdb_rating_updated_at
+                ) VALUES (
+                    88801, 1888, 1, '第 1 集', 'E01 Overview', 8.2, 100, '[]', '[]',
+                    'tt88801', 9.3, '2026-08-29 12:00:00'
+                ), (
+                    88802, 1888, 2, '第 2 集', 'E02 Overview', 8.5, 120, '[]', '[]',
+                    NULL, NULL, '2026-08-29 12:00:00'
+                )
+                """
+            )
+            db.commit()
+
+        # Check Movie Detail
+        response = self.client.get("/movies/777")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("imdb.png", html)
+        self.assertIn("8.8", html)
+        self.assertIn("rotten-tomatoes.png", html)
+        self.assertIn("94%", html)
+        self.assertIn("metacritic.png", html)
+        self.assertIn("86", html)
+        self.assertIn("tmdb.png", html)
+        self.assertIn("8.5", html)
+
+        # Check TV Series Detail
+        tv_response = self.client.get("/series/888")
+        self.assertEqual(tv_response.status_code, 200)
+        tv_html = tv_response.get_data(as_text=True)
+        # Episode 1 has IMDb 9.3 and TMDB 8.2
+        self.assertIn("9.3", tv_html)
+        self.assertIn("8.2", tv_html)
+        # Season summary toolbar has Series IMDb 8.9 and Season TMDB 8.6
+        self.assertIn("8.9", tv_html)
+        self.assertIn("8.6", tv_html)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -18,3 +18,4 @@ backups/
 output/playwright/
 .flask_session/
 flask_session/
+imdb/

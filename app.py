@@ -184,6 +184,7 @@ def _build_source_summary(source: dict | None):
 BASE_DIR = Path(__file__).resolve().parent
 DATABASE_PATH = BASE_DIR / "movie.db"
 IMAGE_ROOT = BASE_DIR / "static" / "images"
+RATINGS_CACHE_MAX_AGE_DAYS = 30
 GENRE_ICONS = {
     "Sci-Fi & Fantasy": "stars",
     "冒险": "compass",
@@ -334,6 +335,60 @@ def probe_alist_source(alist_path: str):
     return helpers.probe_video(helpers.get_video_link(alist_path))
 
 
+def _sync_media_ratings(
+    media_type: str,
+    media_id: int,
+    imdb_id: str | None = None,
+):
+    if models.has_media_ratings(
+        app.config["DATABASE"],
+        media_type,
+        media_id,
+        max_age_days=RATINGS_CACHE_MAX_AGE_DAYS,
+    ):
+        return
+
+    ratings = helpers.fetch_media_ratings(
+        media_type,
+        media_id,
+        imdb_id=imdb_id,
+    )
+    models.save_media_ratings(
+        app.config["DATABASE"],
+        media_type,
+        media_id,
+        ratings,
+    )
+
+
+def _sync_season_episode_ratings(series_id: int, season_number: int):
+    if models.has_season_episode_ratings(
+        app.config["DATABASE"],
+        series_id,
+        season_number,
+        max_age_days=RATINGS_CACHE_MAX_AGE_DAYS,
+    ):
+        return
+
+    series_imdb_id = models.get_series_imdb_id(
+        app.config["DATABASE"],
+        series_id,
+    )
+    if not series_imdb_id:
+        return
+
+    episode_ratings = helpers.fetch_omdb_season_episodes(
+        series_imdb_id,
+        season_number,
+    )
+    models.save_season_episode_ratings(
+        app.config["DATABASE"],
+        series_id,
+        season_number,
+        episode_ratings,
+    )
+
+
 def import_movie(movie_name: str, alist_path: str):
     source_metadata = probe_alist_source(alist_path)
     details = helpers.find_media("movie", movie_name)
@@ -351,6 +406,14 @@ def import_movie(movie_name: str, alist_path: str):
         alist_path,
         source_metadata,
     )
+    try:
+        _sync_media_ratings(
+            "movie",
+            movie_id,
+            imdb_id=details.get("imdb_id"),
+        )
+    except helpers.RatingFetchError as error:
+        app.logger.warning("获取电影评分失败 (%s): %s", movie_id, error)
 
     return f"已关联电影《{details.get('title') or movie_name}》与 AList 文件。"
 
@@ -393,6 +456,21 @@ def import_tv_episode(
         episode_still,
         source_metadata,
     )
+
+    try:
+        _sync_media_ratings("tv", series_id)
+    except helpers.RatingFetchError as error:
+        app.logger.warning("获取剧集评分失败 (%s): %s", series_id, error)
+
+    try:
+        _sync_season_episode_ratings(series_id, season_number)
+    except helpers.RatingFetchError as error:
+        app.logger.warning(
+            "获取第 %s 季单集 IMDb 评分失败 (%s): %s",
+            season_number,
+            series_id,
+            error,
+        )
 
     display_name = series_details.get("name") or series_name
     return (

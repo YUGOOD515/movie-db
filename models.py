@@ -942,6 +942,7 @@ def _save_tv_episode(
         "overview": series_details.get("overview"),
         "tagline": series_details.get("tagline"),
         "homepage": series_details.get("homepage"),
+        "imdb_id": series_details.get("imdb_id"),
         "first_air_date": series_details.get("first_air_date"),
         "last_air_date": series_details.get("last_air_date"),
         "series_status": series_details.get("status") or "",
@@ -972,6 +973,7 @@ def _save_tv_episode(
             overview,
             tagline,
             homepage,
+            imdb_id,
             first_air_date,
             last_air_date,
             series_status,
@@ -1000,6 +1002,7 @@ def _save_tv_episode(
                 :overview,
                 :tagline,
                 :homepage,
+                :imdb_id,
                 :first_air_date,
                 :last_air_date,
                 :series_status,
@@ -1027,6 +1030,7 @@ def _save_tv_episode(
                       overview = excluded.overview,
                       tagline = excluded.tagline,
                       homepage = excluded.homepage,
+                      imdb_id = COALESCE(excluded.imdb_id, tv_series.imdb_id),
                       first_air_date = excluded.first_air_date,
                       last_air_date = excluded.last_air_date,
                       series_status = excluded.series_status,
@@ -2272,6 +2276,12 @@ def get_media_detail(
                        movie.original_language AS original_language,
                        movie.homepage AS homepage,
                        movie.imdb_id AS imdb_id,
+                       movie.imdb_rating AS imdb_rating,
+                       movie.imdb_vote_count AS imdb_vote_count,
+                       movie.rotten_tomatoes_tomatometer AS rotten_tomatoes_tomatometer,
+                       movie.rotten_tomatoes_popcornmeter AS rotten_tomatoes_popcornmeter,
+                       movie.metacritic_rating AS metacritic_rating,
+                       movie.ratings_updated_at AS ratings_updated_at,
                        collection.collection_name AS collection_name,
                        (
                            SELECT image.local_path
@@ -2365,6 +2375,13 @@ def get_media_detail(
                        series.number_of_episodes AS number_of_episodes,
                        series.original_language AS original_language,
                        series.homepage AS homepage,
+                       series.imdb_id AS imdb_id,
+                       series.imdb_rating AS imdb_rating,
+                       series.imdb_vote_count AS imdb_vote_count,
+                       series.rotten_tomatoes_tomatometer AS rotten_tomatoes_tomatometer,
+                       series.rotten_tomatoes_popcornmeter AS rotten_tomatoes_popcornmeter,
+                       series.metacritic_rating AS metacritic_rating,
+                       series.ratings_updated_at AS ratings_updated_at,
                        series.created_by_json AS created_by_json,
                        series.networks_json AS networks_json,
                        (
@@ -2437,6 +2454,9 @@ def get_media_detail(
                        episode.overview,
                        episode.vote_average,
                        episode.vote_count,
+                       episode.imdb_id,
+                       episode.imdb_rating,
+                       episode.imdb_rating_updated_at,
                        season.season_id,
                        season.season_number,
                        image.local_path AS still_path,
@@ -2581,6 +2601,9 @@ def get_media_detail(
                             "overview",
                             "vote_average",
                             "vote_count",
+                            "imdb_id",
+                            "imdb_rating",
+                            "imdb_rating_updated_at",
                             "season_number",
                             "still_path",
                             "position_ms",
@@ -2844,3 +2867,201 @@ def get_media_overview_data(
         "query": query or "",
         "media_type": media_type,
     }
+
+
+def save_media_ratings(
+    database_path: str | Path,
+    media_type: str,
+    media_id: int,
+    ratings: dict,
+):
+    """Save or update external ratings for one movie or TV series."""
+    if media_type not in ("movie", "tv"):
+        raise ValueError("不支持的媒体类型。")
+
+    table_name = "movie" if media_type == "movie" else "tv_series"
+    id_column = "movie_id" if media_type == "movie" else "series_id"
+
+    values = {
+        "media_id": media_id,
+        "imdb_id": ratings.get("imdb_id"),
+        "imdb_rating": ratings.get("imdb_rating"),
+        "imdb_vote_count": ratings.get("imdb_vote_count"),
+        "rotten_tomatoes_tomatometer": ratings.get("rotten_tomatoes_tomatometer"),
+        "rotten_tomatoes_popcornmeter": ratings.get("rotten_tomatoes_popcornmeter"),
+        "metacritic_rating": ratings.get("metacritic_rating"),
+        "ratings_updated_at": ratings.get("ratings_updated_at"),
+    }
+    with closing(_connect(database_path)) as db:
+        with db:
+            cursor = db.execute(
+                f"""
+                UPDATE {table_name}
+                   SET imdb_id = COALESCE(:imdb_id, {table_name}.imdb_id),
+                       imdb_rating = COALESCE(
+                           :imdb_rating,
+                           {table_name}.imdb_rating
+                       ),
+                       imdb_vote_count = COALESCE(
+                           :imdb_vote_count,
+                           {table_name}.imdb_vote_count
+                       ),
+                       rotten_tomatoes_tomatometer = COALESCE(
+                           :rotten_tomatoes_tomatometer,
+                           {table_name}.rotten_tomatoes_tomatometer
+                       ),
+                       rotten_tomatoes_popcornmeter = COALESCE(
+                           :rotten_tomatoes_popcornmeter,
+                           {table_name}.rotten_tomatoes_popcornmeter
+                       ),
+                       metacritic_rating = COALESCE(
+                           :metacritic_rating,
+                           {table_name}.metacritic_rating
+                       ),
+                       ratings_updated_at = COALESCE(:ratings_updated_at, CURRENT_TIMESTAMP)
+                 WHERE {id_column} = :media_id
+                """,
+                values,
+            )
+            if cursor.rowcount == 0:
+                raise ValueError("媒体不存在。")
+
+
+def has_media_ratings(
+    database_path: str | Path,
+    media_type: str,
+    media_id: int,
+    max_age_days: int = 30,
+) -> bool:
+    """Return True when the media rating cache is present and still fresh."""
+    if media_type not in ("movie", "tv"):
+        raise ValueError("不支持的媒体类型。")
+    if max_age_days <= 0:
+        raise ValueError("评分缓存有效期必须大于 0 天。")
+
+    table_name = "movie" if media_type == "movie" else "tv_series"
+    id_column = "movie_id" if media_type == "movie" else "series_id"
+
+    with closing(_connect(database_path)) as db:
+        row = db.execute(
+            f"""
+            SELECT 1
+              FROM {table_name}
+             WHERE {id_column} = ?
+               AND ratings_updated_at IS NOT NULL
+               AND julianday(ratings_updated_at) >= julianday('now', ?)
+            """,
+            (media_id, f"-{int(max_age_days)} days"),
+        ).fetchone()
+        return bool(row)
+
+
+def has_series_ratings(
+    database_path: str | Path,
+    series_id: int,
+    max_age_days: int = 30,
+) -> bool:
+    """Return True if the TV series rating cache is still fresh."""
+    return has_media_ratings(database_path, "tv", series_id, max_age_days)
+
+
+def has_movie_ratings(
+    database_path: str | Path,
+    movie_id: int,
+    max_age_days: int = 30,
+) -> bool:
+    """Return True if the movie rating cache is still fresh."""
+    return has_media_ratings(database_path, "movie", movie_id, max_age_days)
+
+
+def get_series_imdb_id(database_path: str | Path, series_id: int) -> str | None:
+    """Return the stored imdb_id for a TV series, or None."""
+    with closing(_connect(database_path)) as db:
+        row = db.execute(
+            "SELECT imdb_id FROM tv_series WHERE series_id = ?",
+            (series_id,),
+        ).fetchone()
+        return row[0] if row and row[0] else None
+
+
+def has_season_episode_ratings(
+    database_path: str | Path,
+    series_id: int,
+    season_number: int,
+    max_age_days: int = 30,
+) -> bool:
+    """Return True when every local episode has a fresh IMDb sync timestamp."""
+    if max_age_days <= 0:
+        raise ValueError("评分缓存有效期必须大于 0 天。")
+
+    with closing(_connect(database_path)) as db:
+        row = db.execute(
+            """
+            SELECT COUNT(*) AS episode_count,
+                   SUM(
+                       CASE
+                           WHEN episode.imdb_rating_updated_at IS NOT NULL
+                            AND julianday(episode.imdb_rating_updated_at) >= julianday('now', ?)
+                           THEN 1
+                           ELSE 0
+                       END
+                   ) AS fresh_count
+              FROM tv_episode AS episode
+                   INNER JOIN tv_season AS season
+                   ON season.season_id = episode.season_id
+             WHERE season.series_id = ?
+               AND season.season_number = ?
+            """,
+            (f"-{int(max_age_days)} days", series_id, season_number),
+        ).fetchone()
+        return bool(
+            row
+            and row["episode_count"] > 0
+            and row["fresh_count"] == row["episode_count"]
+        )
+
+
+def save_season_episode_ratings(
+    database_path: str | Path,
+    series_id: int,
+    season_number: int,
+    episode_ratings: list[dict],
+    updated_at: str | None = None,
+) -> int:
+    """Save IMDb ratings for all episodes of a season in tv_episode table."""
+    with closing(_connect(database_path)) as db:
+        with db:
+            season_row = db.execute(
+                "SELECT season_id FROM tv_season WHERE series_id = ? AND season_number = ?",
+                (series_id, season_number),
+            ).fetchone()
+            if not season_row:
+                return 0
+            season_id = season_row[0]
+
+            updated_count = 0
+            for ep in episode_ratings:
+                ep_num = ep.get("episode_number")
+                if ep_num is None:
+                    continue
+                cursor = db.execute(
+                    """
+                    UPDATE tv_episode
+                       SET imdb_id = COALESCE(:imdb_id, imdb_id),
+                           imdb_rating = COALESCE(:imdb_rating, imdb_rating),
+                           imdb_rating_updated_at = COALESCE(:updated_at, CURRENT_TIMESTAMP)
+                     WHERE season_id = :season_id
+                       AND episode_number = :episode_number
+                    """,
+                    {
+                        "imdb_id": ep.get("imdb_id"),
+                        "imdb_rating": ep.get("imdb_rating"),
+                        "updated_at": updated_at,
+                        "season_id": season_id,
+                        "episode_number": ep_num,
+                    },
+                )
+                if cursor.rowcount > 0:
+                    updated_count += cursor.rowcount
+
+            return updated_count

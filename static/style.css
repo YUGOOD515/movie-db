@@ -1358,3 +1358,123 @@ select {
     border-color: transparent;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
 }
+
+.detail-ratings-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    column-gap: 1.75rem;
+    row-gap: 0.65rem;
+}
+
+.detail-rating-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    line-height: 1;
+    background: none;
+    border: none;
+    padding: 0;
+}
+
+.detail-rating-logo {
+    display: inline-block;
+    object-fit: contain;
+    vertical-align: middle;
+    flex-shrink: 0;
+}
+
+.detail-rating-logo--imdb {
+    height: 1.2rem;
+    width: auto;
+}
+
+.detail-rating-logo--rt {
+    height: 1.35rem;
+    width: auto;
+}
+
+.detail-rating-logo--metacritic {
+    height: 1.4rem;
+    width: auto;
+}
+
+.detail-rating-logo--tmdb {
+    height: 0.82rem;
+    width: auto;
+}
+
+.detail-rating-score {
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+}
+
+.detail-rating-score--imdb {
+    color: #f5c518;
+}
+
+.detail-rating-score--rt {
+    color: #fa320a;
+}
+
+.detail-rating-score--metacritic {
+    color: #54b848;
+}
+
+.detail-rating-score--tmdb {
+    color: #01b4e4;
+}
+
+[data-bs-theme="light"] .detail-rating-score--imdb {
+    color: #c99700;
+}
+
+[data-bs-theme="light"] .detail-rating-score--metacritic {
+    color: #3b912f;
+}
+
+[data-bs-theme="light"] .detail-rating-score--tmdb {
+    color: #0093be;
+}
+
+.season-summary-ratings {
+    line-height: 1;
+}
+
+.season-rating-item {
+    line-height: 1;
+}
+
+.season-rating-logo {
+    display: inline-block;
+    object-fit: contain;
+    vertical-align: middle;
+    flex-shrink: 0;
+}
+
+.season-rating-logo.detail-rating-logo--imdb {
+    height: 0.95rem;
+    width: auto;
+}
+
+.season-rating-logo.detail-rating-logo--rt {
+    height: 1.05rem;
+    width: auto;
+}
+
+.season-rating-logo.detail-rating-logo--metacritic {
+    height: 0.82rem;
+    width: auto;
+}
+
+.season-rating-logo.detail-rating-logo--tmdb {
+    height: 0.65rem;
+    width: auto;
+}
+
+.season-rating-score {
+    font-size: 0.875rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+}

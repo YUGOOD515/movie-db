@@ -34,26 +34,32 @@ CREATE TABLE collection (
 );
 
 CREATE TABLE movie (
-    movie_id          INTEGER NOT NULL,
-    collection_id     INTEGER,
-    adult             INTEGER NOT NULL,
-    softcore          INTEGER NOT NULL,
-    video             INTEGER NOT NULL,
-    budget            INTEGER NOT NULL,
-    revenue           INTEGER NOT NULL,
-    runtime           INTEGER,
-    popularity        NUMERIC NOT NULL,
-    vote_average      NUMERIC NOT NULL,
-    vote_count        INTEGER NOT NULL,
-    original_language TEXT    NOT NULL,
-    original_title    TEXT    NOT NULL,
-    title             TEXT    NOT NULL,
-    overview          TEXT,
-    tagline           TEXT,
-    homepage          TEXT,
-    imdb_id           TEXT,
-    release_date      TEXT,
-    release_status    TEXT    NOT NULL,
+    movie_id                     INTEGER NOT NULL,
+    collection_id                INTEGER,
+    adult                        INTEGER NOT NULL,
+    softcore                     INTEGER NOT NULL,
+    video                        INTEGER NOT NULL,
+    budget                       INTEGER NOT NULL,
+    revenue                      INTEGER NOT NULL,
+    runtime                      INTEGER,
+    popularity                   NUMERIC NOT NULL,
+    vote_average                 NUMERIC NOT NULL,
+    vote_count                   INTEGER NOT NULL,
+    original_language            TEXT    NOT NULL,
+    original_title               TEXT    NOT NULL,
+    title                        TEXT    NOT NULL,
+    overview                     TEXT,
+    tagline                      TEXT,
+    homepage                     TEXT,
+    imdb_id                      TEXT,
+    release_date                 TEXT,
+    release_status               TEXT    NOT NULL,
+    imdb_rating                  NUMERIC,
+    imdb_vote_count              INTEGER,
+    rotten_tomatoes_tomatometer  INTEGER,
+    rotten_tomatoes_popcornmeter INTEGER,
+    metacritic_rating            INTEGER,
+    ratings_updated_at           TEXT,
     PRIMARY KEY (movie_id),
     FOREIGN KEY (collection_id)
      REFERENCES collection (collection_id)
@@ -76,7 +82,17 @@ CREATE TABLE movie (
      CONSTRAINT movie_vote_average_range
           CHECK (vote_average BETWEEN 0 AND 10),
      CONSTRAINT movie_vote_count_nonnegative
-          CHECK (vote_count >= 0)
+          CHECK (vote_count >= 0),
+     CONSTRAINT movie_imdb_rating_range
+          CHECK (imdb_rating IS NULL OR (imdb_rating >= 0 AND imdb_rating <= 10)),
+     CONSTRAINT movie_imdb_vote_count_nonnegative
+          CHECK (imdb_vote_count IS NULL OR imdb_vote_count >= 0),
+     CONSTRAINT movie_rt_tomatometer_range
+          CHECK (rotten_tomatoes_tomatometer IS NULL OR (rotten_tomatoes_tomatometer >= 0 AND rotten_tomatoes_tomatometer <= 100)),
+     CONSTRAINT movie_rt_popcornmeter_range
+          CHECK (rotten_tomatoes_popcornmeter IS NULL OR (rotten_tomatoes_popcornmeter >= 0 AND rotten_tomatoes_popcornmeter <= 100)),
+     CONSTRAINT movie_metacritic_rating_range
+          CHECK (metacritic_rating IS NULL OR (metacritic_rating >= 0 AND metacritic_rating <= 100))
 );
 
 CREATE TABLE movie_source (
@@ -263,32 +279,39 @@ CREATE TABLE movie_image (
 );
 
 CREATE TABLE tv_series (
-    series_id            INTEGER NOT NULL,
-    adult                INTEGER NOT NULL,
-    softcore             INTEGER NOT NULL,
-    in_production        INTEGER NOT NULL,
-    number_of_episodes   INTEGER NOT NULL,
-    number_of_seasons    INTEGER NOT NULL,
-    popularity           NUMERIC NOT NULL,
-    vote_average         NUMERIC NOT NULL,
-    vote_count           INTEGER NOT NULL,
-    original_language    TEXT    NOT NULL,
-    original_name        TEXT    NOT NULL,
-    series_name          TEXT    NOT NULL,
-    overview             TEXT,
-    tagline              TEXT,
-    homepage             TEXT,
-    first_air_date       TEXT,
-    last_air_date        TEXT,
-    series_status        TEXT    NOT NULL,
-    series_type          TEXT    NOT NULL,
-    poster_path          TEXT,
-    backdrop_path        TEXT,
-    created_by_json      TEXT    NOT NULL,
-    networks_json        TEXT    NOT NULL,
-    episode_runtime_json TEXT    NOT NULL,
-    last_episode_id      INTEGER,
-    next_episode_id      INTEGER,
+    series_id                    INTEGER NOT NULL,
+    adult                        INTEGER NOT NULL,
+    softcore                     INTEGER NOT NULL,
+    in_production                INTEGER NOT NULL,
+    number_of_episodes           INTEGER NOT NULL,
+    number_of_seasons            INTEGER NOT NULL,
+    popularity                   NUMERIC NOT NULL,
+    vote_average                 NUMERIC NOT NULL,
+    vote_count                   INTEGER NOT NULL,
+    original_language            TEXT    NOT NULL,
+    original_name                TEXT    NOT NULL,
+    series_name                  TEXT    NOT NULL,
+    overview                     TEXT,
+    tagline                      TEXT,
+    homepage                     TEXT,
+    imdb_id                      TEXT,
+    first_air_date               TEXT,
+    last_air_date                TEXT,
+    series_status                TEXT    NOT NULL,
+    series_type                  TEXT    NOT NULL,
+    poster_path                  TEXT,
+    backdrop_path                TEXT,
+    created_by_json              TEXT    NOT NULL,
+    networks_json                TEXT    NOT NULL,
+    episode_runtime_json         TEXT    NOT NULL,
+    last_episode_id              INTEGER,
+    next_episode_id              INTEGER,
+    imdb_rating                  NUMERIC,
+    imdb_vote_count              INTEGER,
+    rotten_tomatoes_tomatometer  INTEGER,
+    rotten_tomatoes_popcornmeter INTEGER,
+    metacritic_rating            INTEGER,
+    ratings_updated_at           TEXT,
     PRIMARY KEY (series_id),
     FOREIGN KEY (last_episode_id)
      REFERENCES tv_episode (episode_id)
@@ -313,7 +336,17 @@ CREATE TABLE tv_series (
      CONSTRAINT tv_series_vote_average_range
           CHECK (vote_average BETWEEN 0 AND 10),
      CONSTRAINT tv_series_vote_count_nonnegative
-          CHECK (vote_count >= 0)
+          CHECK (vote_count >= 0),
+     CONSTRAINT tv_series_imdb_rating_range
+          CHECK (imdb_rating IS NULL OR (imdb_rating >= 0 AND imdb_rating <= 10)),
+     CONSTRAINT tv_series_imdb_vote_count_nonnegative
+          CHECK (imdb_vote_count IS NULL OR imdb_vote_count >= 0),
+     CONSTRAINT tv_series_rt_tomatometer_range
+          CHECK (rotten_tomatoes_tomatometer IS NULL OR (rotten_tomatoes_tomatometer >= 0 AND rotten_tomatoes_tomatometer <= 100)),
+     CONSTRAINT tv_series_rt_popcornmeter_range
+          CHECK (rotten_tomatoes_popcornmeter IS NULL OR (rotten_tomatoes_popcornmeter >= 0 AND rotten_tomatoes_popcornmeter <= 100)),
+     CONSTRAINT tv_series_metacritic_rating_range
+          CHECK (metacritic_rating IS NULL OR (metacritic_rating >= 0 AND metacritic_rating <= 100))
 );
 
 CREATE TABLE tv_season (
@@ -343,20 +376,23 @@ CREATE TABLE tv_season (
 );
 
 CREATE TABLE tv_episode (
-    episode_id       INTEGER NOT NULL,
-    season_id        INTEGER NOT NULL,
-    episode_number   INTEGER NOT NULL,
-    episode_name     TEXT    NOT NULL,
-    overview         TEXT,
-    air_date         TEXT,
-    runtime          INTEGER,
-    production_code  TEXT,
-    episode_type     TEXT,
-    still_path       TEXT,
-    vote_average     NUMERIC NOT NULL,
-    vote_count       INTEGER NOT NULL,
-    crew_json        TEXT    NOT NULL,
-    guest_stars_json TEXT    NOT NULL,
+    episode_id             INTEGER NOT NULL,
+    season_id              INTEGER NOT NULL,
+    episode_number         INTEGER NOT NULL,
+    episode_name           TEXT    NOT NULL,
+    overview               TEXT,
+    air_date               TEXT,
+    runtime                INTEGER,
+    production_code        TEXT,
+    episode_type           TEXT,
+    still_path             TEXT,
+    vote_average           NUMERIC NOT NULL,
+    vote_count             INTEGER NOT NULL,
+    crew_json              TEXT    NOT NULL,
+    guest_stars_json       TEXT    NOT NULL,
+    imdb_id                TEXT,
+    imdb_rating            REAL,
+    imdb_rating_updated_at TEXT,
     PRIMARY KEY (episode_id),
          UNIQUE (season_id, episode_number),
     FOREIGN KEY (season_id)
@@ -370,7 +406,9 @@ CREATE TABLE tv_episode (
      CONSTRAINT tv_episode_vote_average_range
           CHECK (vote_average BETWEEN 0 AND 10),
      CONSTRAINT tv_episode_vote_count_nonnegative
-          CHECK (vote_count >= 0)
+          CHECK (vote_count >= 0),
+     CONSTRAINT tv_episode_imdb_rating_range
+          CHECK (imdb_rating IS NULL OR (imdb_rating >= 0 AND imdb_rating <= 10))
 );
 
 CREATE TABLE tv_episode_source (
