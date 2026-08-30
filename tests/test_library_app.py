@@ -135,6 +135,16 @@ class LibraryIntegrationTest(unittest.TestCase):
         self.assertIn("detail-hero-grid", selected_series)
         self.assertIn("episode-rail-track", selected_series)
 
+        # 懒渲染：服务端只输出精选单集的面板，其余单集走 JSON 数据岛
+        self.assertEqual(selected_series.count('data-episode-hero="'), 1)
+        self.assertEqual(selected_series.count('data-episode-hero-control="'), 1)
+        self.assertEqual(selected_series.count('data-episode-facts="'), 1)
+        self.assertIn('data-episode-data', selected_series)
+        self.assertGreater(
+            selected_series.count('data-episode-target="'),
+            selected_series.count('data-episode-hero="'),
+        )
+
         manager = self.client.get("/media?q=星际&type=movie").get_data(
             as_text=True
         )

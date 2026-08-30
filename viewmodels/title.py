@@ -327,6 +327,54 @@ def _legacy_episode(episode: dict, backdrop_path: str | None) -> dict:
     }
 
 
+def _episode_panel_data(seasons: list[dict], genres: list[str]) -> dict | None:
+    episodes_data = {}
+    for season in seasons:
+        for episode in season["episodes"]:
+            featured = episode.get("featured_source")
+            sources = [
+                {
+                    "label": source["source_label"],
+                    "url": source["play_url"],
+                    "path": source.get("alist_path") or "",
+                    "active": bool(
+                        featured and source["source_id"] == featured["source_id"]
+                    ),
+                }
+                for source in episode["sources"]
+            ]
+            episodes_data[episode["episode_id"]] = {
+                "season": episode["season_number"],
+                "number": episode["episode_number"],
+                "name": episode["episode_name"] or "未命名单集",
+                "runtime": episode["runtime_label"],
+                "air_date": episode["air_date"],
+                "overview": episode["overview"],
+                "rating": episode["imdb_rating"],
+                "backdrop": (
+                    url_for("static", filename=episode["image"])
+                    if episode["image"]
+                    else ""
+                ),
+                "play_label": episode["play_label"],
+                "play_url": episode["play_url"],
+                "sources": sources,
+                "summary": episode["source_summary"],
+                "facts": episode["media_facts"],
+            }
+    if not episodes_data:
+        return None
+    return {
+        "genres": " / ".join(genres),
+        "assets": {
+            "imdb": url_for("static", filename="imdb.png"),
+            "dolby_dark": url_for("static", filename="DolbyVision_white.png"),
+            "dolby_light": url_for("static", filename="DolbyVision.png"),
+        },
+        "episodes": episodes_data,
+    }
+
+
 def _legacy_seasons(seasons: list[dict], backdrop_path: str | None) -> list[dict]:
     output = []
     for season in seasons:
@@ -512,4 +560,6 @@ def build_title_viewmodel(raw: dict) -> dict:
             if source_progress.get("position_ms")
             else "播放电影"
         )
+    else:
+        media["episode_data"] = _episode_panel_data(seasons, media["genres"])
     return media
