@@ -698,7 +698,6 @@ select {
     display: flex;
     align-items: flex-end;
     min-height: clamp(42rem, 82dvh, 54rem);
-    overflow: hidden;
     background: var(--bs-tertiary-bg);
 }
 
@@ -851,6 +850,11 @@ select {
 .hero-info-stack > * {
     grid-area: 1 / 1;
     min-width: 0;
+    /* Bottom-align each pane's content so the ratings row lines up with the
+       play/favorite buttons even when the other pane is taller. */
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
 }
 
 .hero-info-stack .hero-pane-hidden {
@@ -947,18 +951,49 @@ select {
 }
 
 .detail-overview {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
     word-break: break-word;
 }
 
-.detail-overview-more {
+/* Body-level transparent shield behind the expanded overview: appended to
+   <body> by JS so it lives in the root stacking context (no ancestor
+   containment/stacking traps) and swallows every stray click. */
+.detail-overview-shield {
+    position: fixed;
+    inset: 0;
+    z-index: 1040;
+}
+
+/* Belt-and-suspenders: while an overview is expanded, episode selectors must
+   never receive clicks regardless of stacking contexts. */
+body.detail-overview-open [data-episode-target] {
+    pointer-events: none;
+}
+
+/* Expanded overview overlays the following content instead of pushing
+   the hero layout down. */
+.detail-overview-expanded {
+    position: absolute;
+    top: -0.75rem;
+    left: -1rem;
+    right: -1rem;
+    z-index: 20;
+    padding: 0.75rem 1rem 0.5rem;
+    background-color: var(--bs-body-bg);
+    box-shadow: 0 0.75rem 2rem rgba(0, 0, 0, 0.45);
+}
+
+.detail-overview .detail-overview-more {
     display: inline;
+    white-space: nowrap;
     cursor: pointer;
-    font-size: inherit;
-    line-height: inherit;
-    vertical-align: baseline;
     color: var(--bs-secondary-color);
+    margin-left: 0.25em;
     padding: 0;
-    margin: 0;
     border: none;
     background: transparent;
 }

@@ -79,7 +79,9 @@
             "'": "&#39;",
         })[char]);
 
-    // Detail overview inline 2-line clamp toggle with smooth transition.
+    // Detail overview: CSS line-clamp holds 2 lines on first paint; JS then
+    // trims the text so the inline "...更多" toggle lands exactly at the end
+    // of the second line, right after the last visible character.
     function initOverviewClamp(overviewWrap) {
         const overviewEl = overviewWrap.querySelector("[data-detail-overview]");
         const textEl = overviewWrap.querySelector("[data-detail-overview-text]");
@@ -88,124 +90,98 @@
             return;
         }
 
-        const fullText = overviewWrap.dataset.fullText || textEl.textContent.trim();
-        let isExpanded = false;
-        let isAnimating = false;
+        const expandedPanel = overviewWrap.querySelector(
+            "[data-detail-overview-expanded]",
+        );
+        const collapseToggle = overviewWrap.querySelector(
+            "[data-detail-overview-collapse]",
+        );
+        const fullText = (
+            textEl.dataset.fullText || textEl.textContent
+        ).trim();
 
-        function getMaxHeight() {
-            const computed = window.getComputedStyle(overviewEl);
-            let lineHeight = parseFloat(computed.lineHeight);
-            if (isNaN(lineHeight) || lineHeight <= 0) {
-                lineHeight = parseFloat(computed.fontSize) * 1.6;
+        // Shield lives directly under <body>: fixed positioning then maps to
+        // the viewport and the z-index compares in the root stacking context,
+        // immune to any ancestor containment/stacking-context traps.
+        let shieldEl = document.querySelector(".detail-overview-shield");
+
+        function setExpanded(expanded) {
+            if (expandedPanel) {
+                expandedPanel.hidden = !expanded;
             }
-            return lineHeight * 2 + 2;
-        }
-
-        function getClampedText(maxHeight) {
-            overviewToggle.textContent = "...更多";
-            overviewToggle.classList.remove("d-none");
-            let low = 0;
-            let high = fullText.length;
-            let best = 0;
-
-            while (low <= high) {
-                const mid = Math.floor((low + high) / 2);
-                textEl.textContent = fullText.slice(0, mid);
-                if (overviewEl.scrollHeight <= maxHeight) {
-                    best = mid;
-                    low = mid + 1;
-                } else {
-                    high = mid - 1;
+            document.body.classList.toggle(
+                "detail-overview-open",
+                expanded,
+            );
+            if (expanded) {
+                if (!shieldEl) {
+                    shieldEl = document.createElement("div");
+                    shieldEl.className = "detail-overview-shield";
+                    shieldEl.addEventListener("click", () => setExpanded(false));
+                    document.body.appendChild(shieldEl);
                 }
+                shieldEl.hidden = false;
+            } else if (shieldEl) {
+                shieldEl.hidden = true;
             }
-            return fullText.slice(0, best);
+            overviewToggle.setAttribute("aria-expanded", String(expanded));
         }
 
         function updateClamp() {
-            if (isExpanded || isAnimating || overviewWrap.offsetParent === null) {
+            if (overviewWrap.offsetParent === null) {
                 return;
             }
 
-            overviewToggle.classList.add("d-none");
-            overviewToggle.setAttribute("aria-expanded", "false");
-            textEl.textContent = fullText;
-
-            const maxHeight = getMaxHeight();
-            if (overviewEl.scrollHeight <= maxHeight) {
-                return;
+            const computed = window.getComputedStyle(overviewEl);
+            let lineHeight = parseFloat(computed.lineHeight);
+            if (isNaN(lineHeight) || lineHeight <= 0) {
+                lineHeight = parseFloat(computed.fontSize) * 1.5;
             }
+            const maxHeight = lineHeight * 2 + 2;
 
-            const clamped = getClampedText(maxHeight);
-            textEl.textContent = clamped;
+            // Release the clamp to measure real content height (clamped
+            // lines are not laid out, so scrollHeight would lie otherwise).
+            overviewEl.style.webkitLineClamp = "unset";
+            overviewEl.style.lineClamp = "unset";
+
+            try {
+                textEl.textContent = fullText;
+                if (overviewEl.scrollHeight <= maxHeight) {
+                    overviewToggle.classList.add("d-none");
+                    return;
+                }
+
+                overviewToggle.classList.remove("d-none");
+                let low = 0;
+                let high = fullText.length;
+                let best = 0;
+                while (low <= high) {
+                    const mid = Math.floor((low + high) / 2);
+                    textEl.textContent = fullText.slice(0, mid);
+                    if (overviewEl.scrollHeight <= maxHeight) {
+                        best = mid;
+                        low = mid + 1;
+                    } else {
+                        high = mid - 1;
+                    }
+                }
+                textEl.textContent = fullText.slice(0, best);
+            } finally {
+                overviewEl.style.webkitLineClamp = "";
+                overviewEl.style.lineClamp = "";
+            }
         }
 
-        function toggleExpand() {
-            if (isAnimating) {
-                return;
-            }
-
-            const maxHeight = getMaxHeight();
-
-            if (!isExpanded) {
-                isAnimating = true;
-                const startHeight = overviewEl.offsetHeight;
-
-                textEl.textContent = fullText + " ";
-                overviewToggle.textContent = "收起";
-                overviewToggle.setAttribute("aria-expanded", "true");
-
-                const targetHeight = overviewEl.scrollHeight;
-
-                overviewEl.style.overflow = "hidden";
-                overviewEl.style.height = `${startHeight}px`;
-                void overviewEl.offsetHeight;
-
-                overviewEl.style.transition = "height 0.28s cubic-bezier(0.4, 0, 0.2, 1)";
-                overviewEl.style.height = `${targetHeight}px`;
-
-                const onEnd = (e) => {
-                    if (e.target !== overviewEl) return;
-                    overviewEl.removeEventListener("transitionend", onEnd);
-                    overviewEl.style.height = "";
-                    overviewEl.style.overflow = "";
-                    overviewEl.style.transition = "";
-                    isExpanded = true;
-                    isAnimating = false;
-                };
-                overviewEl.addEventListener("transitionend", onEnd);
-            } else {
-                isAnimating = true;
-                const startHeight = overviewEl.offsetHeight;
-
-                overviewEl.style.overflow = "hidden";
-                overviewEl.style.height = `${startHeight}px`;
-                void overviewEl.offsetHeight;
-
-                overviewEl.style.transition = "height 0.28s cubic-bezier(0.4, 0, 0.2, 1)";
-                overviewEl.style.height = `${maxHeight}px`;
-
-                const onEnd = (e) => {
-                    if (e.target !== overviewEl) return;
-                    overviewEl.removeEventListener("transitionend", onEnd);
-                    overviewToggle.textContent = "...更多";
-                    overviewToggle.setAttribute("aria-expanded", "false");
-
-                    const clamped = getClampedText(maxHeight);
-                    textEl.textContent = clamped;
-
-                    overviewEl.style.height = "";
-                    overviewEl.style.overflow = "";
-                    overviewEl.style.transition = "";
-                    isExpanded = false;
-                    isAnimating = false;
-                };
-                overviewEl.addEventListener("transitionend", onEnd);
-            }
-        }
+        overviewToggle.addEventListener("click", () => {
+            setExpanded(true);
+        });
+        collapseToggle?.addEventListener("click", (event) => {
+            event.stopPropagation();
+            setExpanded(false);
+        });
 
         updateClamp();
         window.addEventListener("resize", updateClamp);
-        overviewToggle.addEventListener("click", toggleExpand);
         overviewWrap.closest("[data-episode-hero]")?.addEventListener(
             "detail:shown",
             () => window.requestAnimationFrame(updateClamp),
@@ -288,8 +264,12 @@
             <span class="detail-episode-index d-block small fw-bold mb-2">S${info.season} · E${info.number}</span>
             <h2 class="h3 fw-bold mb-3">${escapeHtml(info.name)}</h2>
             <div class="detail-meta d-flex flex-wrap align-items-center column-gap-3 row-gap-2 small text-body-secondary fw-semibold mb-3">${badges.join("")}</div>
-            <div class="detail-overview-wrapper mb-0" data-detail-overview-wrap data-full-text="${escapeHtml(overviewText)}">
-                <p class="detail-overview lh-lg mb-0" data-detail-overview><span data-detail-overview-text>${escapeHtml(overviewText)}</span><button type="button" class="btn btn-link p-0 text-decoration-none small text-body-secondary fw-semibold detail-overview-more d-none" data-detail-overview-toggle aria-expanded="false">...更多</button></p>
+            <div class="detail-overview-wrapper mb-0" data-detail-overview-wrap>
+                <p class="detail-overview lh-lg mb-0" data-detail-overview><span data-detail-overview-text data-full-text="${escapeHtml(overviewText)}">${escapeHtml(overviewText)}</span><button type="button" class="btn btn-link p-0 text-decoration-none small text-body-secondary fw-semibold detail-overview-more d-none" data-detail-overview-toggle aria-expanded="false">...更多</button></p>
+                <div class="detail-overview-expanded squircle-card" data-detail-overview-expanded hidden>
+                    <p class="lh-lg mb-2">${escapeHtml(overviewText)}</p>
+                    <div class="d-flex justify-content-end"><button type="button" class="btn btn-link p-0 text-decoration-none small text-body-secondary fw-semibold detail-overview-more" data-detail-overview-collapse>收起</button></div>
+                </div>
             </div>
             <div class="detail-ratings-row mt-3 pt-2">${rating}</div>
         </section>`;
