@@ -139,12 +139,6 @@
                                                      <span class="detail-rating-score detail-rating-score--imdb">{{ "%.1f"|format(episode.imdb_rating) }}</span>
                                                  </span>
                                              {% endif %}
-                                             {% if episode.vote_average %}
-                                                 <span class="detail-rating-item" title="本集 TMDB 评分">
-                                                     <img class="detail-rating-logo detail-rating-logo--tmdb" src="{{ url_for('static', filename='tmdb.png') }}" alt="TMDB">
-                                                     <span class="detail-rating-score detail-rating-score--tmdb">{{ "%.1f"|format(episode.vote_average) }}</span>
-                                                 </span>
-                                             {% endif %}
                                         </div>
                                     </section>
                                 {% endfor %}
@@ -176,30 +170,6 @@
                                         <span class="detail-rating-score detail-rating-score--imdb">{{ "%.1f"|format(media.imdb_rating) }}</span>
                                     </span>
                                 {% endif %}
-                                {% if media.rotten_tomatoes_tomatometer is not none and media.rotten_tomatoes_tomatometer != "" %}
-                                    <span class="detail-rating-item" title="Rotten Tomatoes 影评人评分">
-                                        <img class="detail-rating-logo detail-rating-logo--rt" src="{{ url_for('static', filename='rotten-tomatoes.png') }}" alt="Rotten Tomatoes">
-                                        <span class="detail-rating-score detail-rating-score--rt">{{ media.rotten_tomatoes_tomatometer }}%</span>
-                                    </span>
-                                {% endif %}
-                                {% if media.rotten_tomatoes_popcornmeter is not none and media.rotten_tomatoes_popcornmeter != "" %}
-                                    <span class="detail-rating-item" title="Rotten Tomatoes 爆米花评分">
-                                        <img class="detail-rating-logo detail-rating-logo--rt" src="{{ url_for('static', filename='rotten-tomatoes.png') }}" alt="Popcornmeter">
-                                        <span class="detail-rating-score detail-rating-score--rt">{{ media.rotten_tomatoes_popcornmeter }}%</span>
-                                    </span>
-                                {% endif %}
-                                {% if media.metacritic_rating is not none and media.metacritic_rating != "" %}
-                                    <span class="detail-rating-item" title="Metacritic 评分">
-                                        <img class="detail-rating-logo detail-rating-logo--metacritic" src="{{ url_for('static', filename='metacritic.png') }}" alt="Metacritic">
-                                        <span class="detail-rating-score detail-rating-score--metacritic">{{ media.metacritic_rating }}</span>
-                                    </span>
-                                {% endif %}
-                                {% if media.vote_average %}
-                                    <span class="detail-rating-item" title="TMDB 评分">
-                                        <img class="detail-rating-logo detail-rating-logo--tmdb" src="{{ url_for('static', filename='tmdb.png') }}" alt="TMDB">
-                                        <span class="detail-rating-score detail-rating-score--tmdb">{{ "%.1f"|format(media.vote_average) }}</span>
-                                    </span>
-                                {% endif %}
                             </div>
                         {% endif %}
                     </div>
@@ -228,39 +198,10 @@
                                     <span class="season-summary-year fw-semibold text-body">{{ season.air_date[:4] if season.air_date else "—" }}</span>
                                     <span class="season-summary-count text-body-secondary">{{ season.episode_count }} 集</span>
                                     <div class="season-summary-ratings d-inline-flex flex-wrap align-items-center gap-3 ms-1">
-                                        {% if media.imdb_rating is not none and media.imdb_rating != "" %}
-                                            <span class="season-rating-item d-inline-flex align-items-center gap-1" title="IMDb 评分">
+                                        {% if season.imdb_rating is not none and season.imdb_rating != "" %}
+                                            <span class="season-rating-item d-inline-flex align-items-center gap-1" title="本季单集 IMDb 平均评分">
                                                 <img class="season-rating-logo detail-rating-logo--imdb" src="{{ url_for('static', filename='imdb.png') }}" alt="IMDb">
-                                                <span class="season-rating-score detail-rating-score--imdb">{{ "%.1f"|format(media.imdb_rating) }}</span>
-                                            </span>
-                                        {% endif %}
-                                        {% if media.rotten_tomatoes_tomatometer is not none and media.rotten_tomatoes_tomatometer != "" %}
-                                            <span class="season-rating-item d-inline-flex align-items-center gap-1" title="Rotten Tomatoes 影评人评分">
-                                                <img class="season-rating-logo detail-rating-logo--rt" src="{{ url_for('static', filename='rotten-tomatoes.png') }}" alt="Rotten Tomatoes">
-                                                <span class="season-rating-score detail-rating-score--rt">{{ media.rotten_tomatoes_tomatometer }}%</span>
-                                            </span>
-                                        {% endif %}
-                                        {% if media.rotten_tomatoes_popcornmeter is not none and media.rotten_tomatoes_popcornmeter != "" %}
-                                            <span class="season-rating-item d-inline-flex align-items-center gap-1" title="Rotten Tomatoes 爆米花评分">
-                                                <img class="season-rating-logo detail-rating-logo--rt" src="{{ url_for('static', filename='rotten-tomatoes.png') }}" alt="Popcornmeter">
-                                                <span class="season-rating-score detail-rating-score--rt">{{ media.rotten_tomatoes_popcornmeter }}%</span>
-                                            </span>
-                                        {% endif %}
-                                        {% if media.metacritic_rating is not none and media.metacritic_rating != "" %}
-                                            <span class="season-rating-item d-inline-flex align-items-center gap-1" title="Metacritic 评分">
-                                                <img class="season-rating-logo detail-rating-logo--metacritic" src="{{ url_for('static', filename='metacritic.png') }}" alt="Metacritic">
-                                                <span class="season-rating-score detail-rating-score--metacritic">{{ media.metacritic_rating }}</span>
-                                            </span>
-                                        {% endif %}
-                                        {% if season.vote_average %}
-                                            <span class="season-rating-item d-inline-flex align-items-center gap-1" title="本季 TMDB 评分">
-                                                <img class="season-rating-logo detail-rating-logo--tmdb" src="{{ url_for('static', filename='tmdb.png') }}" alt="TMDB">
-                                                <span class="season-rating-score detail-rating-score--tmdb">{{ "%.1f"|format(season.vote_average) }}</span>
-                                            </span>
-                                        {% elif media.vote_average %}
-                                            <span class="season-rating-item d-inline-flex align-items-center gap-1" title="TMDB 评分">
-                                                <img class="season-rating-logo detail-rating-logo--tmdb" src="{{ url_for('static', filename='tmdb.png') }}" alt="TMDB">
-                                                <span class="season-rating-score detail-rating-score--tmdb">{{ "%.1f"|format(media.vote_average) }}</span>
+                                                <span class="season-rating-score detail-rating-score--imdb">{{ "%.1f"|format(season.imdb_rating) }}</span>
                                             </span>
                                         {% endif %}
                                     </div>
@@ -334,10 +275,6 @@
                         <dt class="col-sm-3 text-body-secondary fw-normal">年龄分级</dt>
                         <dd class="col-sm-9 mb-0">{{ media.age_rating or "未提供" }}</dd>
 
-                        {% if media.production_countries %}<dt class="col-sm-3 text-body-secondary fw-normal">制作国家</dt><dd class="col-sm-9 mb-0">{{ media.production_countries|join("、") }}</dd>{% endif %}
-                        {% if media.spoken_languages %}<dt class="col-sm-3 text-body-secondary fw-normal">语言</dt><dd class="col-sm-9 mb-0">{{ media.spoken_languages|join("、") }}</dd>{% endif %}
-                        {% if media.production_companies %}<dt class="col-sm-3 text-body-secondary fw-normal">制作公司</dt><dd class="col-sm-9 mb-0">{{ media.production_companies|join("、") }}</dd>{% endif %}
-                        {% if media.collection_name %}<dt class="col-sm-3 text-body-secondary fw-normal">所属系列</dt><dd class="col-sm-9 mb-0">{{ media.collection_name }}</dd>{% endif %}
                     </dl>
                     {% if media.external_links %}
                     <div class="detail-external-links d-flex flex-wrap gap-3 pt-3 border-top">

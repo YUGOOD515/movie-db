@@ -19,3 +19,4 @@ output/playwright/
 .flask_session/
 flask_session/
 imdb/
+imdb.db

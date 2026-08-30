@@ -4,11 +4,11 @@
 
 当前项目是一个本地影视资源管理网页，遵循 MVC 架构原则，即Model、Connector、View原则。
 
-当前已完成电影与剧集单集的 TMDB、AList 对接，可保存媒体详情、季与单集数据、AList 文件对应关系，并将中文海报、中文 Logo、背景图及单集剧照下载到本地。电影和剧集的共用查询、图片及数据库写入流程已经合并整理。
+当前以本地 IMDb 数据库作为影视主数据，TMDB 仅补充简介、标语、主页、状态、原始语言、完整单集日期和图片；AList 保存本地媒体来源。电影和剧集的共用查询、图片及数据库写入流程已经合并整理。
 
 ## Model
 
-使用 SQLite 存储电影、剧集、季、单集、图片和 AList 来源关系，数据库操作集中在 @models.py；@helpers.py 负责对接 TMDB、AList 及图片下载。
+使用 SQLite 双库结构：`imdb.db` 是只读主数据，`library.db` 是七表业务库（`title_basic` / `title_relation` / `title_artwork` / `media_file` / `playback_progress` / `collection` / `collection_item`）。`title_basic` 直接保存 TMDB 补充字段（`tmdb_id`、`overview`、`tagline`、`original_language`、`average_rating`、`num_votes`）。`movie.db` 为遗留库，仅作数据迁移来源，不再新增写入。单集直接保存季号与集号，不设置 season 和 collection 实体。数据库操作集中在 @models.py；@helpers.py 负责对接 TMDB、AList 及图片下载；@scripts/populate_library.py 从遗留库 + IMDb + TMDB 填充 `library.db`。
 
 SQL 代码书写准则：https://www.sqlstyle.guide/zh/
 
@@ -24,9 +24,9 @@ SQL 代码书写准则：https://www.sqlstyle.guide/zh/
 
 ## 进度存储区
 
-当前阶段：电影和剧集录入、图片本地化、数据库关系存储及基础关联页面已经完成。
+当前阶段：`library.db` 数据迁移全部完成——521 个 title（9 电影 / 22 剧集 / 490 单集）、854 图片、728 媒体文件、15 观看记录与收藏夹已全部录入，与遗留库行数完全对齐；provisional 单集已通过本地 `title_episode` 表完成 IMDb 匹配（@scripts/match_provisional_episodes.py，遗留库中已无 provisional 记录）。
 
-下一阶段：整理现有影视数据并规范入库，在此基础上制作媒体资源浏览前端。
+下一阶段：将 @models.py 与 @app.py 的读写从 `movie.db` 切换到 `library.db`，迁移完成并验证后淘汰 `movie.db`；清理已停用的旧评分缓存流程。
 
 ## Tips
 

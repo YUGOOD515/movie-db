@@ -17,12 +17,12 @@ import time
 from collections import Counter
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+BASE_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(BASE_DIR))
 
 import helpers
 import models
 
-BASE_DIR = Path(__file__).resolve().parent
 DATABASE_PATH = BASE_DIR / "movie.db"
 IMAGE_ROOT = BASE_DIR / "static" / "images"
 MANIFEST_PATH = BASE_DIR / "import_manifest.json"

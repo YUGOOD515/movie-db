@@ -24,8 +24,8 @@
                 <span class="d-flex align-items-center gap-2 small text-body-secondary">
                     <span>{{ "电影" if item.media_type == "movie" else "剧集" }}</span>
                     {% if item.year %}<span>{{ item.year }}</span>{% endif %}
-                    {% if show_rating %}
-                        <span class="text-warning"><i class="bi bi-star-fill me-1" aria-hidden="true"></i>{{ "%.1f"|format(item.vote_average) }}</span>
+                    {% if show_rating and item.imdb_rating is not none %}
+                        <span class="text-warning"><i class="bi bi-star-fill me-1" aria-hidden="true"></i>{{ "%.1f"|format(item.imdb_rating) }}</span>
                     {% endif %}
                 </span>
             </span>

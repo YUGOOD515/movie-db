@@ -1389,21 +1389,6 @@ select {
     width: auto;
 }
 
-.detail-rating-logo--rt {
-    height: 1.35rem;
-    width: auto;
-}
-
-.detail-rating-logo--metacritic {
-    height: 1.4rem;
-    width: auto;
-}
-
-.detail-rating-logo--tmdb {
-    height: 0.82rem;
-    width: auto;
-}
-
 .detail-rating-score {
     font-size: 1.05rem;
     font-weight: 700;
@@ -1414,28 +1399,8 @@ select {
     color: #f5c518;
 }
 
-.detail-rating-score--rt {
-    color: #fa320a;
-}
-
-.detail-rating-score--metacritic {
-    color: #54b848;
-}
-
-.detail-rating-score--tmdb {
-    color: #01b4e4;
-}
-
 [data-bs-theme="light"] .detail-rating-score--imdb {
     color: #c99700;
-}
-
-[data-bs-theme="light"] .detail-rating-score--metacritic {
-    color: #3b912f;
-}
-
-[data-bs-theme="light"] .detail-rating-score--tmdb {
-    color: #0093be;
 }
 
 .season-summary-ratings {
@@ -1455,21 +1420,6 @@ select {
 
 .season-rating-logo.detail-rating-logo--imdb {
     height: 0.95rem;
-    width: auto;
-}
-
-.season-rating-logo.detail-rating-logo--rt {
-    height: 1.05rem;
-    width: auto;
-}
-
-.season-rating-logo.detail-rating-logo--metacritic {
-    height: 0.82rem;
-    width: auto;
-}
-
-.season-rating-logo.detail-rating-logo--tmdb {
-    height: 0.65rem;
     width: auto;
 }
 

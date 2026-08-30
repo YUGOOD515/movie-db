@@ -5,13 +5,6 @@
 
 {% block main %}
     <section class="container-xl" aria-labelledby="genre-page-heading">
-        {% set selected_country = '' %}
-        {% if filters.country_code %}
-            {% for c in filter_options.countries %}
-                {% if c.country_code == filters.country_code %}{% set selected_country = c.country_name %}{% endif %}
-            {% endfor %}
-        {% endif %}
-
         {% set selected_language = '' %}
         {% if filters.language_code %}
             {% for l in filter_options.languages %}
@@ -29,7 +22,7 @@
             </div>
             <div class="d-flex align-items-center gap-2">
                 <span class="small text-body-secondary">筛选结果：共 {{ items|length }} 部作品</span>
-                {% if filters.media_type != 'all' or filters.genre_id or filters.country_code or filters.language_code or filters.year or filters.min_rating or (current_sort and current_sort != 'recent') %}
+                {% if filters.media_type != 'all' or filters.genre_id or filters.language_code or filters.year or filters.min_rating or (current_sort and current_sort != 'recent') %}
                     <a class="btn btn-sm btn-link text-body-secondary text-decoration-none p-0 ms-2" href="{{ url_for('movie_genres_library') }}" title="清除所有筛选">
                         <i class="bi bi-x-circle me-1" aria-hidden="true"></i>重置
                     </a>
@@ -44,11 +37,10 @@
             <input type="hidden" name="genre_id" value="{{ filters.genre_id if filters.genre_id is not none else '' }}" id="filter-genre-id">
             <input type="hidden" name="year" value="{{ filters.year or '' }}" id="filter-year">
             <input type="hidden" name="min_rating" value="{{ filters.min_rating if filters.min_rating is not none else '' }}" id="filter-min-rating">
-            <input type="hidden" name="country_code" value="{{ filters.country_code or '' }}" id="filter-country-code">
             <input type="hidden" name="language_code" value="{{ filters.language_code or '' }}" id="filter-language-code">
             <input type="hidden" name="sort" value="{{ current_sort }}" id="filter-sort">
 
-            <!-- 顶行：媒体类型 Segmented Control + Bootstrap 下拉筛选 (年份/评分/国家/语言/排序) -->
+            <!-- 顶行：媒体类型 Segmented Control + Bootstrap 下拉筛选 (年份/评分/语言/排序) -->
             <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
                 <!-- 媒体类型分段切换 (全部 / 电影 / 剧集) -->
                 <div class="btn-group btn-group-sm segmented-control" role="group" aria-label="媒体类型筛选">
@@ -84,20 +76,6 @@
                             <div class="dropdown-divider my-1"></div>
                             {% for r in [9, 8, 7, 6] %}
                                 <button class="dropdown-item{% if filters.min_rating == r %} active{% endif %}" type="button" onclick="setGenreFilter('min_rating', '{{ r }}')">{{ r }}分及以上</button>
-                            {% endfor %}
-                        </div>
-                    </div>
-
-                    <!-- 制作国家 -->
-                    <div class="dropdown">
-                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle genre-dropdown-toggle{% if filters.country_code %} genre-dropdown-toggle--active{% endif %}" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                            <span>{{ selected_country if selected_country else '制作国家' }}</span>
-                        </button>
-                        <div class="dropdown-menu dropdown-menu-end genre-dropdown-menu p-1">
-                            <button class="dropdown-item{% if not filters.country_code %} active{% endif %}" type="button" onclick="setGenreFilter('country_code', '')">全部国家/地区</button>
-                            <div class="dropdown-divider my-1"></div>
-                            {% for country in filter_options.countries %}
-                                <button class="dropdown-item{% if filters.country_code == country.country_code %} active{% endif %}" type="button" onclick="setGenreFilter('country_code', '{{ country.country_code }}')">{{ country.country_name }}</button>
                             {% endfor %}
                         </div>
                     </div>

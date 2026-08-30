@@ -9,7 +9,7 @@ import helpers
 import models
 
 
-def extract_resolution(path_or_name: str | None) -> str:
+def extract_resolution(path_or_name: str | None) -> str:   ### 这么判断清晰度真是大错特错，应该查数据库，看 source 清晰度信息
     if not path_or_name:
         return "1080P"
     text = str(path_or_name).upper()
@@ -28,13 +28,17 @@ def extract_resolution(path_or_name: str | None) -> str:
     return "1080P"
 
 
-def is_dolby_vision(path_or_name: str | None) -> bool:
+def is_dolby_vision(path_or_name: str | None) -> bool:  ### 同理，要看 source
     if not path_or_name:
         return False
     text = str(path_or_name)
     if "杜比视界" in text or "DOLBY VISION" in text.upper() or "DOLBYVISION" in text.upper():
         return True
-    pattern = r"(?i)(?:^|[\b\._\-\[\]\(\)])(?:DV|DOVI|DOLBY[\.\s_\-]?VISION)(?:$|[\b\._\-\[\]\(\)])"
+    pattern = (
+        r"(?i)(?:^|[\b\._\-\[\]\(\)])"
+        r"(?:DV|DOVI|DOLBY[\.\s_\-]?VISION)"
+        r"(?:$|[\b\._\-\[\]\(\)])"
+    )
     return bool(re.search(pattern, text))
 
 
@@ -84,14 +88,14 @@ def _format_resolution_label(
     if width >= 1280 or height >= 720:
         return "720P"
 
-    fallback = extract_resolution(path_or_name)
+    fallback = extract_resolution(path_or_name)   ### 如果没有数据，那是ffmpeg等方面的问题，应该在那一端解决，而不是瞎猜
     return {
         "2160P": "4K",
         "1440P": "2K",
     }.get(fallback, fallback)
 
 
-def _build_media_facts(source: dict | None):
+def _build_media_facts(source: dict | None):  ### 逻辑是否有点太多复杂，实际上可以基本相信数据库获得了全部信息，判断应该放在获取视频数据时
     if not source:
         return []
 
@@ -184,8 +188,7 @@ def _build_source_summary(source: dict | None):
 BASE_DIR = Path(__file__).resolve().parent
 DATABASE_PATH = BASE_DIR / "movie.db"
 IMAGE_ROOT = BASE_DIR / "static" / "images"
-RATINGS_CACHE_MAX_AGE_DAYS = 30
-GENRE_ICONS = {
+GENRE_ICONS = {  ### 什么意思，这不是应该放到数据库中吗？
     "Sci-Fi & Fantasy": "stars",
     "冒险": "compass",
     "剧情": "masks-theater",
@@ -215,18 +218,10 @@ app.config["SESSION_FILE_DIR"] = str(BASE_DIR / ".flask_session")
 Session(app)
 
 
-def get_media_mappings():
-    """Return stored movie and episode relationships."""
-    return (
-        models.get_movie_mappings(app.config["DATABASE"]),
-        models.get_tv_episode_mappings(app.config["DATABASE"]),
-    )
-
-
 def add_media_routes(item: dict):
     """Add route and playback URLs without mixing them into model queries."""
     if item["media_type"] == "movie":
-        item["detail_url"] = url_for(
+        item["detail_url"] = url_for(  ### movie和tv现在没区别了吧？因为数据库层面如此。所以其实可以用同一个？
             "movie_detail",
             movie_id=item["media_id"],
         )
@@ -300,10 +295,13 @@ def prepare_library_page(section_name: str):
 
 
 def prepare_favorite_page(folder_id: int | None):
-    page = models.get_favorite_page_data(
-        app.config["DATABASE"],
-        folder_id,
-    )
+    try:
+        page = models.get_favorite_page_data(
+            app.config["DATABASE"],
+            folder_id,
+        )
+    except ValueError:
+        abort(404)
     if page is None:
         abort(404)
     for item in page["items"]:
@@ -335,60 +333,6 @@ def probe_alist_source(alist_path: str):
     return helpers.probe_video(helpers.get_video_link(alist_path))
 
 
-def _sync_media_ratings(
-    media_type: str,
-    media_id: int,
-    imdb_id: str | None = None,
-):
-    if models.has_media_ratings(
-        app.config["DATABASE"],
-        media_type,
-        media_id,
-        max_age_days=RATINGS_CACHE_MAX_AGE_DAYS,
-    ):
-        return
-
-    ratings = helpers.fetch_media_ratings(
-        media_type,
-        media_id,
-        imdb_id=imdb_id,
-    )
-    models.save_media_ratings(
-        app.config["DATABASE"],
-        media_type,
-        media_id,
-        ratings,
-    )
-
-
-def _sync_season_episode_ratings(series_id: int, season_number: int):
-    if models.has_season_episode_ratings(
-        app.config["DATABASE"],
-        series_id,
-        season_number,
-        max_age_days=RATINGS_CACHE_MAX_AGE_DAYS,
-    ):
-        return
-
-    series_imdb_id = models.get_series_imdb_id(
-        app.config["DATABASE"],
-        series_id,
-    )
-    if not series_imdb_id:
-        return
-
-    episode_ratings = helpers.fetch_omdb_season_episodes(
-        series_imdb_id,
-        season_number,
-    )
-    models.save_season_episode_ratings(
-        app.config["DATABASE"],
-        series_id,
-        season_number,
-        episode_ratings,
-    )
-
-
 def import_movie(movie_name: str, alist_path: str):
     source_metadata = probe_alist_source(alist_path)
     details = helpers.find_media("movie", movie_name)
@@ -406,15 +350,6 @@ def import_movie(movie_name: str, alist_path: str):
         alist_path,
         source_metadata,
     )
-    try:
-        _sync_media_ratings(
-            "movie",
-            movie_id,
-            imdb_id=details.get("imdb_id"),
-        )
-    except helpers.RatingFetchError as error:
-        app.logger.warning("获取电影评分失败 (%s): %s", movie_id, error)
-
     return f"已关联电影《{details.get('title') or movie_name}》与 AList 文件。"
 
 
@@ -456,21 +391,6 @@ def import_tv_episode(
         episode_still,
         source_metadata,
     )
-
-    try:
-        _sync_media_ratings("tv", series_id)
-    except helpers.RatingFetchError as error:
-        app.logger.warning("获取剧集评分失败 (%s): %s", series_id, error)
-
-    try:
-        _sync_season_episode_ratings(series_id, season_number)
-    except helpers.RatingFetchError as error:
-        app.logger.warning(
-            "获取第 %s 季单集 IMDb 评分失败 (%s): %s",
-            season_number,
-            series_id,
-            error,
-        )
 
     display_name = series_details.get("name") or series_name
     return (
@@ -577,7 +497,6 @@ def movie_genres_library():
     filters = {
         "media_type": media_type,
         "genre_id": request.args.get("genre_id", type=int),
-        "country_code": request.args.get("country_code") or None,
         "language_code": request.args.get("language_code") or None,
         "year": request.args.get("year") or None,
         "min_rating": min_rating,
@@ -779,7 +698,6 @@ def _prepare_detail_episodes(detail: dict):
 
 
 def _prepare_detail_labels(detail: dict, media_type: str):
-    detail["vote_count_label"] = f'{detail["vote_count"]:,}'
     featured_source = detail.get("featured_source")
     source_path = ""
     if featured_source and featured_source.get("alist_path"):
@@ -827,12 +745,6 @@ def _prepare_detail_labels(detail: dict, media_type: str):
             if featured_episode and featured_episode.get("air_date")
             else detail.get("release_date") or detail.get("year") or ""
         )
-        current_season = detail.get("current_season")
-        if current_season and current_season.get("vote_average") is not None and current_season["vote_average"] > 0:
-            detail["season_vote_average"] = current_season["vote_average"]
-        else:
-            detail["season_vote_average"] = detail.get("vote_average")
-
         status_labels = {
             "Ended": "已完结",
             "Canceled": "已取消",
@@ -851,7 +763,6 @@ def _prepare_detail_labels(detail: dict, media_type: str):
             f"{detail['runtime']} 分钟" if detail.get("runtime") else ""
         )
         detail["date_label"] = detail.get("release_date") or detail.get("year") or ""
-        detail["season_vote_average"] = detail.get("vote_average")
         detail["status_label"] = {
             "Released": "已上映",
             "Post Production": "后期制作",
@@ -992,7 +903,7 @@ def media():
             flash(str(error), "danger")
         except Exception:
             app.logger.exception("Importing media failed")
-            flash("查询或保存失败，请检查 TMDB、AList 和数据库状态。", "danger")
+            flash("查询或保存失败，请检查 TMDB、IMDb、AList 和数据库状态。", "danger")
 
         return redirect(url_for("media", tab="associate"))
 

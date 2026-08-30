@@ -7,7 +7,7 @@
     <section class="container-xl" aria-labelledby="top-rated-heading">
         <header class="mb-4">
             <h1 class="h3 mb-2" id="top-rated-heading">最受好评的电影</h1>
-            <p class="text-body-secondary mb-0">按 TMDB 评分由高到低排列 · {{ items|length }} 部电影</p>
+            <p class="text-body-secondary mb-0">按 IMDb 评分由高到低排列 · {{ items|length }} 部电影</p>
         </header>
 
         {% if items %}
@@ -28,7 +28,9 @@
                                     {% else %}
                                         <span></span>
                                     {% endif %}
-                                    <span class="fw-semibold text-warning flex-shrink-0"><i class="bi bi-star-fill me-1" aria-hidden="true"></i>{{ "%.1f"|format(item.vote_average) }}</span>
+                                    {% if item.imdb_rating is not none %}
+                                        <span class="fw-semibold text-warning flex-shrink-0"><i class="bi bi-star-fill me-1" aria-hidden="true"></i>{{ "%.1f"|format(item.imdb_rating) }}</span>
+                                    {% endif %}
                                 </span>
                             </a>
                         </article>
@@ -45,7 +47,7 @@
             {% endif %}
         {% else %}
             <div class="empty-state compact squircle-card border bg-body-tertiary p-4">
-                <p class="text-body-secondary mb-0">录入电影后，这里会按 TMDB 评分排序。</p>
+                <p class="text-body-secondary mb-0">录入电影后，这里会按 IMDb 评分排序。</p>
             </div>
         {% endif %}
     </section>

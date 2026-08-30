@@ -321,6 +321,12 @@ def main():
         default=None,
         help="只导入指定表名（空格分隔），默认全部",
     )
+    parser.add_argument(
+        "--database",
+        type=Path,
+        default=DATABASE_PATH,
+        help="输出 SQLite 路径，默认项目根目录下的 imdb.db",
+    )
     args = parser.parse_args()
 
     selected = [
@@ -331,10 +337,10 @@ def main():
     if not selected:
         raise SystemExit("没有匹配到任何表。")
 
-    logger.info("数据库: %s", DATABASE_PATH)
+    logger.info("数据库: %s", args.database)
     logger.info("待导入: %s", ", ".join(t["name"] for t in selected))
 
-    conn = sqlite3.connect(DATABASE_PATH)
+    conn = sqlite3.connect(args.database)
     configure_connection(conn)
     started = time.monotonic()
     try:

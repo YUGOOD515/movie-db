@@ -20,9 +20,6 @@ tmdb_token = "***REMOVED***"
 language = "zh-CN"
 tmdb_image_url = "https://image.tmdb.org/t/p"
 
-omdb_url = "https://www.omdbapi.com"
-omdb_api_key = os.environ.get("OMDB_API_KEY", "912fb55a")
-
 mpc_path = r"C:\Program Files\MPC-HC\mpc-hc64.exe"
 mpc_web_url = "http://127.0.0.1:13579"
 
@@ -382,16 +379,6 @@ def play_video(
     return process
 
 
-def tmdb_auth():
-    """Check whether the configured TMDB token is valid."""
-    return bool(_tmdb_get("/authentication").get("success"))
-
-
-def tmbd_auth():
-    """Backward-compatible alias for the original misspelled function name."""
-    return tmdb_auth()
-
-
 def _media_endpoint(media_type: str):
     try:
         return MEDIA_ENDPOINTS[media_type]
@@ -414,16 +401,17 @@ def search_media(media_type: str, name: str):
 
 
 def get_media_details(media_type: str, media_id: int):
-    """Get TMDB details for a movie or TV series."""
+    """Get TMDB supplemental details and the required IMDb identity."""
     endpoint = _media_endpoint(media_type)
-    return _tmdb_get(
+    details = _tmdb_get(
         f"/{endpoint}/{media_id}",
         {"language": language},
     )
-
-
-class RatingFetchError(Exception):
-    """Raised when an external rating dependency cannot be reached or used."""
+    if not details.get("imdb_id"):
+        details["imdb_id"] = get_media_external_ids(media_type, media_id).get(
+            "imdb_id"
+        )
+    return details
 
 
 def get_media_external_ids(media_type: str, media_id: int) -> dict:
@@ -441,238 +429,9 @@ def get_media_external_ids(media_type: str, media_id: int) -> dict:
             media_id,
             error,
         )
-        raise RatingFetchError(
+        raise ValueError(
             f"Failed to fetch TMDB external IDs for {media_type} {media_id}: {error}"
         ) from error
-
-
-def _parse_rating_float(value):
-    if value is None:
-        return None
-    val_str = str(value).strip()
-    if not val_str or val_str.upper() == "N/A":
-        return None
-    if "/" in val_str:
-        val_str = val_str.split("/")[0].strip()
-    try:
-        score = float(val_str)
-        return round(score, 1) if 0 <= score <= 10 else None
-    except (ValueError, TypeError):
-        return None
-
-
-def _parse_votes_int(value):
-    if value is None:
-        return None
-    val_str = str(value).strip()
-    if not val_str or val_str.upper() == "N/A":
-        return None
-    val_str = val_str.replace(",", "").strip()
-    try:
-        votes = int(val_str)
-        return votes if votes >= 0 else None
-    except (ValueError, TypeError):
-        return None
-
-
-def _parse_percentage_int(value):
-    if value is None:
-        return None
-    val_str = str(value).strip()
-    if not val_str or val_str.upper() == "N/A":
-        return None
-    if "%" in val_str:
-        val_str = val_str.replace("%", "").strip()
-    elif "/" in val_str:
-        val_str = val_str.split("/")[0].strip()
-    try:
-        score = int(round(float(val_str)))
-        return score if 0 <= score <= 100 else None
-    except (ValueError, TypeError):
-        return None
-
-
-def parse_omdb_ratings(payload: dict | None) -> dict:
-    """Parse raw OMDb JSON payload into normalized rating fields."""
-    if not payload or not isinstance(payload, dict) or payload.get("Response") == "False":
-        return {
-            "imdb_rating": None,
-            "imdb_vote_count": None,
-            "rotten_tomatoes_tomatometer": None,
-            "rotten_tomatoes_popcornmeter": None,
-            "metacritic_rating": None,
-        }
-
-    imdb_rating = _parse_rating_float(payload.get("imdbRating"))
-    imdb_vote_count = _parse_votes_int(payload.get("imdbVotes"))
-    metacritic_rating = _parse_percentage_int(payload.get("Metascore"))
-    rt_tomatometer = None
-
-    ratings_list = payload.get("Ratings") or []
-    if isinstance(ratings_list, list):
-        for item in ratings_list:
-            if not isinstance(item, dict):
-                continue
-            source = str(item.get("Source") or "").strip()
-            value = item.get("Value")
-            if source == "Internet Movie Database" and imdb_rating is None:
-                imdb_rating = _parse_rating_float(value)
-            elif source == "Rotten Tomatoes":
-                rt_tomatometer = _parse_percentage_int(value)
-            elif source == "Metacritic" and metacritic_rating is None:
-                metacritic_rating = _parse_percentage_int(value)
-
-    return {
-        "imdb_rating": imdb_rating,
-        "imdb_vote_count": imdb_vote_count,
-        "rotten_tomatoes_tomatometer": rt_tomatometer,
-        "rotten_tomatoes_popcornmeter": None,
-        "metacritic_rating": metacritic_rating,
-    }
-
-
-def _resolve_omdb_api_key(apikey: str | None) -> str:
-    key = (
-        apikey
-        if apikey is not None
-        else os.environ.get("OMDB_API_KEY") or omdb_api_key
-    )
-    key = (key or "").strip()
-    if not key:
-        logger.warning(
-            "OMDb API key not configured (set OMDB_API_KEY environment variable)."
-        )
-        raise RatingFetchError("OMDb API key not configured.")
-
-    return key
-
-
-def _fetch_omdb_payload(
-    params: dict,
-    resource_label: str,
-    apikey: str | None,
-) -> dict | None:
-    request_params = dict(params)
-    request_params["apikey"] = _resolve_omdb_api_key(apikey)
-
-    try:
-        response = requests.get(
-            omdb_url,
-            params=request_params,
-            timeout=REQUEST_TIMEOUT,
-        )
-        response.raise_for_status()
-        payload = response.json()
-    except (requests.RequestException, ValueError, TypeError) as error:
-        logger.warning("Failed to fetch OMDb data for %s: %s", resource_label, error)
-        raise RatingFetchError(
-            f"Failed to fetch OMDb data for {resource_label}: {error}"
-        ) from error
-
-    if not isinstance(payload, dict):
-        logger.warning("OMDb returned malformed data for %s", resource_label)
-        raise RatingFetchError(
-            f"OMDb returned malformed data for {resource_label}."
-        )
-
-    if payload.get("Response") != "False":
-        return payload
-
-    error_message = str(payload.get("Error") or "")
-    normalized_error = error_message.casefold()
-    if "not found" in normalized_error or "incorrect" in normalized_error:
-        logger.info("OMDb has no entry for %s: %s", resource_label, error_message)
-        return None
-
-    logger.warning("OMDb service error for %s: %s", resource_label, error_message)
-    raise RatingFetchError(
-        f"OMDb service error for {resource_label}: {error_message}"
-    )
-
-
-def fetch_omdb_ratings(imdb_id: str, apikey: str | None = None) -> dict | None:
-    """Fetch raw rating payload from OMDb API for a given IMDb ID.
-
-    Returns the payload dict if found, or None if OMDb successfully responded
-    that the movie was not found.
-    Raises RatingFetchError on missing key, network failure, or API service errors.
-    """
-    if not imdb_id or not str(imdb_id).strip().startswith("tt"):
-        logger.warning("Invalid or missing IMDb ID: %s", imdb_id)
-        return None
-
-    normalized_imdb_id = str(imdb_id).strip()
-    return _fetch_omdb_payload(
-        {"i": normalized_imdb_id},
-        normalized_imdb_id,
-        apikey,
-    )
-
-
-def fetch_media_ratings(
-    media_type: str,
-    media_id: int,
-    imdb_id: str | None = None,
-    apikey: str | None = None,
-) -> dict:
-    """Fetch and parse ratings from TMDB and OMDb for a movie or TV series.
-
-    Raises RatingFetchError on network or API failure.
-    """
-    if not imdb_id:
-        ext_ids = get_media_external_ids(media_type, media_id)
-        imdb_id = ext_ids.get("imdb_id")
-
-    omdb_payload = fetch_omdb_ratings(imdb_id, apikey=apikey) if imdb_id else None
-    ratings = parse_omdb_ratings(omdb_payload)
-    ratings["imdb_id"] = imdb_id
-    return ratings
-
-
-def fetch_omdb_season_episodes(
-    series_imdb_id: str,
-    season_number: int,
-    apikey: str | None = None,
-) -> list[dict]:
-    """Fetch all episodes' IMDb ratings for a given season from OMDb in a single call.
-
-    Returns a list of dicts: [{"episode_number": int, "imdb_id": str | None, "imdb_rating": float | None}, ...]
-    Raises RatingFetchError on missing key, network failure, or API service errors.
-    """
-    if not series_imdb_id or not str(series_imdb_id).strip().startswith("tt"):
-        logger.warning("Invalid or missing series IMDb ID: %s", series_imdb_id)
-        return []
-
-    normalized_imdb_id = str(series_imdb_id).strip()
-    normalized_season_number = int(season_number)
-    payload = _fetch_omdb_payload(
-        {"i": normalized_imdb_id, "Season": normalized_season_number},
-        f"{normalized_imdb_id} Season {normalized_season_number}",
-        apikey,
-    )
-    if payload is None:
-        return []
-
-    episodes = []
-    for item in payload.get("Episodes", []):
-        if not isinstance(item, dict):
-            continue
-        try:
-            ep_num = int(str(item.get("Episode") or "").strip())
-        except (TypeError, ValueError):
-            continue
-
-        imdb_id = str(item.get("imdbID") or "").strip() or None
-        imdb_rating = _parse_rating_float(item.get("imdbRating"))
-        episodes.append(
-            {
-                "episode_number": ep_num,
-                "imdb_id": imdb_id,
-                "imdb_rating": imdb_rating,
-            }
-        )
-
-    return episodes
 
 
 def find_media(media_type: str, name: str):
@@ -979,10 +738,3 @@ def download_tv_episode_still(
         "episode_id": episode_id,
         "local_path": relative_path.as_posix(),
     }
-
-
-def jsonp(data):
-    """Pretty-print JSON-compatible data for local debugging."""
-    print(json.dumps(data, indent=4, ensure_ascii=False))
-
-    return True

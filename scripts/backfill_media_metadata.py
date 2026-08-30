@@ -1,12 +1,15 @@
 import argparse
+import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(BASE_DIR))
 
 import helpers
 import models
 
 
-BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_DATABASE = BASE_DIR / "movie.db"
 
 

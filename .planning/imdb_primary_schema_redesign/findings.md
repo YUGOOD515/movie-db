@@ -35,5 +35,27 @@
 - Current source paths and image local paths have no cross-table collisions, so
   movie/episode source tables and movie/series/episode image tables can be
   merged under global unique-path constraints without data loss.
-- Expected preserved facts at migration time: 521 media rows, 728 source rows,
-  854 image rows, 13 progress rows, 3 favorite folders, and 0 favorite items.
+- Current migration rehearsal preserved 521 media rows, 728 source rows,
+  854 image rows, 15 progress rows, 3 favorite folders, and 0 favorite items.
+  Progress increased since the initial audit, so the final switch must quiesce
+  active application writes before taking the authoritative backup.
+- The new seven-table schema and complete data migration execute successfully in
+  memory. `PRAGMA integrity_check` is `ok`, foreign-key violations are zero,
+  and source/image path set differences are zero.
+- Temporary compatibility views over the seven physical tables and attached
+  IMDb catalog successfully serve homepage, overview, movie detail, and TV
+  detail reads. Young Sheldon returns seven populated seasons and 141 episodes.
+- The final `movie.db` contains exactly seven physical tables: 521 media rows,
+  521 TMDB supplemental rows, 854 images, 728 sources, 15 progress rows, three
+  favorite folders, and no favorite items. Integrity is `ok` with zero foreign-
+  key violations.
+- The 62 provisional episodes are season 1 of four series: `人鱼` episodes
+  1-22 (TMDB 273119), `入戏` episodes 1-12 (TMDB 303084), `小芳` episodes
+  1-18 (TMDB 296003), and `铁拳教育` episodes 1-10 (TMDB 276161).
+- The Git HEAD version of `imdb.db` is a malformed 929,173,504-byte truncation,
+  not a usable backup. The promoted database was rebuilt from TSV, is
+  5,224,140,800 bytes, and intentionally differs from Git HEAD.
+- The repository has no configured remote. Local `main` and the Codex baseline
+  ref were both rewritten to exclude `imdb.db`; both historical blob IDs are
+  absent after reflog expiration and garbage collection. `.gitignore` now
+  keeps the working database outside future commits.

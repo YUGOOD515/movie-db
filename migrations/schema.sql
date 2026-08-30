@@ -1,419 +1,119 @@
 /*
- * Draft SQLite schema. Review and approve before execution.
+ * IMDb-primary MovieDB schema.
  *
- * Data mapping:
- * - movie details come from get_media_details();
- * - movie-level poster_path and backdrop_path are omitted because
- *   search_media_images()
- *   supplies their complete URLs;
- * - collection image paths and production-company logo paths remain because
- *   they describe different entities and are not returned by
- *   search_media_images();
- * - relationship positions preserve the order of arrays returned by TMDB;
- * - movie_image stores search_media_images()[category][:5] in one-based order;
- * - local_path values are paths relative to Flask's static directory;
- * - movie_source maps AList virtual file paths to their corresponding movie.
- * - TV imports retain series data, every episode in the selected season, and
- *   one AList source relationship for the manually selected episode;
- * - nested TMDB creator, network, crew, guest-star and runtime arrays remain
- *   JSON because they have no shared movie entity and must be preserved whole.
- * - tv_series_image stores the first five TV images per category;
- * - tv_episode_image stores the local still for each manually linked episode.
+ * `imdb.db` remains the read-only authority for titles, aliases, years,
+ * runtimes, genres, hierarchy, crew, and IMDb ratings. This mutable database
+ * stores only local library state and the approved TMDB supplements.
  */
 
 PRAGMA foreign_keys = ON;
 
 BEGIN TRANSACTION;
 
-CREATE TABLE collection (
-    collection_id   INTEGER NOT NULL,
-    collection_name TEXT    NOT NULL,
-    poster_path     TEXT,
-    backdrop_path   TEXT,
-    PRIMARY KEY (collection_id)
-);
-
-CREATE TABLE movie (
-    movie_id                     INTEGER NOT NULL,
-    collection_id                INTEGER,
-    adult                        INTEGER NOT NULL,
-    softcore                     INTEGER NOT NULL,
-    video                        INTEGER NOT NULL,
-    budget                       INTEGER NOT NULL,
-    revenue                      INTEGER NOT NULL,
-    runtime                      INTEGER,
-    popularity                   NUMERIC NOT NULL,
-    vote_average                 NUMERIC NOT NULL,
-    vote_count                   INTEGER NOT NULL,
-    original_language            TEXT    NOT NULL,
-    original_title               TEXT    NOT NULL,
-    title                        TEXT    NOT NULL,
-    overview                     TEXT,
-    tagline                      TEXT,
-    homepage                     TEXT,
-    imdb_id                      TEXT,
-    release_date                 TEXT,
-    release_status               TEXT    NOT NULL,
-    imdb_rating                  NUMERIC,
-    imdb_vote_count              INTEGER,
-    rotten_tomatoes_tomatometer  INTEGER,
-    rotten_tomatoes_popcornmeter INTEGER,
-    metacritic_rating            INTEGER,
-    ratings_updated_at           TEXT,
-    PRIMARY KEY (movie_id),
-    FOREIGN KEY (collection_id)
-     REFERENCES collection (collection_id)
-      ON DELETE SET NULL
-      ON UPDATE CASCADE,
-     CONSTRAINT movie_adult_boolean
-          CHECK (adult IN (0, 1)),
-     CONSTRAINT movie_softcore_boolean
-          CHECK (softcore IN (0, 1)),
-     CONSTRAINT movie_video_boolean
-          CHECK (video IN (0, 1)),
-     CONSTRAINT movie_budget_nonnegative
-          CHECK (budget >= 0),
-     CONSTRAINT movie_revenue_nonnegative
-          CHECK (revenue >= 0),
-     CONSTRAINT movie_runtime_nonnegative
-          CHECK (runtime IS NULL OR runtime >= 0),
-     CONSTRAINT movie_popularity_nonnegative
-          CHECK (popularity >= 0),
-     CONSTRAINT movie_vote_average_range
-          CHECK (vote_average BETWEEN 0 AND 10),
-     CONSTRAINT movie_vote_count_nonnegative
-          CHECK (vote_count >= 0),
-     CONSTRAINT movie_imdb_rating_range
-          CHECK (imdb_rating IS NULL OR (imdb_rating >= 0 AND imdb_rating <= 10)),
-     CONSTRAINT movie_imdb_vote_count_nonnegative
-          CHECK (imdb_vote_count IS NULL OR imdb_vote_count >= 0),
-     CONSTRAINT movie_rt_tomatometer_range
-          CHECK (rotten_tomatoes_tomatometer IS NULL OR (rotten_tomatoes_tomatometer >= 0 AND rotten_tomatoes_tomatometer <= 100)),
-     CONSTRAINT movie_rt_popcornmeter_range
-          CHECK (rotten_tomatoes_popcornmeter IS NULL OR (rotten_tomatoes_popcornmeter >= 0 AND rotten_tomatoes_popcornmeter <= 100)),
-     CONSTRAINT movie_metacritic_rating_range
-          CHECK (metacritic_rating IS NULL OR (metacritic_rating >= 0 AND metacritic_rating <= 100))
-);
-
-CREATE TABLE movie_source (
-    source_id            INTEGER NOT NULL,
-    movie_id             INTEGER NOT NULL,
-    alist_path           TEXT    NOT NULL,
-    media_duration_ms    INTEGER,
-    file_size_bytes      INTEGER,
-    bit_rate             INTEGER,
-    container_format     TEXT,
-    video_codec          TEXT,
-    video_width          INTEGER,
-    video_height         INTEGER,
-    video_frame_rate     NUMERIC,
-    video_pixel_format   TEXT,
-    video_dynamic_range  TEXT,
-    audio_codec          TEXT,
-    audio_channels       INTEGER,
-    audio_channel_layout TEXT,
-    probed_at            TEXT,
-    PRIMARY KEY (source_id),
-         UNIQUE (alist_path),
-    FOREIGN KEY (movie_id)
-     REFERENCES movie (movie_id)
+CREATE TABLE media (
+    media_id         INTEGER NOT NULL,
+    media_type       TEXT    NOT NULL,
+    imdb_id          TEXT,
+    tmdb_id          INTEGER,
+    parent_media_id  INTEGER,
+    season_number    INTEGER,
+    episode_number   INTEGER,
+    display_title    TEXT    NOT NULL,
+    match_status     TEXT    NOT NULL DEFAULT 'matched',
+    created_at       TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at       TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (media_id),
+         UNIQUE (imdb_id),
+         UNIQUE (media_type, tmdb_id),
+         UNIQUE (parent_media_id, season_number, episode_number),
+    FOREIGN KEY (parent_media_id)
+     REFERENCES media (media_id)
       ON DELETE CASCADE
       ON UPDATE CASCADE,
-     CONSTRAINT movie_source_duration_nonnegative
-          CHECK (media_duration_ms IS NULL OR media_duration_ms >= 0),
-     CONSTRAINT movie_source_size_nonnegative
-          CHECK (file_size_bytes IS NULL OR file_size_bytes >= 0),
-     CONSTRAINT movie_source_bitrate_nonnegative
-          CHECK (bit_rate IS NULL OR bit_rate >= 0),
-     CONSTRAINT movie_source_width_positive
-          CHECK (video_width IS NULL OR video_width > 0),
-     CONSTRAINT movie_source_height_positive
-          CHECK (video_height IS NULL OR video_height > 0),
-     CONSTRAINT movie_source_frame_rate_positive
-          CHECK (video_frame_rate IS NULL OR video_frame_rate > 0),
-     CONSTRAINT movie_source_audio_channels_positive
-          CHECK (audio_channels IS NULL OR audio_channels > 0)
+     CONSTRAINT media_type_valid
+          CHECK (media_type IN ('movie', 'series', 'episode')),
+     CONSTRAINT media_identity_available
+          CHECK (imdb_id IS NOT NULL OR tmdb_id IS NOT NULL),
+     CONSTRAINT media_imdb_id_format
+          CHECK (imdb_id IS NULL OR imdb_id GLOB 'tt[0-9]*'),
+     CONSTRAINT media_tmdb_id_positive
+          CHECK (tmdb_id IS NULL OR tmdb_id > 0),
+     CONSTRAINT media_match_status_valid
+          CHECK (
+              (
+                  match_status = 'matched'
+                  AND imdb_id IS NOT NULL
+              )
+              OR
+              (
+                  match_status = 'provisional'
+                  AND media_type = 'episode'
+                  AND imdb_id IS NULL
+                  AND tmdb_id IS NOT NULL
+              )
+          ),
+     CONSTRAINT media_hierarchy_valid
+          CHECK (
+              (
+                  media_type IN ('movie', 'series')
+                  AND parent_media_id IS NULL
+                  AND season_number IS NULL
+                  AND episode_number IS NULL
+              )
+              OR
+              (
+                  media_type = 'episode'
+                  AND parent_media_id IS NOT NULL
+                  AND season_number IS NOT NULL
+                  AND season_number >= 0
+                  AND episode_number IS NOT NULL
+                  AND episode_number >= 1
+              )
+          )
 );
 
-CREATE TABLE genre (
-    genre_id   INTEGER NOT NULL,
-    genre_name TEXT    NOT NULL,
-    PRIMARY KEY (genre_id)
-);
-
-CREATE TABLE movie_genre (
-    movie_id       INTEGER NOT NULL,
-    genre_id       INTEGER NOT NULL,
-    genre_position INTEGER NOT NULL,
-    PRIMARY KEY (movie_id, genre_id),
-         UNIQUE (movie_id, genre_position),
-    FOREIGN KEY (movie_id)
-     REFERENCES movie (movie_id)
+CREATE TABLE tmdb_metadata (
+    media_id          INTEGER NOT NULL,
+    original_language TEXT,
+    overview          TEXT,
+    tagline           TEXT,
+    homepage          TEXT,
+    status            TEXT,
+    air_date          TEXT,
+    synced_at         TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (media_id),
+    FOREIGN KEY (media_id)
+     REFERENCES media (media_id)
       ON DELETE CASCADE
       ON UPDATE CASCADE,
-    FOREIGN KEY (genre_id)
-     REFERENCES genre (genre_id)
-      ON DELETE RESTRICT
-      ON UPDATE CASCADE,
-     CONSTRAINT genre_position_positive
-          CHECK (genre_position >= 1)
+     CONSTRAINT tmdb_air_date_format
+          CHECK (
+              air_date IS NULL
+              OR air_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
+          )
 );
 
-CREATE TABLE country (
-    country_code TEXT NOT NULL,
-    country_name TEXT,
-    PRIMARY KEY (country_code),
-     CONSTRAINT country_code_length
-          CHECK (country_code = '' OR LENGTH(country_code) = 2)
-);
-
-CREATE TABLE movie_origin_country (
-    movie_id         INTEGER NOT NULL,
-    country_code     TEXT    NOT NULL,
-    country_position INTEGER NOT NULL,
-    PRIMARY KEY (movie_id, country_code),
-         UNIQUE (movie_id, country_position),
-    FOREIGN KEY (movie_id)
-     REFERENCES movie (movie_id)
-      ON DELETE CASCADE
-      ON UPDATE CASCADE,
-    FOREIGN KEY (country_code)
-     REFERENCES country (country_code)
-      ON DELETE RESTRICT
-      ON UPDATE CASCADE,
-     CONSTRAINT origin_country_pos_check
-          CHECK (country_position >= 1)
-);
-
-CREATE TABLE movie_production_country (
-    movie_id         INTEGER NOT NULL,
-    country_code     TEXT    NOT NULL,
-    country_position INTEGER NOT NULL,
-    PRIMARY KEY (movie_id, country_code),
-         UNIQUE (movie_id, country_position),
-    FOREIGN KEY (movie_id)
-     REFERENCES movie (movie_id)
-      ON DELETE CASCADE
-      ON UPDATE CASCADE,
-    FOREIGN KEY (country_code)
-     REFERENCES country (country_code)
-      ON DELETE RESTRICT
-      ON UPDATE CASCADE,
-     CONSTRAINT production_country_pos_check
-          CHECK (country_position >= 1)
-);
-
-CREATE TABLE production_company (
-    company_id          INTEGER NOT NULL,
-    company_name        TEXT    NOT NULL,
-    origin_country_code TEXT,
-    logo_path           TEXT,
-    PRIMARY KEY (company_id),
-    FOREIGN KEY (origin_country_code)
-     REFERENCES country (country_code)
-      ON DELETE SET NULL
-      ON UPDATE CASCADE
-);
-
-CREATE TABLE movie_production_company (
-    movie_id         INTEGER NOT NULL,
-    company_id       INTEGER NOT NULL,
-    company_position INTEGER NOT NULL,
-    PRIMARY KEY (movie_id, company_id),
-         UNIQUE (movie_id, company_position),
-    FOREIGN KEY (movie_id)
-     REFERENCES movie (movie_id)
-      ON DELETE CASCADE
-      ON UPDATE CASCADE,
-    FOREIGN KEY (company_id)
-     REFERENCES production_company (company_id)
-      ON DELETE RESTRICT
-      ON UPDATE CASCADE,
-     CONSTRAINT company_position_positive
-          CHECK (company_position >= 1)
-);
-
-CREATE TABLE spoken_language (
-    language_code TEXT NOT NULL,
-    english_name  TEXT NOT NULL,
-    native_name   TEXT NOT NULL,
-    PRIMARY KEY (language_code),
-     CONSTRAINT language_code_length
-          CHECK (LENGTH(language_code) = 2)
-);
-
-CREATE TABLE movie_spoken_language (
-    movie_id          INTEGER NOT NULL,
-    language_code     TEXT    NOT NULL,
-    language_position INTEGER NOT NULL,
-    PRIMARY KEY (movie_id, language_code),
-         UNIQUE (movie_id, language_position),
-    FOREIGN KEY (movie_id)
-     REFERENCES movie (movie_id)
-      ON DELETE CASCADE
-      ON UPDATE CASCADE,
-    FOREIGN KEY (language_code)
-     REFERENCES spoken_language (language_code)
-      ON DELETE RESTRICT
-      ON UPDATE CASCADE,
-     CONSTRAINT language_position_positive
-          CHECK (language_position >= 1)
-);
-
-CREATE TABLE movie_image (
-    movie_id       INTEGER NOT NULL,
+CREATE TABLE media_image (
+    media_id       INTEGER NOT NULL,
     image_type     TEXT    NOT NULL,
     image_position INTEGER NOT NULL,
-    image_url      TEXT    NOT NULL,
+    remote_path    TEXT,
     local_path     TEXT    NOT NULL,
-    PRIMARY KEY (movie_id, image_type, image_position),
+    PRIMARY KEY (media_id, image_type, image_position),
          UNIQUE (local_path),
-    FOREIGN KEY (movie_id)
-     REFERENCES movie (movie_id)
+    FOREIGN KEY (media_id)
+     REFERENCES media (media_id)
       ON DELETE CASCADE
       ON UPDATE CASCADE,
-     CONSTRAINT movie_image_type
-          CHECK (image_type IN ('posters', 'logos', 'backdrops')),
-     CONSTRAINT movie_image_position_range
-          CHECK (image_position BETWEEN 1 AND 5)
+     CONSTRAINT media_image_type_valid
+          CHECK (image_type IN ('poster', 'logo', 'backdrop', 'still')),
+     CONSTRAINT media_image_position_positive
+          CHECK (image_position >= 1)
 );
 
-CREATE TABLE tv_series (
-    series_id                    INTEGER NOT NULL,
-    adult                        INTEGER NOT NULL,
-    softcore                     INTEGER NOT NULL,
-    in_production                INTEGER NOT NULL,
-    number_of_episodes           INTEGER NOT NULL,
-    number_of_seasons            INTEGER NOT NULL,
-    popularity                   NUMERIC NOT NULL,
-    vote_average                 NUMERIC NOT NULL,
-    vote_count                   INTEGER NOT NULL,
-    original_language            TEXT    NOT NULL,
-    original_name                TEXT    NOT NULL,
-    series_name                  TEXT    NOT NULL,
-    overview                     TEXT,
-    tagline                      TEXT,
-    homepage                     TEXT,
-    imdb_id                      TEXT,
-    first_air_date               TEXT,
-    last_air_date                TEXT,
-    series_status                TEXT    NOT NULL,
-    series_type                  TEXT    NOT NULL,
-    poster_path                  TEXT,
-    backdrop_path                TEXT,
-    created_by_json              TEXT    NOT NULL,
-    networks_json                TEXT    NOT NULL,
-    episode_runtime_json         TEXT    NOT NULL,
-    last_episode_id              INTEGER,
-    next_episode_id              INTEGER,
-    imdb_rating                  NUMERIC,
-    imdb_vote_count              INTEGER,
-    rotten_tomatoes_tomatometer  INTEGER,
-    rotten_tomatoes_popcornmeter INTEGER,
-    metacritic_rating            INTEGER,
-    ratings_updated_at           TEXT,
-    PRIMARY KEY (series_id),
-    FOREIGN KEY (last_episode_id)
-     REFERENCES tv_episode (episode_id)
-      ON DELETE SET NULL
-      ON UPDATE CASCADE,
-    FOREIGN KEY (next_episode_id)
-     REFERENCES tv_episode (episode_id)
-      ON DELETE SET NULL
-      ON UPDATE CASCADE,
-     CONSTRAINT tv_series_adult_boolean
-          CHECK (adult IN (0, 1)),
-     CONSTRAINT tv_series_softcore_boolean
-          CHECK (softcore IN (0, 1)),
-     CONSTRAINT tv_series_in_production_boolean
-          CHECK (in_production IN (0, 1)),
-     CONSTRAINT tv_series_episode_count_nonnegative
-          CHECK (number_of_episodes >= 0),
-     CONSTRAINT tv_series_season_count_nonnegative
-          CHECK (number_of_seasons >= 0),
-     CONSTRAINT tv_series_popularity_nonnegative
-          CHECK (popularity >= 0),
-     CONSTRAINT tv_series_vote_average_range
-          CHECK (vote_average BETWEEN 0 AND 10),
-     CONSTRAINT tv_series_vote_count_nonnegative
-          CHECK (vote_count >= 0),
-     CONSTRAINT tv_series_imdb_rating_range
-          CHECK (imdb_rating IS NULL OR (imdb_rating >= 0 AND imdb_rating <= 10)),
-     CONSTRAINT tv_series_imdb_vote_count_nonnegative
-          CHECK (imdb_vote_count IS NULL OR imdb_vote_count >= 0),
-     CONSTRAINT tv_series_rt_tomatometer_range
-          CHECK (rotten_tomatoes_tomatometer IS NULL OR (rotten_tomatoes_tomatometer >= 0 AND rotten_tomatoes_tomatometer <= 100)),
-     CONSTRAINT tv_series_rt_popcornmeter_range
-          CHECK (rotten_tomatoes_popcornmeter IS NULL OR (rotten_tomatoes_popcornmeter >= 0 AND rotten_tomatoes_popcornmeter <= 100)),
-     CONSTRAINT tv_series_metacritic_rating_range
-          CHECK (metacritic_rating IS NULL OR (metacritic_rating >= 0 AND metacritic_rating <= 100))
-);
-
-CREATE TABLE tv_season (
-    season_id        INTEGER NOT NULL,
-    series_id        INTEGER NOT NULL,
-    season_number    INTEGER NOT NULL,
-    episode_count    INTEGER NOT NULL,
-    season_name      TEXT    NOT NULL,
-    overview         TEXT,
-    air_date         TEXT,
-    poster_path      TEXT,
-    vote_average     NUMERIC NOT NULL,
-    tmdb_internal_id TEXT,
-    networks_json    TEXT    NOT NULL,
-    PRIMARY KEY (season_id),
-         UNIQUE (series_id, season_number),
-    FOREIGN KEY (series_id)
-     REFERENCES tv_series (series_id)
-      ON DELETE CASCADE
-      ON UPDATE CASCADE,
-     CONSTRAINT tv_season_number_nonnegative
-          CHECK (season_number >= 0),
-     CONSTRAINT tv_season_episode_count_nonnegative
-          CHECK (episode_count >= 0),
-     CONSTRAINT tv_season_vote_average_range
-          CHECK (vote_average BETWEEN 0 AND 10)
-);
-
-CREATE TABLE tv_episode (
-    episode_id             INTEGER NOT NULL,
-    season_id              INTEGER NOT NULL,
-    episode_number         INTEGER NOT NULL,
-    episode_name           TEXT    NOT NULL,
-    overview               TEXT,
-    air_date               TEXT,
-    runtime                INTEGER,
-    production_code        TEXT,
-    episode_type           TEXT,
-    still_path             TEXT,
-    vote_average           NUMERIC NOT NULL,
-    vote_count             INTEGER NOT NULL,
-    crew_json              TEXT    NOT NULL,
-    guest_stars_json       TEXT    NOT NULL,
-    imdb_id                TEXT,
-    imdb_rating            REAL,
-    imdb_rating_updated_at TEXT,
-    PRIMARY KEY (episode_id),
-         UNIQUE (season_id, episode_number),
-    FOREIGN KEY (season_id)
-     REFERENCES tv_season (season_id)
-      ON DELETE CASCADE
-      ON UPDATE CASCADE,
-     CONSTRAINT tv_episode_number_positive
-          CHECK (episode_number >= 1),
-     CONSTRAINT tv_episode_runtime_nonnegative
-          CHECK (runtime IS NULL OR runtime >= 0),
-     CONSTRAINT tv_episode_vote_average_range
-          CHECK (vote_average BETWEEN 0 AND 10),
-     CONSTRAINT tv_episode_vote_count_nonnegative
-          CHECK (vote_count >= 0),
-     CONSTRAINT tv_episode_imdb_rating_range
-          CHECK (imdb_rating IS NULL OR (imdb_rating >= 0 AND imdb_rating <= 10))
-);
-
-CREATE TABLE tv_episode_source (
+CREATE TABLE media_source (
     source_id            INTEGER NOT NULL,
-    episode_id           INTEGER NOT NULL,
+    media_id             INTEGER NOT NULL,
     alist_path           TEXT    NOT NULL,
     media_duration_ms    INTEGER,
     file_size_bytes      INTEGER,
@@ -431,179 +131,42 @@ CREATE TABLE tv_episode_source (
     probed_at            TEXT,
     PRIMARY KEY (source_id),
          UNIQUE (alist_path),
-    FOREIGN KEY (episode_id)
-     REFERENCES tv_episode (episode_id)
+    FOREIGN KEY (media_id)
+     REFERENCES media (media_id)
       ON DELETE CASCADE
       ON UPDATE CASCADE,
-     CONSTRAINT tv_source_duration_nonnegative
+     CONSTRAINT media_source_duration_nonnegative
           CHECK (media_duration_ms IS NULL OR media_duration_ms >= 0),
-     CONSTRAINT tv_source_size_nonnegative
+     CONSTRAINT media_source_size_nonnegative
           CHECK (file_size_bytes IS NULL OR file_size_bytes >= 0),
-     CONSTRAINT tv_source_bitrate_nonnegative
+     CONSTRAINT media_source_bitrate_nonnegative
           CHECK (bit_rate IS NULL OR bit_rate >= 0),
-     CONSTRAINT tv_source_width_positive
+     CONSTRAINT media_source_width_positive
           CHECK (video_width IS NULL OR video_width > 0),
-     CONSTRAINT tv_source_height_positive
+     CONSTRAINT media_source_height_positive
           CHECK (video_height IS NULL OR video_height > 0),
-     CONSTRAINT tv_source_frame_rate_positive
+     CONSTRAINT media_source_frame_rate_positive
           CHECK (video_frame_rate IS NULL OR video_frame_rate > 0),
-     CONSTRAINT tv_source_audio_channels_positive
+     CONSTRAINT media_source_audio_channels_positive
           CHECK (audio_channels IS NULL OR audio_channels > 0)
 );
 
-CREATE TABLE movie_watch_progress (
-    movie_id    INTEGER NOT NULL,
+CREATE TABLE watch_progress (
+    media_id    INTEGER NOT NULL,
     position_ms INTEGER NOT NULL DEFAULT 0,
     duration_ms INTEGER NOT NULL DEFAULT 0,
     updated_at  TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (movie_id),
-    FOREIGN KEY (movie_id)
-     REFERENCES movie (movie_id)
+    PRIMARY KEY (media_id),
+    FOREIGN KEY (media_id)
+     REFERENCES media (media_id)
       ON DELETE CASCADE
       ON UPDATE CASCADE,
-     CONSTRAINT movie_watch_position_nonnegative
+     CONSTRAINT watch_position_nonnegative
           CHECK (position_ms >= 0),
-     CONSTRAINT movie_watch_duration_nonnegative
+     CONSTRAINT watch_duration_nonnegative
           CHECK (duration_ms >= 0),
-     CONSTRAINT movie_watch_position_within_duration
+     CONSTRAINT watch_position_within_duration
           CHECK (duration_ms = 0 OR position_ms <= duration_ms)
-);
-
-CREATE TABLE tv_episode_watch_progress (
-    episode_id  INTEGER NOT NULL,
-    position_ms INTEGER NOT NULL DEFAULT 0,
-    duration_ms INTEGER NOT NULL DEFAULT 0,
-    updated_at  TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (episode_id),
-    FOREIGN KEY (episode_id)
-     REFERENCES tv_episode (episode_id)
-      ON DELETE CASCADE
-      ON UPDATE CASCADE,
-     CONSTRAINT tv_episode_watch_position_nonnegative
-          CHECK (position_ms >= 0),
-     CONSTRAINT tv_episode_watch_duration_nonnegative
-          CHECK (duration_ms >= 0),
-     CONSTRAINT tv_episode_watch_position_within_duration
-          CHECK (duration_ms = 0 OR position_ms <= duration_ms)
-);
-
-CREATE TABLE tv_series_image (
-    series_id       INTEGER NOT NULL,
-    image_type      TEXT    NOT NULL,
-    image_position  INTEGER NOT NULL,
-    image_url       TEXT    NOT NULL,
-    local_path      TEXT    NOT NULL,
-    PRIMARY KEY (series_id, image_type, image_position),
-         UNIQUE (local_path),
-    FOREIGN KEY (series_id)
-     REFERENCES tv_series (series_id)
-      ON DELETE CASCADE
-      ON UPDATE CASCADE,
-     CONSTRAINT tv_series_image_type
-          CHECK (image_type IN ('posters', 'logos', 'backdrops')),
-     CONSTRAINT tv_series_image_position_range
-          CHECK (image_position BETWEEN 1 AND 5)
-);
-
-CREATE TABLE tv_episode_image (
-    episode_id INTEGER NOT NULL,
-    local_path TEXT    NOT NULL,
-    PRIMARY KEY (episode_id),
-         UNIQUE (local_path),
-    FOREIGN KEY (episode_id)
-     REFERENCES tv_episode (episode_id)
-      ON DELETE CASCADE
-      ON UPDATE CASCADE
-);
-
-CREATE TABLE tv_series_genre (
-    series_id      INTEGER NOT NULL,
-    genre_id       INTEGER NOT NULL,
-    genre_position INTEGER NOT NULL,
-    PRIMARY KEY (series_id, genre_id),
-         UNIQUE (series_id, genre_position),
-    FOREIGN KEY (series_id)
-     REFERENCES tv_series (series_id)
-      ON DELETE CASCADE
-      ON UPDATE CASCADE,
-    FOREIGN KEY (genre_id)
-     REFERENCES genre (genre_id)
-      ON DELETE RESTRICT
-      ON UPDATE CASCADE,
-     CONSTRAINT tv_genre_position_positive
-          CHECK (genre_position >= 1)
-);
-
-CREATE TABLE tv_series_origin_country (
-    series_id        INTEGER NOT NULL,
-    country_code     TEXT    NOT NULL,
-    country_position INTEGER NOT NULL,
-    PRIMARY KEY (series_id, country_code),
-         UNIQUE (series_id, country_position),
-    FOREIGN KEY (series_id)
-     REFERENCES tv_series (series_id)
-      ON DELETE CASCADE
-      ON UPDATE CASCADE,
-    FOREIGN KEY (country_code)
-     REFERENCES country (country_code)
-      ON DELETE RESTRICT
-      ON UPDATE CASCADE,
-     CONSTRAINT tv_origin_country_position_positive
-          CHECK (country_position >= 1)
-);
-
-CREATE TABLE tv_series_production_country (
-    series_id        INTEGER NOT NULL,
-    country_code     TEXT    NOT NULL,
-    country_position INTEGER NOT NULL,
-    PRIMARY KEY (series_id, country_code),
-         UNIQUE (series_id, country_position),
-    FOREIGN KEY (series_id)
-     REFERENCES tv_series (series_id)
-      ON DELETE CASCADE
-      ON UPDATE CASCADE,
-    FOREIGN KEY (country_code)
-     REFERENCES country (country_code)
-      ON DELETE RESTRICT
-      ON UPDATE CASCADE,
-     CONSTRAINT tv_production_country_position_positive
-          CHECK (country_position >= 1)
-);
-
-CREATE TABLE tv_series_production_company (
-    series_id        INTEGER NOT NULL,
-    company_id       INTEGER NOT NULL,
-    company_position INTEGER NOT NULL,
-    PRIMARY KEY (series_id, company_id),
-         UNIQUE (series_id, company_position),
-    FOREIGN KEY (series_id)
-     REFERENCES tv_series (series_id)
-      ON DELETE CASCADE
-      ON UPDATE CASCADE,
-    FOREIGN KEY (company_id)
-     REFERENCES production_company (company_id)
-      ON DELETE RESTRICT
-      ON UPDATE CASCADE,
-     CONSTRAINT tv_company_position_positive
-          CHECK (company_position >= 1)
-);
-
-CREATE TABLE tv_series_spoken_language (
-    series_id         INTEGER NOT NULL,
-    language_code     TEXT    NOT NULL,
-    language_position INTEGER NOT NULL,
-    PRIMARY KEY (series_id, language_code),
-         UNIQUE (series_id, language_position),
-    FOREIGN KEY (series_id)
-     REFERENCES tv_series (series_id)
-      ON DELETE CASCADE
-      ON UPDATE CASCADE,
-    FOREIGN KEY (language_code)
-     REFERENCES spoken_language (language_code)
-      ON DELETE RESTRICT
-      ON UPDATE CASCADE,
-     CONSTRAINT tv_language_position_positive
-          CHECK (language_position >= 1)
 );
 
 CREATE TABLE favorite_folder (
@@ -618,7 +181,7 @@ CREATE TABLE favorite_folder (
          UNIQUE (folder_name),
          UNIQUE (folder_position),
      CONSTRAINT favorite_folder_type_valid
-          CHECK (folder_type IN ('movie', 'tv', 'custom')),
+          CHECK (folder_type IN ('movie', 'series', 'custom')),
      CONSTRAINT favorite_folder_system_boolean
           CHECK (is_system IN (0, 1)),
      CONSTRAINT favorite_folder_position_positive
@@ -628,40 +191,38 @@ CREATE TABLE favorite_folder (
 CREATE TABLE favorite_item (
     favorite_item_id INTEGER NOT NULL,
     folder_id        INTEGER NOT NULL,
-    media_type       TEXT    NOT NULL,
-    movie_id         INTEGER,
-    series_id        INTEGER,
+    media_id         INTEGER NOT NULL,
     added_at         TEXT    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (favorite_item_id),
-         UNIQUE (folder_id, movie_id),
-         UNIQUE (folder_id, series_id),
+         UNIQUE (folder_id, media_id),
     FOREIGN KEY (folder_id)
      REFERENCES favorite_folder (folder_id)
       ON DELETE CASCADE
       ON UPDATE CASCADE,
-    FOREIGN KEY (movie_id)
-     REFERENCES movie (movie_id)
+    FOREIGN KEY (media_id)
+     REFERENCES media (media_id)
       ON DELETE CASCADE
-      ON UPDATE CASCADE,
-    FOREIGN KEY (series_id)
-     REFERENCES tv_series (series_id)
-      ON DELETE CASCADE
-      ON UPDATE CASCADE,
-     CONSTRAINT favorite_item_media_valid
-          CHECK (
-              (
-                  media_type = 'movie'
-                  AND movie_id IS NOT NULL
-                  AND series_id IS NULL
-              )
-              OR
-              (
-                  media_type = 'tv'
-                  AND movie_id IS NULL
-                  AND series_id IS NOT NULL
-              )
-          )
+      ON UPDATE CASCADE
 );
+
+CREATE INDEX media_type_lookup_idx
+          ON media (media_type);
+
+CREATE INDEX episode_parent_lookup_idx
+          ON media (parent_media_id, season_number, episode_number)
+       WHERE media_type = 'episode';
+
+CREATE INDEX media_source_lookup_idx
+          ON media_source (media_id);
+
+CREATE INDEX media_image_lookup_idx
+          ON media_image (media_id, image_type, image_position);
+
+CREATE INDEX watch_progress_updated_idx
+          ON watch_progress (updated_at DESC);
+
+CREATE INDEX favorite_item_folder_added_idx
+          ON favorite_item (folder_id, added_at DESC);
 
 INSERT INTO favorite_folder (
     folder_id,
@@ -672,73 +233,7 @@ INSERT INTO favorite_folder (
     is_system
 )
      VALUES (1, '电影收藏', 'movie', 'film', 1, 1),
-            (2, '电视剧收藏', 'tv', 'tv', 2, 1),
+            (2, '电视剧收藏', 'series', 'tv', 2, 1),
             (3, '自定义收藏', 'custom', 'bookmark-star', 3, 1);
-
-CREATE INDEX movie_collection_idx
-          ON movie (collection_id);
-
-CREATE INDEX source_movie_lookup_idx
-          ON movie_source (movie_id);
-
-CREATE INDEX genre_lookup_idx
-          ON movie_genre (genre_id);
-
-CREATE INDEX origin_country_lookup_idx
-          ON movie_origin_country (country_code);
-
-CREATE INDEX production_country_lookup_idx
-          ON movie_production_country (country_code);
-
-CREATE INDEX production_company_lookup_idx
-          ON movie_production_company (company_id);
-
-CREATE INDEX spoken_language_lookup_idx
-          ON movie_spoken_language (language_code);
-
-CREATE INDEX tv_series_last_episode_idx
-          ON tv_series (last_episode_id);
-
-CREATE INDEX tv_series_next_episode_idx
-          ON tv_series (next_episode_id);
-
-CREATE INDEX tv_season_series_lookup_idx
-          ON tv_season (series_id);
-
-CREATE INDEX tv_episode_season_lookup_idx
-          ON tv_episode (season_id);
-
-CREATE INDEX tv_episode_source_lookup_idx
-          ON tv_episode_source (episode_id);
-
-CREATE INDEX movie_watch_progress_updated_idx
-          ON movie_watch_progress (updated_at);
-
-CREATE INDEX tv_episode_watch_progress_updated_idx
-          ON tv_episode_watch_progress (updated_at);
-
-CREATE INDEX tv_series_genre_lookup_idx
-          ON tv_series_genre (genre_id);
-
-CREATE INDEX tv_origin_country_lookup_idx
-          ON tv_series_origin_country (country_code);
-
-CREATE INDEX tv_production_country_lookup_idx
-          ON tv_series_production_country (country_code);
-
-CREATE INDEX tv_production_company_lookup_idx
-          ON tv_series_production_company (company_id);
-
-CREATE INDEX tv_spoken_language_lookup_idx
-          ON tv_series_spoken_language (language_code);
-
-CREATE INDEX favorite_item_folder_added_idx
-          ON favorite_item (folder_id, added_at DESC);
-
-CREATE INDEX favorite_item_movie_idx
-          ON favorite_item (movie_id);
-
-CREATE INDEX favorite_item_series_idx
-          ON favorite_item (series_id);
 
 COMMIT;
