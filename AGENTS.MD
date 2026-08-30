@@ -4,7 +4,7 @@
 
 当前项目是一个本地影视资源管理网页，遵循 MVC 架构原则，即Model、Connector、View原则。
 
-当前以本地 IMDb 数据库作为影视主数据，TMDB 仅补充简介、标语、主页、状态、原始语言、完整单集日期和图片；AList 保存本地媒体来源。电影和剧集的共用查询、图片及数据库写入流程已经合并整理。
+当前以本地 IMDb 数据库作为影视主数据，TMDB 仅补充简介、标语、主页、状态、原始语言、完整单集日期和图片；AList 保存本地媒体来源。电影和剧集的共用查询、图片及数据库写入流程已经合并整理。图片目录以 Title ID（IMDb ID）命名：`static/images/{title_id}/{posters|backdrops|logos}/{N}.{jpg|png}`，单集剧照为 `static/images/{series_title_id}/{episode_title_id}-still.jpg`，路径记录在 `title_artwork.local_path`（迁移脚本见 @scripts/migrate_artwork_paths.py）。
 
 ## Model
 

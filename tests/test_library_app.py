@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import sqlite3
 import tempfile
@@ -12,19 +13,25 @@ import app as movie_app
 import db as database_module
 import helpers
 import models
+from playback import is_effectively_completed
+from queries.collection import get_collection_items
+from queries.title import query_title
+from viewmodels.title import build_title_viewmodel
 
 
 class LibraryIntegrationTest(unittest.TestCase):
     def setUp(self):
-        source = movie_app.BASE_DIR / "library.db"
-        if not source.is_file():
-            self.skipTest("library.db is not available")
-
         self.temporary_directory = tempfile.TemporaryDirectory()
         self.database_path = Path(self.temporary_directory.name) / "library.db"
-        with closing(sqlite3.connect(source)) as source_db:
-            with closing(sqlite3.connect(self.database_path)) as target_db:
-                source_db.backup(target_db)
+        schema = (movie_app.BASE_DIR / "migrations" / "library_schema.sql").read_text(
+            encoding="utf-8"
+        )
+        fixture = (
+            movie_app.BASE_DIR / "tests" / "fixtures" / "library_fixture.sql"
+        ).read_text(encoding="utf-8")
+        with closing(sqlite3.connect(self.database_path)) as database:
+            database.executescript(schema)
+            database.executescript(fixture)
 
         self.previous_database = movie_app.app.config["DATABASE"]
         movie_app.app.config.update(TESTING=True, DATABASE=self.database_path)
@@ -39,6 +46,17 @@ class LibraryIntegrationTest(unittest.TestCase):
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
         return connection
+
+    def build_title(
+        self,
+        title_id: str,
+        *,
+        select_resume: bool = False,
+        **parameters,
+    ):
+        with movie_app.app.test_request_context("/"):
+            raw = query_title(database_module.get_db(), title_id, **parameters)
+            return build_title_viewmodel(raw, select_resume=select_resume)
 
     def test_schema_data_and_integrity(self):
         with closing(self.connect()) as database:
@@ -67,7 +85,7 @@ class LibraryIntegrationTest(unittest.TestCase):
             )
             self.assertEqual(
                 database.execute("SELECT COUNT(*) FROM title_basic").fetchone()[0],
-                521,
+                8,
             )
             self.assertEqual(database.execute("PRAGMA integrity_check").fetchone()[0], "ok")
             self.assertEqual(database.execute("PRAGMA foreign_key_check").fetchall(), [])
@@ -89,6 +107,7 @@ class LibraryIntegrationTest(unittest.TestCase):
             "/collection/1",
             "/title/tt0816692",
             "/title/tt6226232",
+            "/title/tt6226232?resume=1",
             "/title/tt6226232?season=3&episode=12",
             "/title/tt11555014",
             "/media",
@@ -103,7 +122,9 @@ class LibraryIntegrationTest(unittest.TestCase):
 
     def test_home_catalog_and_title_viewmodels_render_expected_data(self):
         home = self.client.get("/").get_data(as_text=True)
-        self.assertIn("S03E13 · 合同，规则和一点猪脑", home)
+        self.assertIn("S3 E13 · 合同，规则和一点猪脑", home)
+        self.assertIn("/title/tt6226232?resume=1", home)
+        self.assertIn('action="/title/tt6226232/resume"', home)
         self.assertIn("电影类别", home)
         self.assertIn("剧集类别", home)
         self.assertIn("观看进度", home)
@@ -134,6 +155,13 @@ class LibraryIntegrationTest(unittest.TestCase):
         self.assertIn("S3 · E12", direct_episode)
         self.assertIn("detail-hero-grid", selected_series)
         self.assertIn("episode-rail-track", selected_series)
+        information_position = selected_series.index('id="information-heading"')
+        file_position = selected_series.index('id="file-information-heading"')
+        links_position = selected_series.index('aria-label="外部链接"')
+        self.assertLess(information_position, file_position)
+        self.assertLess(file_position, links_position)
+        self.assertNotIn('class="col-12 col-lg-7"', selected_series)
+        self.assertNotIn('class="col-12 col-lg-5"', selected_series)
 
         # 懒渲染：服务端只输出精选单集的面板，其余单集走 JSON 数据岛
         self.assertEqual(selected_series.count('data-episode-hero="'), 1)
@@ -154,6 +182,18 @@ class LibraryIntegrationTest(unittest.TestCase):
         favorites = self.client.get("/favorites").get_data(as_text=True)
         self.assertIn("收藏夹筛选", favorites)
         self.assertIn("genre-pills", favorites)
+
+        top = self.client.get("/top").get_data(as_text=True)
+        ranked_cards = re.findall(
+            r'<article class="ranked-feature">([\s\S]*?)</article>',
+            top,
+        )
+        self.assertEqual(len(ranked_cards), 2)
+        for card in ranked_cards:
+            self.assertIn("ranked-feature-logo", card)
+            self.assertIn("ranked-feature-content", card)
+            self.assertIn("ranked-feature-meta", card)
+            self.assertNotIn('class="fw-semibold text-truncate"', card)
 
         association = self.client.get("/media?tab=associate").get_data(
             as_text=True
@@ -176,9 +216,13 @@ class LibraryIntegrationTest(unittest.TestCase):
                 self.database_path, 1, "tt0816692"
             )
         )
-        self.assertTrue(
+        with self.assertRaises(ValueError):
             models.toggle_library_collection_item(
                 self.database_path, 2, "tt11555014"
+            )
+        self.assertTrue(
+            models.toggle_library_collection_item(
+                self.database_path, 2, "tt6226232"
             )
         )
 
@@ -274,6 +318,124 @@ class LibraryIntegrationTest(unittest.TestCase):
             self.assertEqual(len(rows), before + 1)
             self.assertEqual(rows[-1]["position_ms"], 2_000)
 
+    def test_series_resume_thresholds_and_collection_identity(self):
+        page = self.build_title("tt6226232")
+        self.assertEqual(page["selected_episode"]["episode_id"], "tt6719334")
+        self.assertEqual(page["resume_episode"]["episode_id"], "tt11591954")
+        self.assertTrue(page["resume_episode"]["play_label"].startswith("继续播放"))
+        self.assertEqual(page["favorite"]["title_id"], "tt6226232")
+        self.assertTrue(page["favorite"]["action_url"].endswith("/tt6226232/toggle"))
+
+        with closing(self.connect()) as database, database:
+            database.execute(
+                "UPDATE media_file SET duration_ms = 600000 WHERE file_id = 14"
+            )
+            database.execute(
+                "UPDATE playback_progress SET position_ms = 480000 WHERE file_id = 14"
+            )
+        page = self.build_title("tt6226232")
+        self.assertEqual(page["resume_episode"]["episode_id"], "tt11591954")
+
+        with closing(self.connect()) as database, database:
+            database.execute(
+                "UPDATE playback_progress SET position_ms = 480001 WHERE file_id = 14"
+            )
+        page = self.build_title("tt6226232")
+        self.assertEqual(page["resume_episode"]["episode_id"], "tt11599999")
+        self.assertTrue(page["resume_episode"]["play_label"].startswith("播放"))
+        resume_page = self.build_title("tt6226232", select_resume=True)
+        self.assertEqual(
+            resume_page["selected_episode"]["episode_id"],
+            "tt11599999",
+        )
+        self.assertEqual(
+            resume_page["playback_episode"]["episode_id"],
+            "tt11599999",
+        )
+        rendered = self.client.get("/title/tt6226232?resume=1").get_data(
+            as_text=True
+        )
+        self.assertIn('data-episode-hero="tt11599999"', rendered)
+        response = self.client.post("/title/tt6226232/resume")
+        self.assertEqual(response.status_code, 307)
+        self.assertTrue(response.headers["Location"].endswith("/play/15"))
+
+        with closing(self.connect()) as database, database:
+            database.execute(
+                "UPDATE playback_progress SET position_ms = 540000 WHERE file_id = 14"
+            )
+        ninety_percent = self.build_title("tt6226232", select_resume=True)
+        self.assertEqual(
+            ninety_percent["selected_episode"]["episode_id"],
+            "tt11599999",
+        )
+
+        self.assertFalse(is_effectively_completed(480000, 600000))
+        self.assertTrue(is_effectively_completed(480001, 600000))
+        self.assertTrue(is_effectively_completed(540000, 600000))
+
+        models.toggle_library_collection_item(
+            self.database_path, 2, "tt6226232"
+        )
+        with closing(self.connect()) as database:
+            items = get_collection_items(database, 2)
+        self.assertEqual([item["title_id"] for item in items], ["tt6226232"])
+
+    def test_completed_movie_restarts_and_uses_non_continue_label(self):
+        with closing(self.connect()) as database, database:
+            database.execute(
+                """
+                INSERT INTO playback_progress (file_id, position_ms, watched_at)
+                VALUES (3, 9126000, '2026-08-30 10:00:00')
+                """
+            )
+        page = self.build_title("tt0816692")
+        self.assertFalse(page["play_label"].startswith("继续播放"))
+
+        with patch.object(
+            helpers, "get_video_link", return_value="https://media.test/movie.mkv"
+        ), patch.object(helpers, "play_video") as play_video:
+            self.assertEqual(self.client.post("/play/3").status_code, 204)
+        self.assertEqual(play_video.call_args.kwargs["start_position_ms"], 0)
+
+    def test_artwork_batch_rolls_back_as_one_transaction(self):
+        with closing(self.connect()) as database:
+            before = database.execute(
+                """
+                SELECT local_path
+                  FROM title_artwork
+                 WHERE title_id = 'tt0816692'
+                   AND artwork_type = 'poster'
+                   AND position = 1
+                """
+            ).fetchone()[0]
+        response = self.client.post(
+            "/manager/tt0816692/artwork",
+            data={
+                "poster_position": "2",
+                "backdrop_position": "999",
+                "return_to": "/media",
+            },
+        )
+        self.assertEqual(response.status_code, 404)
+        with closing(self.connect()) as database:
+            after = database.execute(
+                """
+                SELECT local_path
+                  FROM title_artwork
+                 WHERE title_id = 'tt0816692'
+                   AND artwork_type = 'poster'
+                   AND position = 1
+                """
+            ).fetchone()[0]
+        self.assertEqual(after, before)
+
+    def test_manager_filtering_is_server_owned(self):
+        html = self.client.get("/media?q=星际&type=movie").get_data(as_text=True)
+        self.assertIn("overviewForm.requestSubmit()", html)
+        self.assertNotIn("function applyFilter", html)
+        self.assertNotIn("request.full_path", html)
+
     def test_rendered_local_static_references_exist(self):
         references = set()
         for path in (
@@ -293,11 +455,24 @@ class LibraryIntegrationTest(unittest.TestCase):
             for reference in references
             if not (movie_app.BASE_DIR / "static" / reference).is_file()
         ]
-        self.assertGreater(len(references), 20)
+        self.assertGreater(len(references), 4)
         self.assertEqual(missing, [])
 
 
 class ConnectorUnitTest(unittest.TestCase):
+    def test_connector_credentials_come_from_environment(self):
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaisesRegex(RuntimeError, "TMDB_TOKEN"):
+                helpers._tmdb_headers()
+            with self.assertRaisesRegex(RuntimeError, "ALIST_USERNAME"):
+                helpers.get_video_link("/Movies/Test.mkv")
+
+        with patch.dict(os.environ, {"TMDB_TOKEN": "test-token"}, clear=True):
+            self.assertEqual(
+                helpers._tmdb_headers()["Authorization"],
+                "Bearer test-token",
+            )
+
     def test_tmdb_detail_merges_external_imdb_id(self):
         with patch.object(
             helpers,
@@ -379,7 +554,7 @@ class ConnectorUnitTest(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as directory:
             with patch.object(helpers, "_download_to_target") as download:
-                records = helpers.download_media_images("movie", 123, links, directory)
+                records = helpers.download_media_images("tt1234567", links, directory)
 
         self.assertEqual(len(records), 15)
         self.assertEqual(download.call_count, 15)

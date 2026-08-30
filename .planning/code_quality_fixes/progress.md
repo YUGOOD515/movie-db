@@ -1,0 +1,46 @@
+# 执行记录
+
+## 2026-08-30
+
+- 已读取审查报告、query.md 约束、历史项目验证习惯与当前工作区差异。
+- 已建立独立修复计划，开始配置安全与核心业务逻辑修改。
+- 已移除源码内 AList/TMDB 凭据，加入环境变量配置、`.env.example`、README 和随机开发 session key。
+- 已建立统一 90%/剩余 2 分钟完成判定，并将 artwork 多选保存收口为单事务；mutation 层开始拒绝 episode 收藏。
+- 已实现 `selected_episode` 与 `resume_episode` 分离：最近记录达到 90% 或剩余不足 2 分钟时选取后续首个可播放单集，否则保留当前集及进度。
+- 已把收藏身份统一为 movie/series；详情页始终提交剧集根 ID，写入层拒绝 episode，读取层兼容归一遗留 episode 收藏并去重。
+- 已完成 collection 页面级 query、manager ViewModel 收口、服务端筛选、MediaBadge 统一消费及详情模板业务判断清理。
+- 已移除 `home.js` 重复 fallback，统一到 `site.js`，并修复 `/title/<id>` 侧栏识别及动态图片 fallback。
+- 已改为自包含临时库 fixture，补充阈值边界、收藏身份、电影完成状态、artwork 原子回滚、配置缺失与 manager 筛选回归。
+- 最终验证：18 项 unittest 全部通过；compileall、`node --check static/site.js`、`git diff --check` 通过；正式库 9 个关键 GET 页面均返回 200。
+- 正式 `library.db` SHA-256 保持 `1679E7A67F29683E86A8D3A0236EC65D5D695A990D0665227458A8984DFB2BDD`，`integrity_check=ok`、`foreign_key_check=0`。
+- 收到用户纠正后复核正式库：小谢尔顿服务端按钮 action 已是 S3E14/file 228，但详情 DOM 仍以 S1E1 或 URL 指定的历史单集作为 selected；最近观看的直接播放 action 仍是历史文件。开始统一入口语义。
+- 已将剧集最近观看详情链接改为 `?resume=1`，详情 ViewModel 在该入口下直接选中续播单集；显式季集 URL仍按用户选择播放，普通剧集根页面继续区分展示与续播。
+- 已新增 POST `/title/<title_id>/resume`，最近观看中央播放按钮通过该入口解析当前续播目标，再以 307 保持 POST 跳转到现有 `/play/<file_id>`。
+- 临时库边界回归覆盖 90%、剩余恰好 2 分钟、剩余不足 2 分钟以及详情 selected/playback/redirect 一致性，18 项测试通过。
+- 正式库只读验证：最近观看仍显示小谢尔顿 S3E13；详情链接使用 resume intent；进入后 selected 为 S3E14 `tt11591958`，默认播放和 resume POST 均指向 file 228。
+- 最终哈希复核发现正式库在 19:21:27 本地时间新增 S3E13 播放记录，当前 1,125,656 / 1,191,838 ms，属于实际观看状态变化而非 schema/测试写入；保留该记录。当前库 `integrity_check=ok`、`foreign_key_check=0`，七表行数为 521/490/854/728/18/3/0。
+- 开始修复最受好评页面 Top 3：已确认 npx 可用；定位到 ranked 卡片模板仍输出标题/年份，且已存在的 `.ranked-feature-content` 层级类未挂到内容容器。
+- 已启动只读本地 Flask 服务 `127.0.0.1:5055`。Playwright 默认 Chrome distribution 缺失，正在改用现有浏览器能力，不下载额外浏览器。
+- Playwright 已用现有 Edge 打开 `/top`，页面标题和路由正常；视口调整为 1440×1000，准备记录修复前基线并检查层级。
+- 按 Playwright 工作流，后续截图命令从 `output/playwright/top-rated/` 目录执行，使视觉产物集中在约定目录。
+- 已取得修复前 snapshot 与截图。命名 session 的 artifact root 固定在首次启动目录，截图仍落到仓库 `.playwright-cli/`；验证结束后将所需截图移动到 `output/playwright/top-rated/` 并清理本次临时 session 产物。
+- 已将基线截图归档为 `output/playwright/top-rated/before.png`；数据库只读核对确认 Top 3 三部电影均有 Logo 文件。
+- 已重构 ranked 卡片底部：移除标题与 subtitle，只保留左侧 Logo；右侧输出年份与评分；内容使用既有 `ranked-feature-content` 层，渐变禁用 pointer events，全卡链接提升到最上层。
+- 已增加 Top 3 模板结构回归断言，确保三张卡片都有 Logo/content/meta，且不再输出旧标题文本块。
+- 首轮回归：compileall、JS 与 diff 检查通过，unittest 18 项中 2 项失败；开始按错误记录分别处理 fixture 数量与续播文案回归。
+- 已确认续播失败仅是并发发生的文案简化，目标 episode 逻辑未变；保留该用户侧代码状态。Top fixture 只有两部合格电影，结构测试将按 fixture 实际数量验证，正式库的三卡由浏览器验证覆盖。
+- 第二轮回归进一步确认并发改动包含电影按钮文案简化；测试将锁定完成电影不出现“继续播放”，不干预用户文案。准备为 fixture 的爱乐之城补充测试 Logo。
+- 已补齐 fixture Logo并将文案测试聚焦业务语义；第三轮 18 项 unittest 全部通过。开始浏览器修复后视觉检查。
+- 浏览器 reload 命中了 Flask 的旧模板缓存，snapshot 仍是修复前 DOM；准备重启本地 Flask 服务再验证。
+- 收到详情页微调要求：已确认 npx 可用并定位底部模板结构；将保持内容字段和 episode facts 动态切换不变，仅调整 Bootstrap 布局与链接顺序。
+- 已将详情页信息区改为纵向 flex：作品信息在上、当前播放文件在下；文件字段列宽与作品信息统一为 3/9；IMDb/TMDB 链接移到信息区最后并使用独立 nav。已补 DOM 顺序回归断言。
+- 详情微调后 18 项 unittest、compileall、JS 语法与 `git diff --check` 全部通过。开始重启无模板缓存的本地服务，完成 Top 3 与详情页浏览器复核。
+- 已启动新 Flask 服务并重新建立 Edge Playwright session，`/top` 标题和路由正常。
+- Top 3 修复后 DOM snapshot 通过：标题/旧年份块消失，右侧年份评分存在，三张详情链接可用。继续截图视觉检查。
+- Top 3 修复后截图已归档为 `output/playwright/top-rated/after.png`，视觉检查通过。
+- Playwright 已用正式库打开电影详情 `/title/tt0816692`，页面正常返回；视口设为 1440×1000，准备检查页面末尾顺序与布局。
+- 电影详情页末尾 DOM snapshot 通过：作品信息、当前播放文件、外部链接顺序正确，链接确实位于页面最后。
+- 详情页视觉截图已归档为 `output/playwright/detail/information-stack.png`，桌面宽度布局检查通过。
+- Top 3 与详情页两个 Playwright Edge session 已正常关闭。
+- 本地 Flask 验证服务已停止；阶段 8、9 全部完成。
+- 最终复核：端口 5055 已释放，18 项 unittest、`node --check static/site.js`、`git diff --check` 均通过。

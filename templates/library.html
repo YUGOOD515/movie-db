@@ -7,4 +7,3 @@
     {% if page["items"] %}<div class="row row-cols-2 row-cols-sm-3 row-cols-md-4 row-cols-lg-6 g-3 g-lg-4">{% for item in page["items"] %}<div class="col">{{ poster_card(item) }}</div>{% endfor %}</div>{% else %}<div class="empty-state compact squircle-card border bg-body-tertiary p-4"><p class="text-body-secondary mb-0">{{ page.empty_message }}</p></div>{% endif %}
 </section>
 {% endblock %}
-{% block scripts %}<script src="{{ url_for('static', filename='home.js') }}"></script>{% endblock %}

@@ -72,7 +72,7 @@
                 <div class="overview-media-list row row-cols-1 row-cols-md-2 row-cols-lg-3 gx-4 gy-5" id="overview-card-grid">
                     {% for item in overview.media_items %}
                         <div class="col overview-col" data-media-item data-id="{{ item.media_id }}" data-type="{{ item.media_type }}" data-name="{{ item.name|lower }}" data-original-name="{{ (item.original_name or '')|lower }}">
-                            {{ overview_card(item, overview.query, overview.media_type) }}
+                            {{ overview_card(item) }}
                         </div>
                     {% endfor %}
                 </div>
@@ -183,7 +183,6 @@
 {% endblock %}
 
 {% block scripts %}
-    <script src="{{ url_for('static', filename='home.js') }}"></script>
     <script>
         (() => {
             // 关联表单联动逻辑
@@ -208,46 +207,13 @@
                 syncMediaFields();
             }
 
-            // 概览即时过滤逻辑 (Live Filter)
-            const searchInput = document.getElementById("overview-search-input");
+            // 类型切换提交到服务端，与名称、IMDb/TMDB 查询保持同一筛选语义。
+            const overviewForm = document.getElementById("overview-search-form");
             const filterRadios = document.querySelectorAll("input[name='type']");
-            const cardCols = document.querySelectorAll(".overview-col");
-            const countLabel = document.getElementById("overview-count-label");
-            const emptyState = document.getElementById("overview-empty-state");
-
-            if (searchInput && cardCols.length > 0) {
-                function applyFilter() {
-                    const query = searchInput.value.trim().toLowerCase();
-                    const selectedType = document.querySelector("input[name='type']:checked")?.value || "all";
-                    let visibleCount = 0;
-
-                    cardCols.forEach((col) => {
-                        const id = col.dataset.id || "";
-                        const type = col.dataset.type || "";
-                        const name = col.dataset.name || "";
-                        const origName = col.dataset.originalName || "";
-
-                        const matchesType = (selectedType === "all" || type === selectedType);
-                        const matchesQuery = !query || id.includes(query) || name.includes(query) || origName.includes(query);
-
-                        if (matchesType && matchesQuery) {
-                            col.classList.remove("d-none");
-                            visibleCount++;
-                        } else {
-                            col.classList.add("d-none");
-                        }
-                    });
-
-                    if (countLabel) {
-                        countLabel.textContent = `共 ${visibleCount} 部作品`;
-                    }
-                    if (emptyState) {
-                        emptyState.classList.toggle("d-none", visibleCount > 0);
-                    }
-                }
-
-                searchInput.addEventListener("input", applyFilter);
-                filterRadios.forEach((radio) => radio.addEventListener("change", applyFilter));
+            if (overviewForm) {
+                filterRadios.forEach((radio) => {
+                    radio.addEventListener("change", () => overviewForm.requestSubmit());
+                });
             }
         })();
     </script>

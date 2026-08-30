@@ -11,12 +11,10 @@ from urllib.parse import parse_qs, unquote, urlparse
 import requests
 
 
-alist_url = "http://127.0.0.1:5244"
-username = "admin"
-password = "***REMOVED***"
-
-tmdb_url = "https://api.themoviedb.org/3"
-tmdb_token = "***REMOVED***"
+alist_url = os.environ.get("ALIST_ORIGIN", "http://127.0.0.1:5244").rstrip("/")
+tmdb_url = os.environ.get("TMDB_API_ORIGIN", "https://api.themoviedb.org/3").rstrip(
+    "/"
+)
 language = "zh-CN"
 tmdb_image_url = "https://image.tmdb.org/t/p"
 
@@ -42,9 +40,14 @@ _playback_generation = 0
 
 
 def _tmdb_headers():
+    token = os.environ.get("TMDB_TOKEN", "").strip()
+    if not token:
+        raise RuntimeError("未配置 TMDB_TOKEN。")
+    if not token.casefold().startswith("bearer "):
+        token = f"Bearer {token}"
     return {
         "accept": "application/json",
-        "Authorization": tmdb_token,
+        "Authorization": token,
     }
 
 
@@ -75,14 +78,25 @@ def get_token(alist_username: str, alist_password: str):
     return response.json()["data"]["token"]
 
 
-def get_video_link(path: str, token: str | None = None):
+def get_video_link(
+    path: str,
+    token: str | None = None,
+    *,
+    path_password: str = "",
+):
     """Get the raw URL for a file stored in AList."""
+    if token is None:
+        alist_username = os.environ.get("ALIST_USERNAME", "").strip()
+        alist_password = os.environ.get("ALIST_PASSWORD", "")
+        if not alist_username or not alist_password:
+            raise RuntimeError("未配置 ALIST_USERNAME 或 ALIST_PASSWORD。")
+        token = get_token(alist_username, alist_password)
     response = requests.post(
         alist_url + "/api/fs/get",
-        headers={"Authorization": token or get_token(username, password)},
+        headers={"Authorization": token},
         json={
             "path": path,
-            "password": password,
+            "password": path_password,
             "page": 1,
             "per_page": 0,
             "refresh": False,
@@ -685,47 +699,35 @@ def _download_image_collection(
 
 
 def download_media_images(
-    media_type: str,
-    media_id: int,
+    title_id: str,
     image_links: dict,
     image_root: str | Path,
 ):
     """Download the first five images per category for a movie or TV series."""
-    _media_endpoint(media_type)
-    relative_directory = (
-        Path("tv") / str(media_id)
-        if media_type == "tv"
-        else Path(str(media_id))
-    )
     return _download_image_collection(
         image_links,
         image_root,
-        relative_directory,
+        Path(title_id),
     )
 
 
 def download_tv_episode_still(
-    series_id: int,
-    season_number: int,
-    episode: dict,
+    series_title_id: str,
+    episode_title_id: str,
+    still_path: str,
     image_root: str | Path,
 ):
-    """Download the selected episode's still and return its local path record."""
-    still_path = episode.get("still_path")
+    """Download the episode's still and return its local path record."""
     if not still_path:
         return None
 
-    episode_id = int(episode["id"])
     image_url = build_image_url(still_path)
     suffix = _image_suffix(still_path)
 
     relative_path = (
         Path("images")
-        / "tv"
-        / str(series_id)
-        / f"season-{season_number}"
-        / "episodes"
-        / f"{episode_id}{suffix}"
+        / series_title_id
+        / f"{episode_title_id}-still{suffix}"
     )
     target_path = Path(image_root) / Path(*relative_path.parts[1:])
 
@@ -735,6 +737,6 @@ def download_tv_episode_still(
         raise ValueError("TMDB 单集剧照下载失败。") from error
 
     return {
-        "episode_id": episode_id,
+        "episode_id": episode_title_id,
         "local_path": relative_path.as_posix(),
     }

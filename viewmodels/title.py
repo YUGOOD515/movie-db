@@ -164,6 +164,37 @@ def _select_episode(
     )
 
 
+def _resume_episode(episodes: list[dict]) -> tuple[dict | None, bool]:
+    watched = [
+        episode
+        for episode in episodes
+        if (episode.get("featured_source") or {}).get("watched_at")
+    ]
+    if not watched:
+        return None, False
+
+    latest = max(
+        watched,
+        key=lambda episode: (
+            episode["featured_source"].get("watched_at") or "",
+            episode["featured_source"].get("playback_id") or 0,
+        ),
+    )
+    if not latest["featured_source"]["progress"]["completed"]:
+        return latest, False
+
+    latest_index = episodes.index(latest)
+    next_episode = next(
+        (
+            episode
+            for episode in episodes[latest_index + 1 :]
+            if episode.get("featured_source")
+        ),
+        None,
+    )
+    return (next_episode or latest), next_episode is not None
+
+
 def _build_seasons(episodes: list[dict], selected: dict | None) -> list[dict]:
     grouped = defaultdict(list)
     for episode in episodes:
@@ -187,6 +218,7 @@ def _favorite_state(
     *,
     title_id: str,
     collection_title_type: str,
+    return_to: str,
 ) -> dict | None:
     eligible = [
         collection
@@ -216,46 +248,21 @@ def _favorite_state(
             title_id=title_id,
         ),
         "label": "取消收藏" if is_favorite else "加入收藏",
-    }
-
-
-def _frame_rate_label(value) -> str:
-    if value in (None, ""):
-        return ""
-    try:
-        return f"{float(value):g} fps"
-    except (TypeError, ValueError):
-        return str(value)
-
-
-def _source_summary(source: dict | None) -> dict:
-    source = source or {}
-    dynamic_range = str(source.get("video_dynamic_range") or "")
-    return {
-        "resolution_label": source.get("resolution_label") or "",
-        "video_codec_label": str(source.get("video_codec") or "").upper(),
-        "frame_rate_label": _frame_rate_label(source.get("video_frame_rate")),
-        "file_size_label": source.get("file_size_label") or "",
-        "dynamic_range_label": dynamic_range,
-        "is_dolby_vision": any(
-            token in dynamic_range.casefold()
-            for token in ("dolby vision", "dolby", "dv")
-        ),
+        "return_to": return_to,
     }
 
 
 def _media_facts(source: dict | None) -> list[dict]:
     if not source:
         return []
-    summary = _source_summary(source)
     values = [
         ("文件路径", source.get("alist_path")),
         ("容器格式", source.get("container_format")),
-        ("分辨率", summary["resolution_label"]),
-        ("视频编码", summary["video_codec_label"]),
+        ("分辨率", source.get("resolution_label")),
+        ("视频编码", str(source.get("video_codec") or "").upper()),
         ("像素格式", source.get("video_pixel_format")),
-        ("帧率", summary["frame_rate_label"]),
-        ("动态范围", summary["dynamic_range_label"]),
+        ("帧率", source.get("frame_rate_label")),
+        ("动态范围", source.get("video_dynamic_range")),
         ("音频编码", str(source.get("audio_codec") or "").upper()),
         ("声道", source.get("audio_channel_layout")),
         ("文件大小", source.get("file_size_label")),
@@ -268,7 +275,7 @@ def _media_facts(source: dict | None) -> list[dict]:
     ]
 
 
-def _legacy_source(source: dict, index: int) -> dict:
+def _build_source_viewmodel(source: dict, index: int) -> dict:
     labels = [
         source.get("resolution_label"),
         str(source.get("video_codec") or "").upper(),
@@ -282,9 +289,13 @@ def _legacy_source(source: dict, index: int) -> dict:
     }
 
 
-def _legacy_episode(episode: dict, backdrop_path: str | None) -> dict:
+def _build_episode_viewmodel(
+    episode: dict,
+    backdrop_path: str | None,
+    selected_episode_id: str | None,
+) -> dict:
     sources = [
-        _legacy_source(source, index)
+        _build_source_viewmodel(source, index)
         for index, source in enumerate(episode["sources"], start=1)
     ]
     selected_file_id = (
@@ -322,8 +333,9 @@ def _legacy_episode(episode: dict, backdrop_path: str | None) -> dict:
         "progress": progress.get("percent") if has_progress else None,
         "position_label": progress.get("position_label") if has_progress else None,
         "is_completed": bool(progress.get("completed")),
-        "source_summary": _source_summary(featured_source),
+        "badges": featured_source.get("badges", []) if featured_source else [],
         "media_facts": _media_facts(featured_source),
+        "active": episode["title_id"] == selected_episode_id,
     }
 
 
@@ -359,7 +371,7 @@ def _episode_panel_data(seasons: list[dict], genres: list[str]) -> dict | None:
                 "play_label": episode["play_label"],
                 "play_url": episode["play_url"],
                 "sources": sources,
-                "summary": episode["source_summary"],
+                "badges": episode["badges"],
                 "facts": episode["media_facts"],
             }
     if not episodes_data:
@@ -375,11 +387,19 @@ def _episode_panel_data(seasons: list[dict], genres: list[str]) -> dict | None:
     }
 
 
-def _legacy_seasons(seasons: list[dict], backdrop_path: str | None) -> list[dict]:
+def _build_season_viewmodels(
+    seasons: list[dict],
+    backdrop_path: str | None,
+    selected_episode_id: str | None,
+) -> list[dict]:
     output = []
     for season in seasons:
         episodes = [
-            _legacy_episode(episode, backdrop_path)
+            _build_episode_viewmodel(
+                episode,
+                backdrop_path,
+                selected_episode_id,
+            )
             for episode in season["episodes"]
         ]
         ratings = [
@@ -408,91 +428,102 @@ def _legacy_seasons(seasons: list[dict], backdrop_path: str | None) -> list[dict
     return output
 
 
-def build_title_viewmodel(raw: dict) -> dict:
-    title = raw["root"]
-    artwork = _group_artwork(raw["artwork"])
-    backdrop_path = _primary_artwork(artwork, "landscape_poster")
-    is_series = title["title_type"] == "series"
-
-    episodes = _group_episodes(raw["episode_rows"], title["title_id"])
-    selected_episode = _select_episode(
-        episodes, raw["season_number"], raw["episode_number"]
+def _runtime_label(
+    title: dict,
+    selected_episode: dict | None,
+    featured_source: dict | None,
+) -> str:
+    if featured_source and featured_source.get("duration_label"):
+        return featured_source["duration_label"]
+    runtime_minutes = (
+        selected_episode.get("runtime_minutes")
+        if selected_episode
+        else title.get("runtime_minutes")
     )
+    return f"{runtime_minutes} 分钟" if runtime_minutes else ""
 
-    if is_series:
-        sources = selected_episode["sources"] if selected_episode else []
-        featured_source = (
-            selected_episode["featured_source"] if selected_episode else None
-        )
-        favorite_title_id = (
-            selected_episode["title_id"] if selected_episode else title["title_id"]
-        )
-        collection_type = "series"
-    else:
-        sources = [build_source(source) for source in raw["files"]]
-        featured_source = _choose_source(sources)
-        favorite_title_id = title["title_id"]
-        collection_type = "movie"
 
-    runtime_label = ""
-    if featured_source:
-        runtime_label = featured_source["duration_label"]
-    if not runtime_label:
-        runtime_minutes = (
-            selected_episode.get("runtime_minutes")
-            if selected_episode
-            else title.get("runtime_minutes")
-        )
-        if runtime_minutes:
-            runtime_label = f"{runtime_minutes} 分钟"
-
-    seasons = _legacy_seasons(
-        _build_seasons(episodes, selected_episode), backdrop_path
-    )
-    selected_episode_id = selected_episode["title_id"] if selected_episode else None
-    featured_episode = next(
+def _find_episode_view(seasons: list[dict], episode_id: str | None) -> dict | None:
+    return next(
         (
             episode
             for season in seasons
             for episode in season["episodes"]
-            if episode["episode_id"] == selected_episode_id
+            if episode["episode_id"] == episode_id
         ),
         None,
     )
-    current_season = next(
-        (season for season in seasons if season["active"]),
-        seasons[0] if seasons else None,
+
+
+def _build_episode_state(
+    episodes: list[dict],
+    selected_episode: dict | None,
+    resume_episode: dict | None,
+    resume_advanced: bool,
+    backdrop_path: str | None,
+) -> dict:
+    selected_id = selected_episode["title_id"] if selected_episode else None
+    seasons = _build_season_viewmodels(
+        _build_seasons(episodes, selected_episode),
+        backdrop_path,
+        selected_id,
     )
-    legacy_sources = [
-        _legacy_source(source, index)
+    selected_view = _find_episode_view(seasons, selected_id)
+    resume_id = resume_episode["title_id"] if resume_episode else None
+    resume_view = _find_episode_view(seasons, resume_id)
+    if resume_view and resume_advanced:
+        resume_view["play_label"] = (
+            f"播放 S{resume_view['season_number']} "
+            f"E{resume_view['episode_number']}"
+        )
+    elif resume_view and resume_view.get("position_label"):
+        resume_view["play_label"] = (
+            f"继续播放 {resume_view['position_label']}"
+        )
+    return {
+        "seasons": seasons,
+        "selected": selected_view,
+        "resume": resume_view,
+        "current_season": next(
+            (season for season in seasons if season["active"]),
+            seasons[0] if seasons else None,
+        ),
+    }
+
+
+def _build_source_state(
+    sources: list[dict],
+    featured_source: dict | None,
+) -> dict:
+    source_views = [
+        _build_source_viewmodel(source, index)
         for index, source in enumerate(sources, start=1)
     ]
     selected_file_id = featured_source["file_id"] if featured_source else None
-    legacy_featured_source = next(
+    featured_view = next(
         (
             source
-            for source in legacy_sources
+            for source in source_views
             if source["file_id"] == selected_file_id
         ),
-        legacy_sources[0] if legacy_sources else None,
+        source_views[0] if source_views else None,
     )
-    source_summary = _source_summary(legacy_featured_source)
-    source_progress = (
-        legacy_featured_source.get("progress") if legacy_featured_source else {}
-    ) or {}
-    favorite = _favorite_state(
-            raw,
-            title_id=favorite_title_id,
-            collection_title_type=collection_type,
-        )
-    external_links = [
+    return {
+        "sources": source_views,
+        "featured": featured_view,
+        "progress": (featured_view.get("progress") if featured_view else {}) or {},
+    }
+
+
+def _external_links(title: dict, is_series: bool) -> list[dict]:
+    links = [
         {
             "label": "IMDb",
             "url": f"https://www.imdb.com/title/{title['title_id']}/",
         }
     ]
     if title.get("tmdb_id"):
-        external_links.append(
+        links.append(
             {
                 "label": "TMDB",
                 "url": (
@@ -501,6 +532,68 @@ def build_title_viewmodel(raw: dict) -> dict:
                 ),
             }
         )
+    return links
+
+
+def build_title_viewmodel(
+    raw: dict,
+    *,
+    return_to: str = "/",
+    select_resume: bool = False,
+) -> dict:
+    title = raw["root"]
+    artwork = _group_artwork(raw["artwork"])
+    backdrop_path = _primary_artwork(artwork, "landscape_poster")
+    is_series = title["title_type"] == "series"
+
+    episodes = _group_episodes(raw["episode_rows"], title["title_id"])
+    requested_episode = _select_episode(
+        episodes, raw["season_number"], raw["episode_number"]
+    )
+    resume_episode, resume_advanced = _resume_episode(episodes)
+    selected_episode = (
+        resume_episode if select_resume and resume_episode else requested_episode
+    )
+
+    sources = (
+        selected_episode["sources"]
+        if is_series and selected_episode
+        else [build_source(source) for source in raw["files"]]
+    )
+    featured_source = (
+        selected_episode["featured_source"]
+        if is_series and selected_episode
+        else _choose_source(sources)
+    )
+    episode_state = _build_episode_state(
+        episodes,
+        selected_episode,
+        resume_episode,
+        resume_advanced,
+        backdrop_path,
+    )
+    source_state = _build_source_state(sources, featured_source)
+    featured_source_view = source_state["featured"]
+    source_progress = source_state["progress"]
+    favorite = _favorite_state(
+        raw,
+        title_id=title["title_id"],
+        collection_title_type="series" if is_series else "movie",
+        return_to=return_to,
+    )
+    genres = [
+        genre.strip()
+        for genre in (title.get("genres") or "").split(",")
+        if genre.strip()
+    ]
+    explicit_episode = (
+        raw["season_number"] is not None or raw["episode_number"] is not None
+    )
+    playback_episode = (
+        episode_state["selected"]
+        if select_resume or explicit_episode
+        else episode_state["resume"] or episode_state["selected"]
+    )
 
     media = {
         "media_id": title["title_id"],
@@ -511,29 +604,27 @@ def build_title_viewmodel(raw: dict) -> dict:
         "poster_path": _primary_artwork(artwork, "poster"),
         "backdrop_path": backdrop_path,
         "hero_image": (
-            featured_episode["still_path"] if featured_episode else None
+            episode_state["selected"]["still_path"]
+            if episode_state["selected"]
+            else None
         )
         or backdrop_path,
         "tagline": title.get("tagline"),
         "overview": title.get("overview") or "暂无简介。",
-        "genres": [
-            genre.strip()
-            for genre in (title.get("genres") or "").split(",")
-            if genre.strip()
-        ],
+        "genres": genres,
         "imdb_rating": title.get("average_rating"),
-        "runtime_label": runtime_label,
+        "runtime_label": _runtime_label(title, selected_episode, featured_source),
         "date_label": format_year(title),
         "release_date": str(title.get("start_year") or ""),
         "last_air_date": str(title.get("end_year") or ""),
         "age_rating": None,
         "creators": [],
         "networks": [],
-        "sources": legacy_sources,
-        "featured_source": legacy_featured_source,
+        "sources": source_state["sources"],
+        "featured_source": featured_source_view,
         "play_url": (
-            legacy_featured_source.get("play_url")
-            if legacy_featured_source
+            featured_source_view.get("play_url")
+            if featured_source_view
             else None
         ),
         "progress": source_progress.get("percent")
@@ -542,24 +633,31 @@ def build_title_viewmodel(raw: dict) -> dict:
         "position_label": source_progress.get("position_label")
         if source_progress.get("position_ms")
         else None,
-        "resolution": source_summary["resolution_label"],
-        "video_codec_label": source_summary["video_codec_label"],
-        "dynamic_range_label": source_summary["dynamic_range_label"],
-        "is_dolby_vision": source_summary["is_dolby_vision"],
-        "media_facts": _media_facts(legacy_featured_source),
-        "seasons": seasons,
-        "current_season": current_season,
-        "featured_episode": featured_episode,
+        "badges": (
+            featured_source_view.get("badges", [])
+            if featured_source_view
+            else []
+        ),
+        "media_facts": _media_facts(featured_source_view),
+        "seasons": episode_state["seasons"],
+        "current_season": episode_state["current_season"],
+        "selected_episode": episode_state["selected"],
+        "resume_episode": episode_state["resume"],
+        "playback_episode": playback_episode,
         "favorite": favorite,
         "is_favorite": bool(favorite and favorite["active"]),
-        "external_links": external_links,
+        "external_links": _external_links(title, is_series),
     }
     if not is_series:
         media["play_label"] = (
             f"继续播放 {source_progress['position_label']}"
             if source_progress.get("position_ms")
-            else "播放电影"
+            and not source_progress.get("completed")
+            else "播放"
         )
     else:
-        media["episode_data"] = _episode_panel_data(seasons, media["genres"])
+        media["episode_data"] = _episode_panel_data(
+            episode_state["seasons"],
+            genres,
+        )
     return media

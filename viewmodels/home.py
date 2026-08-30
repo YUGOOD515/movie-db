@@ -28,18 +28,19 @@ def build_recent_watch(rows: list[dict]) -> list[dict]:
     items = []
     for row in rows:
         is_series = row["title_type"] == "series"
+        progress = build_progress(
+            row.get("position_ms"), row.get("duration_ms")
+        )
         subtitle = format_year(row)
         if is_series:
             subtitle = (
-                f"S{int(row['season_number'] or 0):02d}"
-                f"E{int(row['episode_number'] or 0):02d}"
+                f"S{int(row['season_number'] or 0)}"
+                f" E{int(row['episode_number'] or 0)}"
                 f" · {row['episode_title']}"
             )
         detail_values = {"title_id": row["title_id"]}
         if is_series:
-            detail_values.update(
-                season=row["season_number"], episode=row["episode_number"]
-            )
+            detail_values["resume"] = 1
         items.append(
             {
                 "title": row["display_title"],
@@ -47,12 +48,12 @@ def build_recent_watch(rows: list[dict]) -> list[dict]:
                 "logo": row.get("logo_path"),
                 "backdrop": row.get("backdrop_path"),
                 "rating": None,
-                "progress": build_progress(
-                    row.get("position_ms"), row.get("duration_ms")
-                ),
+                "progress": progress,
                 "detail_url": url_for("title_detail", **detail_values),
-                "play_url": url_for(
-                    "play_media_file", file_id=row["file_id"]
+                "play_url": (
+                    url_for("resume_title", title_id=row["title_id"])
+                    if is_series
+                    else url_for("play_media_file", file_id=row["file_id"])
                 ),
             }
         )

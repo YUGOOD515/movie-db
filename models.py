@@ -70,8 +70,9 @@ def toggle_library_collection_item(
         if collection is None or title is None:
             raise ValueError("收藏夹或影视条目不存在。")
 
-        scoped_type = "series" if title["title_type"] == "episode" else title["title_type"]
-        if collection["title_type"] not in (None, scoped_type):
+        if title["title_type"] == "episode":
+            raise ValueError("单集不能直接收藏，请收藏所属剧集。")
+        if collection["title_type"] not in (None, title["title_type"]):
             raise ValueError("该收藏夹不接受此类影视条目。")
 
         existing = db.execute(
@@ -110,69 +111,61 @@ def set_library_primary_artwork(
     artwork_type: str,
     position: int,
 ):
+    set_library_primary_artworks(
+        database_path,
+        title_id,
+        [(artwork_type, position)],
+    )
+
+
+def set_library_primary_artworks(
+    database_path: str | Path,
+    title_id: str,
+    selections: list[tuple[str, int]],
+):
+    """Apply every primary-artwork selection in one transaction."""
+    with closing(_connect_library(database_path)) as db, db:
+        for artwork_type, position in selections:
+            _set_primary_artwork(db, title_id, artwork_type, position)
+
+
+def _set_primary_artwork(
+    db: sqlite3.Connection,
+    title_id: str,
+    artwork_type: str,
+    position: int,
+):
     if artwork_type not in ("poster", "landscape_poster", "logo"):
         raise ValueError("图片类型无效。")
     if position < 1:
         raise ValueError("图片位置无效。")
 
-    with closing(_connect_library(database_path)) as db, db:
-        selected = db.execute(
-            """
-            SELECT position
-              FROM title_artwork
-             WHERE title_id = ?
-               AND artwork_type = ?
-               AND position = ?
-            """,
-            (title_id, artwork_type, position),
-        ).fetchone()
-        if selected is None:
-            raise ValueError("图片不存在。")
-        if position == 1:
-            return
+    selected = db.execute(
+        """
+        SELECT position
+          FROM title_artwork
+         WHERE title_id = ?
+           AND artwork_type = ?
+           AND position = ?
+        """,
+        (title_id, artwork_type, position),
+    ).fetchone()
+    if selected is None:
+        raise ValueError("图片不存在。")
+    if position == 1:
+        return
 
-        primary = db.execute(
-            """
-            SELECT position
-              FROM title_artwork
-             WHERE title_id = ?
-               AND artwork_type = ?
-               AND position = 1
-            """,
-            (title_id, artwork_type),
-        ).fetchone()
-        if primary is None:
-            db.execute(
-                """
-                UPDATE title_artwork
-                   SET position = 1
-                 WHERE title_id = ?
-                   AND artwork_type = ?
-                   AND position = ?
-                """,
-                (title_id, artwork_type, position),
-            )
-            return
-
-        temporary_position = db.execute(
-            """
-            SELECT COALESCE(MAX(position), 0) + 1
-              FROM title_artwork
-             WHERE title_id = ?
-               AND artwork_type = ?
-            """,
-            (title_id, artwork_type),
-        ).fetchone()[0]
-        db.execute(
-            """
-            UPDATE title_artwork
-               SET position = ?
-             WHERE title_id = ?
-               AND artwork_type = ?
-               AND position = 1
-            """,
-            (temporary_position, title_id, artwork_type),
-        )
+    primary = db.execute(
+        """
+        SELECT position
+          FROM title_artwork
+         WHERE title_id = ?
+           AND artwork_type = ?
+           AND position = 1
+        """,
+        (title_id, artwork_type),
+    ).fetchone()
+    if primary is None:
         db.execute(
             """
             UPDATE title_artwork
@@ -183,13 +176,44 @@ def set_library_primary_artwork(
             """,
             (title_id, artwork_type, position),
         )
-        db.execute(
-            """
-            UPDATE title_artwork
-               SET position = ?
-             WHERE title_id = ?
-               AND artwork_type = ?
-               AND position = ?
-            """,
-            (position, title_id, artwork_type, temporary_position),
-        )
+        return
+
+    temporary_position = db.execute(
+        """
+        SELECT COALESCE(MAX(position), 0) + 1
+          FROM title_artwork
+         WHERE title_id = ?
+           AND artwork_type = ?
+        """,
+        (title_id, artwork_type),
+    ).fetchone()[0]
+    db.execute(
+        """
+        UPDATE title_artwork
+           SET position = ?
+         WHERE title_id = ?
+           AND artwork_type = ?
+           AND position = 1
+        """,
+        (temporary_position, title_id, artwork_type),
+    )
+    db.execute(
+        """
+        UPDATE title_artwork
+           SET position = 1
+         WHERE title_id = ?
+           AND artwork_type = ?
+           AND position = ?
+        """,
+        (title_id, artwork_type, position),
+    )
+    db.execute(
+        """
+        UPDATE title_artwork
+           SET position = ?
+         WHERE title_id = ?
+           AND artwork_type = ?
+           AND position = ?
+        """,
+        (position, title_id, artwork_type, temporary_position),
+    )

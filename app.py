@@ -1,4 +1,5 @@
 import os
+import secrets
 from pathlib import Path
 
 from flask import abort, Flask, flash, redirect, render_template, request, url_for
@@ -7,10 +8,10 @@ from flask_session import Session
 import helpers
 import models
 from db import get_db, init_app as init_database
+from playback import is_effectively_completed
 from queries.catalog import get_catalog_options, query_catalog
-from queries.collection import get_collection, get_collection_items
+from queries.collection import query_collection
 from queries.home import (
-    get_collections,
     get_recently_added,
     get_top_rated_movies,
     get_unwatched,
@@ -39,7 +40,7 @@ DATABASE_PATH = BASE_DIR / "library.db"
 app = Flask(__name__)
 app.config.update(
     DATABASE=DATABASE_PATH,
-    SECRET_KEY=os.environ.get("FLASK_SECRET_KEY", "moviedb-local-development"),
+    SECRET_KEY=os.environ.get("FLASK_SECRET_KEY") or secrets.token_hex(32),
     SESSION_PERMANENT=False,
     SESSION_TYPE="filesystem",
     SESSION_FILE_DIR=str(BASE_DIR / ".flask_session"),
@@ -117,26 +118,17 @@ def movie_genres_library():
 @app.get("/collections")
 @app.get("/favorites")
 def favorites_library():
-    collections = get_collections(get_db())
-    page = build_collection_viewmodel(
-        None,
-        get_collection_items(get_db()),
-        collections,
-    )
+    raw = query_collection(get_db())
+    page = build_collection_viewmodel(raw)
     return render_template("favorites_page.html", page=page)
 
 
 @app.get("/collection/<int:collection_id>")
 def collection_detail(collection_id: int):
-    collection = get_collection(get_db(), collection_id)
-    if collection is None:
+    raw = query_collection(get_db(), collection_id)
+    if raw is None:
         abort(404)
-    raw = get_collection_items(get_db(), collection_id)
-    page = build_collection_viewmodel(
-        collection,
-        raw,
-        get_collections(get_db()),
-    )
+    page = build_collection_viewmodel(raw)
     return render_template("favorites_page.html", page=page)
 
 
@@ -162,8 +154,28 @@ def title_detail(title_id: str):
     )
     if raw is None:
         abort(404)
-    media = build_title_viewmodel(raw)
+    media = build_title_viewmodel(
+        raw,
+        return_to=request.full_path,
+        select_resume=request.args.get("resume") == "1",
+    )
     return render_template("detail.html", media=media)
+
+
+@app.post("/title/<title_id>/resume")
+def resume_title(title_id: str):
+    raw = query_title(get_db(), title_id)
+    if raw is None or raw["root"]["title_type"] != "series":
+        abort(404)
+    media = build_title_viewmodel(raw, select_resume=True)
+    episode = media.get("selected_episode")
+    source = episode.get("featured_source") if episode else None
+    if not source:
+        abort(404)
+    return redirect(
+        url_for("play_media_file", file_id=source["file_id"]),
+        code=307,
+    )
 
 
 @app.get("/movies/<int:tmdb_id>")
@@ -195,13 +207,17 @@ def media():
         query=(request.args.get("q") or "").strip() or None,
         title_type=title_type,
     )
-    page = build_manager_viewmodel(raw)
-    page["active_tab"] = (
+    active_tab = (
         "associate" if request.args.get("tab") == "associate" else "overview"
+    )
+    page = build_manager_viewmodel(
+        raw,
+        active_tab=active_tab,
+        return_to=request.full_path,
     )
     return render_template(
         "media.html",
-        active_tab=page["active_tab"],
+        active_tab=active_tab,
         overview=page,
         alist_origin=os.environ.get("ALIST_ORIGIN", ""),
     )
@@ -226,13 +242,11 @@ def select_media_artwork(title_id: str):
     if not selections:
         abort(400)
     try:
-        for selected_type, selected_position in selections:
-            models.set_library_primary_artwork(
-                app.config["DATABASE"],
-                title_id,
-                selected_type,
-                selected_position,
-            )
+        models.set_library_primary_artworks(
+            app.config["DATABASE"],
+            title_id,
+            selections,
+        )
     except ValueError:
         abort(404)
     flash("主图片已更新。", "success")
@@ -247,7 +261,9 @@ def play_media_file(file_id: int):
 
     progress = max(int(source.get("position_ms") or 0), 0)
     duration = max(int(source.get("duration_ms") or 0), 0)
-    start_position = 0 if duration and progress / duration >= 0.95 else progress
+    start_position = (
+        0 if is_effectively_completed(progress, duration) else progress
+    )
     database_path = app.config["DATABASE"]
     playback_session = {"playback_id": None}
 

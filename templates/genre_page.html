@@ -132,7 +132,6 @@
 {% endblock %}
 
 {% block scripts %}
-    <script src="{{ url_for('static', filename='home.js') }}"></script>
     <script>
         function setGenreFilter(key, value) {
             const input = document.getElementById('filter-' + key.replace('_', '-'));

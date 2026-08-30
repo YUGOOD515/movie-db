@@ -34,6 +34,19 @@
     {% endif %}
 {% endmacro %}
 
+{% macro media_badges(badges) %}
+    {% for badge in badges %}
+        {% if badge.kind == "dolby_vision" %}
+            <span class="dolby-vision-badge" title="杜比视界 (Dolby Vision)" aria-label="杜比视界">
+                <img class="dolby-vision-logo dolby-vision-logo--dark" src="{{ url_for('static', filename='DolbyVision_white.png') }}" alt="Dolby Vision" height="15">
+                <img class="dolby-vision-logo dolby-vision-logo--light" src="{{ url_for('static', filename='DolbyVision.png') }}" alt="Dolby Vision" height="15">
+            </span>
+        {% else %}
+            <span>{{ badge.label }}</span>
+        {% endif %}
+    {% endfor %}
+{% endmacro %}
+
 {% macro overview_block(text) %}
     <div class="detail-overview-wrapper mb-0" data-detail-overview-wrap data-full-text="{{ text or '暂无简介。' }}">
         <p class="detail-overview lh-lg mb-0" data-detail-overview><span data-detail-overview-text>{{ text or "暂无简介。" }}</span>{% if text %}<button type="button" class="btn btn-link p-0 text-decoration-none small text-body-secondary fw-semibold detail-overview-more d-none" data-detail-overview-toggle aria-expanded="false">...更多</button>{% endif %}</p>
@@ -62,7 +75,7 @@
                 <div class="detail-hero-grid d-flex flex-column flex-md-row align-items-md-end gap-3 w-100">
                     <div class="detail-primary d-flex flex-column align-items-start">
                         {% if media.logo_path %}
-                            <img class="detail-logo img-fluid w-100 object-fit-contain mb-4" src="{{ url_for('static', filename=media.logo_path) }}" alt="{{ media.name }}标志" data-media-image>
+                            <img class="detail-logo img-fluid w-100 object-fit-contain mb-4" src="{{ url_for('static', filename=media.logo_path) }}" alt="{{ media.name }}标志" data-media-logo>
                             <h1 class="visually-hidden" id="detail-title">{{ media.name }}</h1>
                         {% else %}
                             <h1 class="display-4 fw-semibold lh-1 mb-4" id="detail-title">{{ media.name }}</h1>
@@ -73,11 +86,12 @@
                                 {{ play_control(media.sources, media.featured_source, media.play_label, "btn media-primary-action detail-play w-100 h-100 d-inline-flex align-items-center justify-content-center gap-2", "detail-play-slot") }}
                             {% elif media.media_type == "tv" %}
                                 <div class="detail-episode-controls detail-play-slot" aria-live="polite">
-                                    {% if media.featured_episode %}
-                                        {% set episode = media.featured_episode %}
+                                    {% if media.selected_episode %}
+                                        {% set episode = media.selected_episode %}
+                                        {% set playback_episode = media.playback_episode or episode %}
                                         <div class="episode-hero-control" data-episode-hero-control="{{ episode.episode_id }}">
-                                            {% if episode.play_url %}
-                                                {{ play_control(episode.sources, episode.featured_source, episode.play_label, "btn media-primary-action detail-play w-100 d-inline-flex align-items-center justify-content-center gap-2", "w-100") }}
+                                            {% if playback_episode.play_url %}
+                                                {{ play_control(playback_episode.sources, playback_episode.featured_source, playback_episode.play_label, "btn media-primary-action detail-play w-100 d-inline-flex align-items-center justify-content-center gap-2", "w-100") }}
                                             {% else %}
                                                 <span class="btn btn-secondary disabled detail-play w-100 d-inline-flex align-items-center justify-content-center" aria-disabled="true">暂无可播放资源</span>
                                             {% endif %}
@@ -86,7 +100,7 @@
                                 </div>
                             {% endif %}
                             {% if media.favorite %}<form class="detail-favorite-form" action="{{ media.favorite.action_url }}" method="post">
-                                <input type="hidden" name="return_to" value="{{ request.full_path }}">
+                                <input type="hidden" name="return_to" value="{{ media.favorite.return_to }}">
                                 <button class="btn btn-outline-secondary detail-favorite d-inline-flex align-items-center justify-content-center" type="submit" aria-label="{{ '取消收藏' if media.is_favorite else '收藏' }}" aria-pressed="{{ 'true' if media.is_favorite else 'false' }}">
                                     <i class="bi bi-heart{% if media.is_favorite %}-fill text-danger{% endif %}" aria-hidden="true"></i>
                                     <span class="visually-hidden">{{ "已收藏" if media.is_favorite else "收藏" }}</span>
@@ -98,9 +112,8 @@
                     <div class="detail-feature flex-grow-1 min-w-0"{% if media.media_type == "tv" %} aria-live="polite"{% endif %}>
                         {% if media.media_type == "tv" %}
                             <div class="episode-hero-panels" data-episode-hero-panels>
-                            {% if media.featured_episode %}
-                                {% set episode = media.featured_episode %}
-                                {% set source_summary = episode.source_summary %}
+                            {% if media.selected_episode %}
+                                {% set episode = media.selected_episode %}
                                 <section class="episode-hero-panel" data-episode-hero="{{ episode.episode_id }}" data-season-number="{{ episode.season_number }}" data-episode-number="{{ episode.episode_number }}" data-hero-backdrop-url="{% if episode.image %}{{ url_for('static', filename=episode.image) }}{% endif %}">
                                     <span class="detail-episode-index d-block small fw-bold mb-2">S{{ episode.season_number }} · E{{ episode.episode_number }}</span>
                                     <h2 class="h3 fw-bold mb-3">{{ episode.episode_name or "未命名单集" }}</h2>
@@ -108,18 +121,7 @@
                                     <div class="detail-meta d-flex flex-wrap align-items-center column-gap-3 row-gap-2 small text-body-secondary fw-semibold mb-3">
                                         {% if episode.runtime_label %}<span>{{ episode.runtime_label }}</span>{% endif %}
                                         {% if episode.air_date %}<span>{{ episode.air_date }}</span>{% endif %}
-                                        {% if source_summary.resolution_label %}<span>{{ source_summary.resolution_label }}</span>{% endif %}
-                                        {% if source_summary.video_codec_label %}<span>{{ source_summary.video_codec_label }}</span>{% endif %}
-                                        {% if source_summary.frame_rate_label %}<span>{{ source_summary.frame_rate_label }}</span>{% endif %}
-                                        {% if source_summary.file_size_label %}<span>{{ source_summary.file_size_label }}</span>{% endif %}
-                                        {% if source_summary.is_dolby_vision %}
-                                            <span class="dolby-vision-badge" title="杜比视界 (Dolby Vision)" aria-label="杜比视界">
-                                                <img class="dolby-vision-logo dolby-vision-logo--dark" src="{{ url_for('static', filename='DolbyVision_white.png') }}" alt="Dolby Vision" height="15">
-                                                <img class="dolby-vision-logo dolby-vision-logo--light" src="{{ url_for('static', filename='DolbyVision.png') }}" alt="Dolby Vision" height="15">
-                                            </span>
-                                        {% elif source_summary.dynamic_range_label %}
-                                            <span>{{ source_summary.dynamic_range_label }}</span>
-                                        {% endif %}
+                                        {{ media_badges(episode.badges) }}
                                         {% if media.genres %}<span>{{ media.genres|join(" / ") }}</span>{% endif %}
                                     </div>
 
@@ -143,16 +145,7 @@
                             <div class="detail-meta d-flex flex-wrap align-items-center gap-3 small text-body-secondary fw-semibold mb-3">
                                 {% if media.runtime_label %}<span>{{ media.runtime_label }}</span>{% endif %}
                                 {% if media.date_label %}<span>{{ media.date_label }}</span>{% endif %}
-                                {% if media.resolution %}<span>{{ media.resolution }}</span>{% endif %}
-                                {% if media.video_codec_label %}<span>{{ media.video_codec_label }}</span>{% endif %}
-                                {% if media.is_dolby_vision %}
-                                    <span class="dolby-vision-badge" title="杜比视界 (Dolby Vision)" aria-label="杜比视界">
-                                        <img class="dolby-vision-logo dolby-vision-logo--dark" src="{{ url_for('static', filename='DolbyVision_white.png') }}" alt="Dolby Vision" height="15">
-                                        <img class="dolby-vision-logo dolby-vision-logo--light" src="{{ url_for('static', filename='DolbyVision.png') }}" alt="Dolby Vision" height="15">
-                                    </span>
-                                {% elif media.dynamic_range_label %}
-                                    <span>{{ media.dynamic_range_label }}</span>
-                                {% endif %}
+                                {{ media_badges(media.badges) }}
                                 {% if media.genres %}<span>{{ media.genres|join(" / ") }}</span>{% endif %}
                             </div>
                             {{ overview_block(media.overview) }}
@@ -176,18 +169,15 @@
                     <div class="episode-toolbar container-xl d-flex flex-wrap align-items-center justify-content-between gap-3 gap-lg-4 mb-4" data-season-picker>
                         <nav class="season-nav d-flex flex-wrap align-items-center gap-3" aria-label="季度切换" role="tablist">
                             {% for season in media.seasons %}
-                                {% set season_active = media.current_season and media.current_season.season_id == season.season_id %}
-                                {% set season_name = season.season_name or ("特别篇" if season.season_number == 0 else "第 " ~ season.season_number ~ " 季") %}
-                                <button class="btn btn-sm season-pill-btn{% if season_active %} active genre-dropdown-toggle--active{% endif %}" type="button" data-season-target="season-pane-{{ season.season_id }}" data-season-key="{{ season.season_id }}" data-season-name="{{ season_name }}" aria-pressed="{{ 'true' if season_active else 'false' }}" role="tab" aria-selected="{{ 'true' if season_active else 'false' }}">
-                                    <span>{{ season_name }}</span>
+                                <button class="btn btn-sm season-pill-btn{% if season.active %} active genre-dropdown-toggle--active{% endif %}" type="button" data-season-target="season-pane-{{ season.season_id }}" data-season-key="{{ season.season_id }}" data-season-name="{{ season.season_name }}" aria-pressed="{{ 'true' if season.active else 'false' }}" role="tab" aria-selected="{{ 'true' if season.active else 'false' }}">
+                                    <span>{{ season.season_name }}</span>
                                 </button>
                             {% endfor %}
                         </nav>
 
                         <div class="season-summary small" aria-live="polite">
                             {% for season in media.seasons %}
-                                {% set season_active = media.current_season and media.current_season.season_id == season.season_id %}
-                                <div class="season-summary-panel d-flex flex-wrap align-items-center gap-3{% if not season_active %} d-none{% endif %}" data-season-summary="{{ season.season_id }}"{% if not season_active %} hidden{% endif %}>
+                                <div class="season-summary-panel d-flex flex-wrap align-items-center gap-3{% if not season.active %} d-none{% endif %}" data-season-summary="{{ season.season_id }}"{% if not season.active %} hidden{% endif %}>
                                     <span class="season-summary-year fw-semibold text-body">{{ season.air_date[:4] if season.air_date else "—" }}</span>
                                     <span class="season-summary-count text-body-secondary">{{ season.episode_count }} 集</span>
                                     <div class="season-summary-ratings d-inline-flex flex-wrap align-items-center gap-3 ms-1">
@@ -206,13 +196,11 @@
 
                 <div class="season-panes">
                         {% for season in media.seasons %}
-                            {% set season_active = media.current_season and media.current_season.season_id == season.season_id %}
-                            <section class="season-pane{% if not season_active %} d-none{% endif %}" id="season-pane-{{ season.season_id }}" data-season-pane="{{ season.season_id }}" data-selected-episode="{% if season_active and media.featured_episode %}{{ media.featured_episode.episode_id }}{% elif season.episodes %}{{ season.episodes[0].episode_id }}{% endif %}"{% if not season_active %} hidden{% endif %} aria-label="{{ season.season_name }}单集列表">
+                            <section class="season-pane{% if not season.active %} d-none{% endif %}" id="season-pane-{{ season.season_id }}" data-season-pane="{{ season.season_id }}" data-selected-episode="{% if season.active and media.selected_episode %}{{ media.selected_episode.episode_id }}{% elif season.episodes %}{{ season.episodes[0].episode_id }}{% endif %}"{% if not season.active %} hidden{% endif %} aria-label="{{ season.season_name }}单集列表">
                                 <div class="episode-rail media-rail overflow-x-auto" tabindex="0">
                                     <div class="episode-rail-track media-rail-track container-xl d-flex flex-nowrap gap-3">
                                     {% for episode in season.episodes %}
-                                        {% set episode_active = media.featured_episode and media.featured_episode.episode_id == episode.episode_id %}
-                                        <div class="episode-rail-item media-rail-item"><article class="episode-card position-relative{% if episode_active %} active{% endif %}" data-episode-card>
+                                        <div class="episode-rail-item media-rail-item"><article class="episode-card position-relative{% if episode.active %} active{% endif %}" data-episode-card>
                                             <div class="episode-still-frame squircle-card ratio ratio-16x9 overflow-hidden bg-body-tertiary shadow-sm">
                                                 <div>
                                                     {% if episode.image %}<img class="media-cover" src="{{ url_for('static', filename=episode.image) }}" alt="{{ media.name }}第 {{ episode.season_number }} 季第 {{ episode.episode_number }} 集剧照" width="640" height="360" loading="lazy" data-media-image>{% endif %}
@@ -231,7 +219,7 @@
                                                     {% endif %}
                                                 </div>
                                             </div>
-                                            <button class="episode-selector position-absolute top-0 start-0 w-100 h-100 border-0 bg-transparent" type="button" data-episode-target="{{ episode.episode_id }}" aria-label="选择 Season {{ episode.season_number }} Episode {{ episode.episode_number }} {{ episode.episode_name or '未命名单集' }}" aria-pressed="{{ 'true' if episode_active else 'false' }}"></button>
+                                            <button class="episode-selector position-absolute top-0 start-0 w-100 h-100 border-0 bg-transparent" type="button" data-episode-target="{{ episode.episode_id }}" aria-label="选择 Season {{ episode.season_number }} Episode {{ episode.episode_number }} {{ episode.episode_name or '未命名单集' }}" aria-pressed="{{ 'true' if episode.active else 'false' }}"></button>
                                         </article></div>
                                     {% else %}
                                         <div class="empty-state compact squircle-card border bg-body-tertiary p-4"><p class="text-body-secondary mb-0">本季暂无单集数据。</p></div>
@@ -247,10 +235,10 @@
         {% endif %}
 
         <section class="detail-information container-xl py-5" aria-labelledby="information-heading">
-            <div class="row g-5">
-                <section class="col-12 col-lg-7" aria-labelledby="information-heading">
+            <div class="d-flex flex-column gap-5">
+                <section aria-labelledby="information-heading">
                     <h2 class="h4 mb-4" id="information-heading">作品信息</h2>
-                    <dl class="row gy-3 mb-4 detail-facts">
+                    <dl class="row gy-3 mb-0 detail-facts">
                         <dt class="col-sm-3 text-body-secondary fw-normal">原名</dt>
                         <dd class="col-sm-9 mb-0">{{ media.original_name }}</dd>
 
@@ -268,27 +256,20 @@
                         <dd class="col-sm-9 mb-0">{{ media.age_rating or "未提供" }}</dd>
 
                     </dl>
-                    {% if media.external_links %}
-                    <div class="detail-external-links d-flex flex-wrap gap-3 pt-3 border-top">
-                        {% for link in media.external_links %}
-                            <a class="small fw-semibold link-secondary link-offset-2 link-underline-opacity-0 link-underline-opacity-100-hover" href="{{ link.url }}" target="_blank" rel="noopener noreferrer">{{ link.label }}<i class="bi bi-arrow-up-right ms-1" aria-hidden="true"></i></a>
-                        {% endfor %}
-                    </div>
-                    {% endif %}
                 </section>
 
-                <section class="col-12 col-lg-5" aria-labelledby="file-information-heading">
+                <section aria-labelledby="file-information-heading">
                     <h2 class="h4 mb-4" id="file-information-heading">当前播放文件</h2>
                     {% if media.media_type == "tv" %}
                         <div class="episode-facts-panels" data-episode-facts-panels>
-                            {% if media.featured_episode %}
-                                {% set episode = media.featured_episode %}
+                            {% if media.selected_episode %}
+                                {% set episode = media.selected_episode %}
                                 <div class="episode-facts-panel" data-episode-facts="{{ episode.episode_id }}">
                                     {% if episode.media_facts %}
                                         <dl class="row gy-3 mb-0 detail-facts">
                                             {% for fact in episode.media_facts %}
-                                                <dt class="col-sm-4 text-body-secondary fw-normal">{{ fact.label }}</dt>
-                                                <dd class="col-sm-8 mb-0 text-break">{{ fact.value }}</dd>
+                                                <dt class="col-sm-3 text-body-secondary fw-normal">{{ fact.label }}</dt>
+                                                <dd class="col-sm-9 mb-0 text-break">{{ fact.value }}</dd>
                                             {% endfor %}
                                         </dl>
                                     {% else %}
@@ -303,8 +284,8 @@
                         {% if media.media_facts %}
                             <dl class="row gy-3 mb-0 detail-facts">
                                 {% for fact in media.media_facts %}
-                                    <dt class="col-sm-4 text-body-secondary fw-normal">{{ fact.label }}</dt>
-                                    <dd class="col-sm-8 mb-0 text-break">{{ fact.value }}</dd>
+                                    <dt class="col-sm-3 text-body-secondary fw-normal">{{ fact.label }}</dt>
+                                    <dd class="col-sm-9 mb-0 text-break">{{ fact.value }}</dd>
                                 {% endfor %}
                             </dl>
                         {% else %}
@@ -312,6 +293,14 @@
                         {% endif %}
                     {% endif %}
                 </section>
+
+                {% if media.external_links %}
+                    <nav class="detail-external-links d-flex flex-wrap gap-3 pt-4 border-top" aria-label="外部链接">
+                        {% for link in media.external_links %}
+                            <a class="small fw-semibold link-secondary link-offset-2 link-underline-opacity-0 link-underline-opacity-100-hover" href="{{ link.url }}" target="_blank" rel="noopener noreferrer">{{ link.label }}<i class="bi bi-arrow-up-right ms-1" aria-hidden="true"></i></a>
+                        {% endfor %}
+                    </nav>
+                {% endif %}
             </div>
         </section>
     </article>

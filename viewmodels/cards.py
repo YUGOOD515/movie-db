@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from flask import url_for
 
+from playback import is_effectively_completed
+
 
 TITLE_TYPE_LABELS = {
     "movie": "电影",
@@ -51,7 +53,7 @@ def build_progress(position_ms: int | None, duration_ms: int | None) -> dict:
         "ratio": ratio,
         "percent": round(ratio * 100, 1),
         "position_label": format_position_ms(position),
-        "completed": ratio >= 0.95,
+        "completed": is_effectively_completed(position, duration),
     }
 
 
@@ -102,6 +104,15 @@ def format_bit_rate(bit_rate: int | None) -> str:
     return f"{bit_rate / 1000:.0f} kbps"
 
 
+def format_frame_rate(value) -> str:
+    if value in (None, ""):
+        return ""
+    try:
+        return f"{float(value):g} fps"
+    except (TypeError, ValueError):
+        return str(value)
+
+
 def resolution_label(width: int | None, height: int | None) -> str:
     width = int(width or 0)
     height = int(height or 0)
@@ -118,20 +129,39 @@ def resolution_label(width: int | None, height: int | None) -> str:
     return ""
 
 
-def build_media_badges(source: dict | None) -> list[str]:
+def build_media_badges(source: dict | None) -> list[dict]:
     if not source:
         return []
+    dynamic_range = str(source.get("video_dynamic_range") or "").strip()
+    dynamic_kind = (
+        "dolby_vision"
+        if any(
+            token in dynamic_range.casefold()
+            for token in ("dolby vision", "dolby", "dv")
+        )
+        else "text"
+    )
     candidates = [
-        resolution_label(source.get("video_width"), source.get("video_height")),
-        str(source.get("video_codec") or "").upper(),
-        source.get("video_dynamic_range") or "",
-        source.get("audio_channel_layout") or "",
+        (
+            "text",
+            resolution_label(
+                source.get("video_width"), source.get("video_height")
+            ),
+        ),
+        ("text", str(source.get("video_codec") or "").upper()),
+        ("text", format_frame_rate(source.get("video_frame_rate"))),
+        ("text", format_file_size(source.get("file_size_bytes"))),
+        (dynamic_kind, dynamic_range),
+        ("text", source.get("audio_channel_layout") or ""),
     ]
     badges = []
-    for candidate in candidates:
+    labels = set()
+    for kind, candidate in candidates:
         label = str(candidate).strip()
-        if label and label.casefold() not in {item.casefold() for item in badges}:
-            badges.append(label)
+        normalized = label.casefold()
+        if label and normalized not in labels:
+            badges.append({"kind": kind, "label": label})
+            labels.add(normalized)
     return badges
 
 
@@ -146,6 +176,7 @@ def build_source(source: dict) -> dict:
         "duration_label": format_duration_ms(source.get("duration_ms")),
         "file_size_label": format_file_size(source.get("file_size_bytes")),
         "bit_rate_label": format_bit_rate(source.get("bit_rate")),
+        "frame_rate_label": format_frame_rate(source.get("video_frame_rate")),
         "resolution_label": resolution_label(
             source.get("video_width"), source.get("video_height")
         ),

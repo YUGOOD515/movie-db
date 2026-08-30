@@ -1,4 +1,23 @@
 (() => {
+    function bindMediaFallback(root = document) {
+        root.querySelectorAll("[data-media-image]:not([data-fallback-bound])").forEach((image) => {
+            image.setAttribute("data-fallback-bound", "");
+            image.addEventListener("error", () => {
+                image.classList.add("d-none");
+                const fallback = image.parentElement?.querySelector(".image-fallback")
+                    || image.closest(".detail-hero")?.querySelector(".detail-backdrop-fallback");
+                fallback?.classList.remove("d-none");
+                fallback?.classList.add("d-flex");
+            });
+        });
+        root.querySelectorAll("[data-media-logo]:not([data-fallback-bound])").forEach((logo) => {
+            logo.setAttribute("data-fallback-bound", "");
+            logo.addEventListener("error", () => logo.classList.add("d-none"));
+        });
+    }
+
+    bindMediaFallback();
+
     // Theme toggle
     const themeToggle = document.getElementById("theme-toggle");
     if (themeToggle) {
@@ -36,7 +55,7 @@
     }
 
     // Sidebar active states
-    const isDetailPage = /^\/(movies|series)\/\d+\/?$/.test(
+    const isDetailPage = /^\/title\/[^/]+\/?$/.test(
         window.location.pathname,
     );
     document.querySelectorAll(".site-sidebar .nav-link").forEach((link) => {
@@ -236,7 +255,6 @@
 
     function episodeHeroPanelHTML(episodeId, info, context) {
         const key = escapeHtml(episodeId);
-        const summary = info.summary || {};
         const badges = [];
         if (info.runtime) {
             badges.push(`<span>${escapeHtml(info.runtime)}</span>`);
@@ -244,26 +262,16 @@
         if (info.air_date) {
             badges.push(`<span>${escapeHtml(info.air_date)}</span>`);
         }
-        if (summary.resolution_label) {
-            badges.push(`<span>${escapeHtml(summary.resolution_label)}</span>`);
-        }
-        if (summary.video_codec_label) {
-            badges.push(`<span>${escapeHtml(summary.video_codec_label)}</span>`);
-        }
-        if (summary.frame_rate_label) {
-            badges.push(`<span>${escapeHtml(summary.frame_rate_label)}</span>`);
-        }
-        if (summary.file_size_label) {
-            badges.push(`<span>${escapeHtml(summary.file_size_label)}</span>`);
-        }
-        if (summary.is_dolby_vision) {
-            badges.push(`<span class="dolby-vision-badge" title="杜比视界 (Dolby Vision)" aria-label="杜比视界">
-                <img class="dolby-vision-logo dolby-vision-logo--dark" src="${escapeHtml(context.assets.dolby_dark)}" alt="Dolby Vision" height="15">
-                <img class="dolby-vision-logo dolby-vision-logo--light" src="${escapeHtml(context.assets.dolby_light)}" alt="Dolby Vision" height="15">
-            </span>`);
-        } else if (summary.dynamic_range_label) {
-            badges.push(`<span>${escapeHtml(summary.dynamic_range_label)}</span>`);
-        }
+        (info.badges || []).forEach((badge) => {
+            if (badge.kind === "dolby_vision") {
+                badges.push(`<span class="dolby-vision-badge" title="杜比视界 (Dolby Vision)" aria-label="杜比视界">
+                    <img class="dolby-vision-logo dolby-vision-logo--dark" src="${escapeHtml(context.assets.dolby_dark)}" alt="Dolby Vision" height="15">
+                    <img class="dolby-vision-logo dolby-vision-logo--light" src="${escapeHtml(context.assets.dolby_light)}" alt="Dolby Vision" height="15">
+                </span>`);
+            } else if (badge.label) {
+                badges.push(`<span>${escapeHtml(badge.label)}</span>`);
+            }
+        });
         if (context.genres) {
             badges.push(`<span>${escapeHtml(context.genres)}</span>`);
         }
@@ -421,6 +429,7 @@
             nextImg.setAttribute("data-detail-backdrop", "");
 
             backdropStage.appendChild(nextImg);
+            bindMediaFallback(backdropStage);
 
             // Force reflow
             void nextImg.offsetWidth;
@@ -557,6 +566,28 @@
         });
     });
 
+    // Floating toast for save feedback (no page reload, no alert block)
+    function showSaveToast(message, isError = false) {
+        let toast = document.querySelector(".save-toast");
+        if (!toast) {
+            toast = document.createElement("div");
+            toast.className = "save-toast";
+            toast.setAttribute("role", "status");
+            document.body.appendChild(toast);
+        }
+        toast.textContent = message;
+        toast.classList.toggle("save-toast--error", isError);
+        toast.classList.remove("save-toast--show");
+        // Restart the animation in case a previous toast is still visible
+        void toast.offsetWidth;
+        toast.classList.add("save-toast--show");
+        clearTimeout(toast._hideTimer);
+        toast._hideTimer = setTimeout(
+            () => toast.classList.remove("save-toast--show"),
+            2000,
+        );
+    }
+
     // Overview cards artwork preview trial and confirmation
     document.querySelectorAll(".overview-card").forEach((card) => {
         const form = card.querySelector(".overview-card-form");
@@ -635,5 +666,66 @@
                 }
             });
         });
+
+        // Save via fetch: no reload, scroll position preserved, floating toast feedback
+        form.addEventListener("submit", async (event) => {
+            event.preventDefault();
+            confirmBtn.disabled = true;
+            try {
+                const response = await fetch(form.action, {
+                    method: "POST",
+                    body: new FormData(form),
+                });
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                showSaveToast("保存成功");
+                syncCardAfterSave();
+            } catch {
+                showSaveToast("保存失败", true);
+            } finally {
+                confirmBtn.disabled = false;
+            }
+        });
+
+        // The server swaps the selected image into position 1; mirror that in the DOM
+        function syncCardAfterSave() {
+            form.querySelectorAll("[data-artwork-input]").forEach((input) => {
+                const position = input.value;
+                if (position === "1") {
+                    return;
+                }
+                const imageType = input.dataset.artworkInput;
+                const chosen = card.querySelector(
+                    `[data-artwork-option][data-type="${imageType}"][data-position="${position}"]`,
+                );
+                const previous = card.querySelector(
+                    `[data-artwork-option][data-type="${imageType}"][data-position="1"]`,
+                );
+                if (chosen) {
+                    chosen.dataset.position = "1";
+                    chosen.classList.add("active");
+                    setOptionState(chosen, "当前使用");
+                }
+                if (previous) {
+                    previous.dataset.position = position;
+                    previous.classList.remove("active");
+                    setOptionState(previous, "点击试用");
+                }
+                input.value = "1";
+            });
+            confirmBtn.classList.add("d-none");
+        }
+
+        function setOptionState(option, status) {
+            const statusSpan = option.querySelector(".artwork-option-status");
+            if (statusSpan) {
+                statusSpan.textContent = status;
+            }
+            const checkBadge = option.querySelector(".artwork-poster-check");
+            if (checkBadge) {
+                checkBadge.classList.toggle("d-none", status !== "当前使用");
+            }
+        }
     });
 })();

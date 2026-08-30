@@ -1,6 +1,7 @@
 from sqlite3 import Connection
 
 from queries._shared import CARD_ARTWORK_SQL, dictionaries, query_title_cards
+from queries.collection import get_collections
 
 
 def get_recently_watched(db: Connection, limit: int = 8) -> list[dict]:
@@ -61,27 +62,6 @@ def get_recently_watched(db: Connection, limit: int = 8) -> list[dict]:
          LIMIT ?
         """,
         (limit,),
-    )
-    return dictionaries(rows)
-
-
-def get_collections(db: Connection) -> list[dict]:
-    rows = db.execute(
-        """
-        SELECT collection.collection_id,
-               collection.name,
-               collection.collection_type,
-               collection.title_type,
-               collection.icon_name,
-               collection."order",
-               COUNT(item.title_id) AS item_count
-          FROM collection
-          LEFT JOIN collection_item AS item
-            ON item.collection_id = collection.collection_id
-         GROUP BY collection.collection_id
-         ORDER BY collection."order",
-                  collection.collection_id
-        """
     )
     return dictionaries(rows)
 

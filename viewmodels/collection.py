@@ -2,10 +2,10 @@ from viewmodels.cards import build_poster_card
 
 
 def build_collection_viewmodel(
-    collection: dict | None,
-    rows: list[dict],
-    collections: list[dict] | None = None,
+    raw: dict,
 ) -> dict:
+    collection = raw["collection"]
+    rows = raw["items"]
     return {
         "collection_id": collection["collection_id"] if collection else None,
         "title": collection["name"] if collection else "全部收藏",
@@ -13,5 +13,5 @@ def build_collection_viewmodel(
         "icon": (collection.get("icon_name") if collection else None)
         or "collection",
         "items": [build_poster_card(row) for row in rows],
-        "collections": collections or [],
+        "collections": raw["collections"],
     }
