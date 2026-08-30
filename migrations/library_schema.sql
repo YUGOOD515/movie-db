@@ -1,8 +1,8 @@
 /*
  * Local media library schema.
  *
- * This schema creates a new, empty library database. It does not read from or
- * migrate data out of movie.db.
+ * This schema creates a new, empty library database. It does not import or
+ * migrate existing data.
  */
 
 PRAGMA foreign_keys = ON;

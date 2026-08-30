@@ -18,7 +18,8 @@ backups/
 
 # Local browser QA artifacts
 .playwright-cli/
-output/playwright/
+output/
+.pytest_cache/
 .flask_session/
 flask_session/
 imdb/
