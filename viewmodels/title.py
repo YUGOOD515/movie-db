@@ -551,8 +551,15 @@ def build_title_viewmodel(
         episodes, raw["season_number"], raw["episode_number"]
     )
     resume_episode, resume_advanced = _resume_episode(episodes)
+    explicit_episode = (
+        raw["season_number"] is not None or raw["episode_number"] is not None
+    )
+    # 历史记录规则：未指定单集进入时按续播定位（看完≥90%或剩≤2分钟则进下一集），
+    # 仅在显式指定单集且未强制续播时才用请求的单集。
     selected_episode = (
-        resume_episode if select_resume and resume_episode else requested_episode
+        resume_episode
+        if resume_episode and (select_resume or not explicit_episode)
+        else requested_episode
     )
 
     sources = (
@@ -586,14 +593,7 @@ def build_title_viewmodel(
         for genre in (title.get("genres") or "").split(",")
         if genre.strip()
     ]
-    explicit_episode = (
-        raw["season_number"] is not None or raw["episode_number"] is not None
-    )
-    playback_episode = (
-        episode_state["selected"]
-        if select_resume or explicit_episode
-        else episode_state["resume"] or episode_state["selected"]
-    )
+    playback_episode = episode_state["selected"]
 
     media = {
         "media_id": title["title_id"],

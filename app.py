@@ -5,10 +5,13 @@ from pathlib import Path
 from flask import abort, Flask, flash, redirect, render_template, request, url_for
 from flask_session import Session
 
-import helpers
-import models
-from db import get_db, init_app as init_database
-from playback import is_effectively_completed
+from connectors import alist, player
+from models.database import get_db, init_app as init_database
+from models.library import (
+    save_library_playback_progress,
+    set_library_primary_artworks,
+    toggle_library_collection_item,
+)
 from queries.catalog import get_catalog_options, query_catalog
 from queries.collection import query_collection
 from queries.home import (
@@ -23,6 +26,8 @@ from queries.title import (
     get_title_id_by_tmdb,
     query_title,
 )
+from services.media_import import MediaImportError, import_media as import_media_service
+from services.playback import is_effectively_completed
 from viewmodels.catalog import (
     build_catalog_viewmodel,
     build_library_viewmodel,
@@ -36,10 +41,14 @@ from viewmodels.title import build_title_viewmodel
 
 BASE_DIR = Path(__file__).resolve().parent
 DATABASE_PATH = BASE_DIR / "library.db"
+IMDB_DATABASE_PATH = BASE_DIR / "imdb.db"
+IMAGE_ROOT = BASE_DIR / "static" / "images"
 
 app = Flask(__name__)
 app.config.update(
     DATABASE=DATABASE_PATH,
+    IMDB_DATABASE=IMDB_DATABASE_PATH,
+    IMAGE_ROOT=IMAGE_ROOT,
     SECRET_KEY=os.environ.get("FLASK_SECRET_KEY") or secrets.token_hex(32),
     SESSION_PERMANENT=False,
     SESSION_TYPE="filesystem",
@@ -135,7 +144,7 @@ def collection_detail(collection_id: int):
 @app.post("/collection/<int:collection_id>/<title_id>/toggle")
 def toggle_collection_item(collection_id: int, title_id: str):
     try:
-        added = models.toggle_library_collection_item(
+        added = toggle_library_collection_item(
             app.config["DATABASE"], collection_id, title_id
         )
     except ValueError:
@@ -219,7 +228,36 @@ def media():
         "media.html",
         active_tab=active_tab,
         overview=page,
-        alist_origin=os.environ.get("ALIST_ORIGIN", ""),
+        alist_origin=alist.get_origin(),
+    )
+
+
+@app.post("/manager/import")
+def import_media():
+    try:
+        result = import_media_service(
+            library_database=app.config["DATABASE"],
+            imdb_database=app.config["IMDB_DATABASE"],
+            image_root=app.config["IMAGE_ROOT"],
+            title_id=request.form.get("title_id", ""),
+            season_number=request.form.get("season_number", ""),
+            episode_number=request.form.get("episode_number", ""),
+            alist_url=request.form.get("alist_url", ""),
+        )
+    except MediaImportError as error:
+        flash(str(error), "danger")
+        return redirect(url_for("media", tab="associate"))
+
+    flash(
+        f"已录入 {result['display_title']}，关联媒体文件 #{result['file_id']}。",
+        "success",
+    )
+    return redirect(
+        url_for(
+            "media",
+            tab="overview",
+            q=result["root_display_title"],
+        )
     )
 
 
@@ -242,7 +280,7 @@ def select_media_artwork(title_id: str):
     if not selections:
         abort(400)
     try:
-        models.set_library_primary_artworks(
+        set_library_primary_artworks(
             app.config["DATABASE"],
             title_id,
             selections,
@@ -268,15 +306,15 @@ def play_media_file(file_id: int):
     playback_session = {"playback_id": None}
 
     def save_progress(position_ms: int, _duration_ms: int):
-        playback_session["playback_id"] = models.save_library_playback_progress(
+        playback_session["playback_id"] = save_library_playback_progress(
             database_path,
             file_id,
             position_ms,
             playback_id=playback_session["playback_id"],
         )
 
-    video_url = helpers.get_video_link(source["alist_path"])
-    helpers.play_video(
+    video_url = alist.get_video_link(source["alist_path"])
+    player.play_video(
         video_url,
         start_position_ms=start_position,
         progress_callback=save_progress,

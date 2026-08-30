@@ -10,12 +10,14 @@ from unittest.mock import Mock, patch
 from urllib.parse import unquote
 
 import app as movie_app
-import db as database_module
-import helpers
-import models
-from playback import is_effectively_completed
+from connectors import alist, media_probe, player
+from models import database as database_module
+from models import library as models
 from queries.collection import get_collection_items
 from queries.title import query_title
+from services import media_import as media_import_service
+from services.playback import is_effectively_completed
+from scripts import fetch_tmdb_metadata as tmdb_connector
 from viewmodels.title import build_title_viewmodel
 
 
@@ -33,12 +35,79 @@ class LibraryIntegrationTest(unittest.TestCase):
             database.executescript(schema)
             database.executescript(fixture)
 
+        self.imdb_path = Path(self.temporary_directory.name) / "imdb.db"
+        with closing(sqlite3.connect(self.imdb_path)) as imdb:
+            imdb.executescript(
+                """
+                CREATE TABLE title_basics (
+                    tconst TEXT PRIMARY KEY,
+                    titleType TEXT,
+                    primaryTitle TEXT,
+                    originalTitle TEXT,
+                    isAdult INTEGER,
+                    startYear INTEGER,
+                    endYear INTEGER,
+                    runtimeMinutes INTEGER,
+                    genres TEXT
+                );
+                CREATE TABLE title_akas (
+                    titleId TEXT,
+                    ordering INTEGER,
+                    title TEXT,
+                    region TEXT,
+                    language TEXT,
+                    types TEXT,
+                    attributes TEXT,
+                    isOriginalTitle INTEGER,
+                    PRIMARY KEY (titleId, ordering)
+                );
+                CREATE TABLE title_ratings (
+                    tconst TEXT PRIMARY KEY,
+                    averageRating REAL,
+                    numVotes INTEGER
+                );
+                CREATE TABLE title_episode (
+                    tconst TEXT PRIMARY KEY,
+                    parentTconst TEXT,
+                    seasonNumber INTEGER,
+                    episodeNumber INTEGER
+                );
+                INSERT INTO title_basics VALUES
+                    ('tt9000001', 'movie', 'Import Movie', 'Import Movie', 0, 2026, NULL, 120, 'Drama'),
+                    ('tt9000002', 'tvSeries', 'Import Series', 'Import Series', 0, 2026, NULL, 50, 'Drama'),
+                    ('tt9000003', 'tvEpisode', 'First Episode', 'First Episode', 0, 2026, NULL, 50, 'Drama'),
+                    ('tt9000004', 'tvEpisode', 'Second Episode', 'Second Episode', 0, 2026, NULL, 51, 'Drama');
+                INSERT INTO title_akas VALUES
+                    ('tt9000001', 1, '导入电影', 'CN', 'zh', NULL, NULL, 0),
+                    ('tt9000002', 1, '导入剧集', 'CN', 'zh', NULL, NULL, 0),
+                    ('tt9000003', 1, '第一集', 'CN', 'zh', NULL, NULL, 0),
+                    ('tt9000004', 1, '第二集', 'CN', 'zh', NULL, NULL, 0);
+                INSERT INTO title_ratings VALUES
+                    ('tt9000001', 8.1, 1000),
+                    ('tt9000002', 8.2, 2000),
+                    ('tt9000003', 8.3, 300),
+                    ('tt9000004', 8.4, 400);
+                INSERT INTO title_episode VALUES
+                    ('tt9000003', 'tt9000002', 1, 1),
+                    ('tt9000004', 'tt9000002', 1, 2);
+                """
+            )
+
         self.previous_database = movie_app.app.config["DATABASE"]
-        movie_app.app.config.update(TESTING=True, DATABASE=self.database_path)
+        self.previous_imdb_database = movie_app.app.config["IMDB_DATABASE"]
+        self.previous_image_root = movie_app.app.config["IMAGE_ROOT"]
+        movie_app.app.config.update(
+            TESTING=True,
+            DATABASE=self.database_path,
+            IMDB_DATABASE=self.imdb_path,
+            IMAGE_ROOT=Path(self.temporary_directory.name) / "images",
+        )
         self.client = movie_app.app.test_client()
 
     def tearDown(self):
         movie_app.app.config["DATABASE"] = self.previous_database
+        movie_app.app.config["IMDB_DATABASE"] = self.previous_imdb_database
+        movie_app.app.config["IMAGE_ROOT"] = self.previous_image_root
         self.temporary_directory.cleanup()
 
     def connect(self):
@@ -149,7 +218,10 @@ class LibraryIntegrationTest(unittest.TestCase):
             "/title/tt6226232?season=3&episode=12"
         ).get_data(as_text=True)
         direct_episode = self.client.get("/title/tt11555014").get_data(as_text=True)
-        self.assertIn("S1 · E1", default_series)
+        # 默认进入（未指定单集）按历史记录规则定位到续播单集 S3·E13
+        self.assertIn("S3 · E13", default_series)
+        self.assertIn('data-episode-hero="tt11591954"', default_series)
+        self.assertIn("继续播放", default_series)
         self.assertIn("S3 · E12", selected_series)
         self.assertIn("身体闪光器和商场安全装备", selected_series)
         self.assertIn("S3 · E12", direct_episode)
@@ -167,6 +239,13 @@ class LibraryIntegrationTest(unittest.TestCase):
         self.assertEqual(selected_series.count('data-episode-hero="'), 1)
         self.assertEqual(selected_series.count('data-episode-hero-control="'), 1)
         self.assertEqual(selected_series.count('data-episode-facts="'), 1)
+
+        # 全剧/本集信息切换：按钮 + 全剧面板（默认隐藏）
+        self.assertIn('data-series-toggle', selected_series)
+        self.assertIn('data-series-hero-panel', selected_series)
+        self.assertIn('series-hero-panel hero-pane-hidden', selected_series)
+        self.assertIn("全剧 · 共", selected_series)
+        self.assertNotIn("data-series-toggle", self.client.get("/title/tt0816692").get_data(as_text=True))
         self.assertIn('data-episode-data', selected_series)
         self.assertGreater(
             selected_series.count('data-episode-target="'),
@@ -198,7 +277,8 @@ class LibraryIntegrationTest(unittest.TestCase):
         association = self.client.get("/media?tab=associate").get_data(
             as_text=True
         )
-        self.assertIn("<fieldset disabled>", association)
+        self.assertIn('action="/manager/import"', association)
+        self.assertNotIn("<fieldset disabled>", association)
 
     def test_missing_resources_return_404(self):
         self.assertEqual(self.client.get("/title/tt0000000").status_code, 404)
@@ -297,8 +377,8 @@ class LibraryIntegrationTest(unittest.TestCase):
                 "SELECT COUNT(*) FROM playback_progress WHERE file_id = 3"
             ).fetchone()[0]
 
-        with patch.object(helpers, "get_video_link", return_value="https://media.test/a.mkv"), patch.object(
-            helpers, "play_video"
+        with patch.object(alist, "get_video_link", return_value="https://media.test/a.mkv"), patch.object(
+            player, "play_video"
         ) as play_video:
             response = self.client.post("/play/3")
             self.assertEqual(response.status_code, 204)
@@ -320,7 +400,7 @@ class LibraryIntegrationTest(unittest.TestCase):
 
     def test_series_resume_thresholds_and_collection_identity(self):
         page = self.build_title("tt6226232")
-        self.assertEqual(page["selected_episode"]["episode_id"], "tt6719334")
+        self.assertEqual(page["selected_episode"]["episode_id"], "tt11591954")
         self.assertEqual(page["resume_episode"]["episode_id"], "tt11591954")
         self.assertTrue(page["resume_episode"]["play_label"].startswith("继续播放"))
         self.assertEqual(page["favorite"]["title_id"], "tt6226232")
@@ -393,8 +473,8 @@ class LibraryIntegrationTest(unittest.TestCase):
         self.assertFalse(page["play_label"].startswith("继续播放"))
 
         with patch.object(
-            helpers, "get_video_link", return_value="https://media.test/movie.mkv"
-        ), patch.object(helpers, "play_video") as play_video:
+            alist, "get_video_link", return_value="https://media.test/movie.mkv"
+        ), patch.object(player, "play_video") as play_video:
             self.assertEqual(self.client.post("/play/3").status_code, 204)
         self.assertEqual(play_video.call_args.kwargs["start_position_ms"], 0)
 
@@ -430,11 +510,207 @@ class LibraryIntegrationTest(unittest.TestCase):
             ).fetchone()[0]
         self.assertEqual(after, before)
 
+    def test_import_writer_rejects_cross_title_alist_remap_atomically(self):
+        with closing(self.connect()) as database:
+            existing_path = database.execute(
+                "SELECT alist_path FROM media_file ORDER BY file_id LIMIT 1"
+            ).fetchone()[0]
+
+        title = {
+            "title_id": "tt9000001",
+            "tmdb_id": 9001,
+            "title_type": "movie",
+            "primary_title": "Import Movie",
+            "original_title": "Import Movie",
+            "original_language": "en",
+            "display_title": "导入电影",
+            "is_adult": 0,
+            "start_year": 2026,
+            "end_year": None,
+            "runtime_minutes": 120,
+            "genres": "Drama",
+            "overview": "电影简介",
+            "tagline": None,
+            "average_rating": 8.1,
+            "num_votes": 1000,
+        }
+        with self.assertRaisesRegex(ValueError, "已关联其他影视条目"):
+            models.import_media_bundle(
+                self.database_path,
+                titles=[title],
+                relations=[],
+                artwork=[],
+                target_title_id=title["title_id"],
+                alist_path=existing_path,
+                probe={},
+            )
+
+        with closing(self.connect()) as database:
+            inserted = database.execute(
+                "SELECT 1 FROM title_basic WHERE title_id = 'tt9000001'"
+            ).fetchone()
+        self.assertIsNone(inserted)
+
     def test_manager_filtering_is_server_owned(self):
         html = self.client.get("/media?q=星际&type=movie").get_data(as_text=True)
         self.assertIn("overviewForm.requestSubmit()", html)
         self.assertNotIn("function applyFilter", html)
         self.assertNotIn("request.full_path", html)
+
+    def test_title_id_import_accepts_movie_series_and_episode(self):
+        movie_metadata = {
+            "title_basic": {
+                "tmdb_id": 9001,
+                "overview": "电影简介",
+                "tagline": "电影标语",
+                "original_language": "en",
+            },
+            "title_artwork": [],
+            "episodes": [],
+        }
+        series_metadata = {
+            "title_basic": {
+                "tmdb_id": 9002,
+                "overview": "剧集简介",
+                "tagline": "剧集标语",
+                "original_language": "en",
+            },
+            "title_artwork": [],
+            "episodes": [
+                {
+                    "season_number": 1,
+                    "episode_number": 1,
+                    "title_basic": {
+                        "tmdb_id": 9003,
+                        "overview": "第一集简介",
+                        "tagline": None,
+                        "original_language": "en",
+                    },
+                    "title_artwork": [],
+                },
+                {
+                    "season_number": 1,
+                    "episode_number": 2,
+                    "title_basic": {
+                        "tmdb_id": 9004,
+                        "overview": "第二集简介",
+                        "tagline": None,
+                        "original_language": "en",
+                    },
+                    "title_artwork": [],
+                },
+            ],
+        }
+
+        def metadata(title_id):
+            return movie_metadata if title_id == "tt9000001" else series_metadata
+
+        probe = {
+            "duration_ms": 7_200_000,
+            "file_size_bytes": 1024,
+            "bit_rate": 8_000_000,
+            "container_format": "matroska,webm",
+            "video_codec": "hevc",
+            "video_width": 3840,
+            "video_height": 2160,
+            "video_frame_rate": 23.976,
+            "video_pixel_format": "yuv420p10le",
+            "video_dynamic_range": "HDR10 / PQ",
+            "audio_codec": "eac3",
+            "audio_channels": 6,
+            "audio_channel_layout": "5.1",
+        }
+        with patch.object(
+            media_import_service.alist, "validate_alist_video_url"
+        ), patch.object(
+            media_import_service.alist,
+            "get_video_link",
+            return_value="https://media.test/file.mkv",
+        ), patch.object(
+            media_import_service.media_probe, "probe_video", return_value=probe
+        ), patch.object(
+            media_import_service.tmdb,
+            "build_media_metadata",
+            side_effect=metadata,
+        ):
+            movie = self.client.post(
+                "/manager/import",
+                data={
+                    "title_id": "tt9000001",
+                    "alist_url": "http://127.0.0.1:5244/d/Movies/Import.mkv?sign=one",
+                },
+            )
+            series_episode = self.client.post(
+                "/manager/import",
+                data={
+                    "title_id": "tt9000002",
+                    "season_number": "1",
+                    "episode_number": "1",
+                    "alist_url": "http://127.0.0.1:5244/d/Series/S01E01.mkv?sign=two",
+                },
+            )
+            direct_episode = self.client.post(
+                "/manager/import",
+                data={
+                    "title_id": "tt9000004",
+                    "alist_url": "http://127.0.0.1:5244/d/Series/S01E02.mkv?sign=three",
+                },
+            )
+
+        self.assertEqual(movie.status_code, 302)
+        self.assertEqual(series_episode.status_code, 302)
+        self.assertEqual(direct_episode.status_code, 302)
+        with closing(self.connect()) as database:
+            imported_titles = database.execute(
+                """
+                SELECT title_id, title_type, display_title, average_rating
+                  FROM title_basic
+                 WHERE title_id LIKE 'tt900%'
+                 ORDER BY title_id
+                """
+            ).fetchall()
+            imported_files = database.execute(
+                """
+                SELECT title_id, alist_path, duration_ms
+                  FROM media_file
+                 WHERE title_id LIKE 'tt900%'
+                 ORDER BY alist_path
+                """
+            ).fetchall()
+            relations = database.execute(
+                """
+                SELECT episode_id, series_id, season_number, episode_number
+                  FROM title_relation
+                 WHERE series_id = 'tt9000002'
+                 ORDER BY episode_number
+                """
+            ).fetchall()
+
+        self.assertEqual(len(imported_titles), 4)
+        self.assertEqual(imported_titles[0]["display_title"], "导入电影")
+        self.assertEqual(imported_titles[0]["average_rating"], 8.1)
+        self.assertEqual(
+            [row["title_id"] for row in imported_files],
+            ["tt9000001", "tt9000003", "tt9000004"],
+        )
+        self.assertTrue(all(row["duration_ms"] == 7_200_000 for row in imported_files))
+        self.assertEqual(len(relations), 2)
+
+    def test_series_title_id_requires_position_before_external_calls(self):
+        with patch.object(
+            media_import_service.tmdb, "build_media_metadata"
+        ) as fetch_metadata:
+            response = self.client.post(
+                "/manager/import",
+                data={
+                    "title_id": "tt9000002",
+                    "alist_url": "http://127.0.0.1:5244/d/Series/Test.mkv?sign=abc",
+                },
+                follow_redirects=True,
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("必须填写有效的季号和集号", response.get_data(as_text=True))
+        fetch_metadata.assert_not_called()
 
     def test_rendered_local_static_references_exist(self):
         references = set()
@@ -461,46 +737,20 @@ class LibraryIntegrationTest(unittest.TestCase):
 
 class ConnectorUnitTest(unittest.TestCase):
     def test_connector_credentials_come_from_environment(self):
-        with patch.dict(os.environ, {}, clear=True):
+        with tempfile.TemporaryDirectory() as directory, patch.object(
+            tmdb_connector, "PROJECT_ROOT", Path(directory)
+        ), patch.dict(os.environ, {}, clear=True):
             with self.assertRaisesRegex(RuntimeError, "TMDB_TOKEN"):
-                helpers._tmdb_headers()
+                tmdb_connector._token()
             with self.assertRaisesRegex(RuntimeError, "ALIST_USERNAME"):
-                helpers.get_video_link("/Movies/Test.mkv")
+                alist.get_video_link("/Movies/Test.mkv")
 
         with patch.dict(os.environ, {"TMDB_TOKEN": "test-token"}, clear=True):
-            self.assertEqual(
-                helpers._tmdb_headers()["Authorization"],
-                "Bearer test-token",
-            )
-
-    def test_tmdb_detail_merges_external_imdb_id(self):
-        with patch.object(
-            helpers,
-            "_tmdb_get",
-            side_effect=[
-                {"id": 123, "name": "Series"},
-                {"id": 123, "imdb_id": "tt0903747"},
-            ],
-        ) as tmdb_get:
-            details = helpers.get_media_details("tv", 123)
-
-        self.assertEqual(details["imdb_id"], "tt0903747")
-        self.assertEqual(tmdb_get.call_args_list[1].args[0], "/tv/123/external_ids")
-
-    def test_movie_detail_reuses_embedded_imdb_id(self):
-        with patch.object(
-            helpers,
-            "_tmdb_get",
-            return_value={"id": 123, "title": "Movie", "imdb_id": "tt0111161"},
-        ) as tmdb_get:
-            details = helpers.get_media_details("movie", 123)
-
-        self.assertEqual(details["imdb_id"], "tt0111161")
-        tmdb_get.assert_called_once_with("/movie/123", {"language": helpers.language})
+            self.assertEqual(tmdb_connector._token(), "test-token")
 
     def test_alist_url_is_restricted_to_signed_local_direct_links(self):
         valid = "http://127.0.0.1:5244/d/Movies/Test.mkv?sign=abc"
-        self.assertEqual(helpers.parse_alist_url(valid), "/Movies/Test.mkv")
+        self.assertEqual(alist.parse_alist_url(valid), "/Movies/Test.mkv")
 
         for invalid in (
             "https://example.com/d/Movies/Test.mkv?sign=abc",
@@ -508,7 +758,7 @@ class ConnectorUnitTest(unittest.TestCase):
             "http://127.0.0.1:5244/d/../secret.mkv?sign=abc",
         ):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
-                helpers.parse_alist_url(invalid)
+                alist.parse_alist_url(invalid)
 
     def test_ffprobe_output_is_normalized(self):
         payload = {
@@ -537,29 +787,35 @@ class ConnectorUnitTest(unittest.TestCase):
             ],
         }
         completed = Mock(returncode=0, stdout=json.dumps(payload))
-        with patch.object(helpers.subprocess, "run", return_value=completed):
-            result = helpers.probe_video("https://media.test/movie.mkv")
+        with patch.object(media_probe.subprocess, "run", return_value=completed):
+            result = media_probe.probe_video("https://media.test/movie.mkv")
 
-        self.assertEqual(result["media_duration_ms"], 12_345)
+        self.assertEqual(result["duration_ms"], 12_345)
         self.assertEqual(result["video_width"], 3840)
         self.assertEqual(result["video_frame_rate"], 23.976)
         self.assertEqual(result["video_dynamic_range"], "HDR10 / PQ")
         self.assertEqual(result["audio_channels"], 6)
 
     def test_image_download_is_capped_at_five_per_category(self):
-        links = {
-            "posters": [f"https://image.test/poster-{i}.jpg" for i in range(8)],
-            "logos": [f"https://image.test/logo-{i}.png" for i in range(7)],
-            "backdrops": [f"https://image.test/backdrop-{i}.jpg" for i in range(6)],
+        images = {
+            "posters": [
+                {"file_path": f"/poster-{i}.jpg", "iso_639_1": "zh"}
+                for i in range(8)
+            ],
+            "logos": [
+                {"file_path": f"/logo-{i}.png", "iso_639_1": "zh"}
+                for i in range(7)
+            ],
+            "backdrops": [
+                {"file_path": f"/backdrop-{i}.jpg", "iso_639_1": None}
+                for i in range(6)
+            ],
         }
-        with tempfile.TemporaryDirectory() as directory:
-            with patch.object(helpers, "_download_to_target") as download:
-                records = helpers.download_media_images("tt1234567", links, directory)
+        records = tmdb_connector.build_title_artwork("tt1234567", images)
 
         self.assertEqual(len(records), 15)
-        self.assertEqual(download.call_count, 15)
         self.assertEqual(
-            {record["image_position"] for record in records},
+            {record["position"] for record in records},
             {1, 2, 3, 4, 5},
         )
 
@@ -571,7 +827,7 @@ class ConnectorUnitTest(unittest.TestCase):
             "parse_omdb_ratings",
             "RatingFetchError",
         ):
-            self.assertFalse(hasattr(helpers, name), name)
+            self.assertFalse(hasattr(tmdb_connector, name), name)
 
 
 if __name__ == "__main__":

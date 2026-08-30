@@ -8,7 +8,7 @@
 
 ## Model
 
-使用 SQLite 双库结构：`imdb.db` 是只读主数据，`library.db` 是七表业务库（`title_basic` / `title_relation` / `title_artwork` / `media_file` / `playback_progress` / `collection` / `collection_item`）。`title_basic` 直接保存 TMDB 补充字段（`tmdb_id`、`overview`、`tagline`、`original_language`、`average_rating`、`num_votes`）。单集直接保存季号与集号，不设置 season 和 collection 实体。读操作集中在 @queries/（按页面组织），写操作集中在 @models.py；@helpers.py 负责对接 TMDB、AList 及图片下载。
+使用 SQLite 双库结构：`imdb.db` 是只读主数据，`library.db` 是七表业务库（`title_basic` / `title_relation` / `title_artwork` / `media_file` / `playback_progress` / `collection` / `collection_item`）。`title_basic` 保存 TMDB 补充字段（`tmdb_id`、`overview`、`tagline`、`original_language`）及 IMDb 评分字段（`average_rating`、`num_votes`）。单集直接保存季号与集号，不设置 season 和 collection 实体。读操作集中在 @queries/，写操作集中在 @models/library.py；@connectors/ 对接 TMDB、AList、ffprobe 与 MPC-HC，@services/ 编排录入和播放业务。
 
 SQL 代码书写准则：https://www.sqlstyle.guide/zh/
 
@@ -24,9 +24,7 @@ SQL 代码书写准则：https://www.sqlstyle.guide/zh/
 
 ## 进度存储区
 
-当前阶段：`library.db` 数据迁移全部完成——521 个 title（9 电影 / 22 剧集 / 490 单集）、854 图片、728 媒体文件、15 观看记录与收藏夹已全部录入，与遗留库行数完全对齐；provisional 单集已通过本地 `title_episode` 表完成 IMDb 匹配（@scripts/match_provisional_episodes.py，遗留库中已无 provisional 记录）。应用读写已切换到 `library.db`，`movie.db` 遗留读写代码与导入脚本已删除，旧评分缓存流程已清理。
-
-下一阶段：接入新版录入写入库链路（当前 @templates/media.html 关联表单为禁用占位）。
+当前阶段：`library.db` 数据迁移全部完成——521 个 title（9 电影 / 22 剧集 / 490 单集）、854 图片、728 媒体文件、15 观看记录与收藏夹已全部录入。媒体管理页已接入 Title ID 录入链路：Movie 与 Episode ID 可直接录入，Series ID 通过季集号定位单集；IMDb 主数据、TMDB 补充数据、图片、AList 路径和 ffprobe 参数统一写入七表业务库。根目录仅保留 `app.py` 一个 Python 入口文件。
 
 ## Tips
 

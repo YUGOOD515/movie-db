@@ -333,6 +333,43 @@
         const heroControlsContainer = browser.querySelector(".detail-episode-controls");
         const factsPanelsContainer = browser.querySelector("[data-episode-facts-panels]");
 
+        // Series/episode info toggle in the hero area.
+        const seriesToggle = browser.querySelector("[data-series-toggle]");
+        const seriesPanel = browser.querySelector("[data-series-hero-panel]");
+        let seriesMode = false;
+
+        function applySeriesMode() {
+            seriesPanel?.classList.toggle("hero-pane-hidden", !seriesMode);
+            seriesPanel?.setAttribute("aria-hidden", String(!seriesMode));
+            heroPanelsContainer?.classList.toggle("hero-pane-hidden", seriesMode);
+            heroPanelsContainer?.setAttribute("aria-hidden", String(seriesMode));
+            if (!seriesToggle) {
+                return;
+            }
+            seriesToggle.setAttribute("aria-pressed", String(seriesMode));
+            seriesToggle.title = seriesMode ? "查看本集信息" : "查看全剧信息";
+            seriesToggle.querySelector("[data-series-toggle-icon-tv]")
+                ?.classList.toggle("d-none", seriesMode);
+            seriesToggle.querySelector("[data-series-toggle-icon-episode]")
+                ?.classList.toggle("d-none", !seriesMode);
+            if (seriesMode) {
+                switchBackdrop(seriesPanel?.dataset.heroBackdropUrl || "", "from-right");
+            } else {
+                const activePanel = browser.querySelector(
+                    "[data-episode-hero]:not(.d-none)",
+                );
+                switchBackdrop(
+                    activePanel?.dataset.heroBackdropUrl || "",
+                    "from-left",
+                );
+            }
+        }
+
+        seriesToggle?.addEventListener("click", () => {
+            seriesMode = !seriesMode;
+            applySeriesMode();
+        });
+
         function ensureEpisodePanels(episodeId) {
             if (!episodeData || !episodeData.episodes) {
                 return;
@@ -513,7 +550,9 @@
             currentEpisodeNum = newEpisodeNum;
 
             const backdropUrl = target.dataset.heroBackdropUrl;
-            switchBackdrop(backdropUrl, direction);
+            if (!seriesMode) {
+                switchBackdrop(backdropUrl, direction);
+            }
 
             target.dispatchEvent(new Event("detail:shown"));
         }

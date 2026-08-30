@@ -1,6 +1,8 @@
 # MovieDB
 
-本地 Flask 影视资源管理网页。运行时使用只读 `library.db` 查询数据，写操作集中在 `models.py`。
+本地 Flask 影视资源管理网页。页面查询只读 `library.db`，写操作集中在 `models/library.py`；TMDB、AList、ffprobe 与 MPC-HC 接口位于 `connectors/`。
+
+媒体管理页支持使用 IMDb Title ID 录入电影或单集。Series Title ID 需要同时提供季号和集号；Episode Title ID 会自动解析父剧集。IMDb 提供身份、层级、标题及评分，TMDB 只补充简介、标语、原始语言和图片。
 
 ## 本地配置
 

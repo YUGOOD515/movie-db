@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from flask import url_for
 
-from playback import is_effectively_completed
+from services.playback import is_effectively_completed
 
 
 TITLE_TYPE_LABELS = {

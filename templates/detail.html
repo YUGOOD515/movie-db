@@ -109,9 +109,35 @@
                         </div>
                     </div>
 
-                    <div class="detail-feature flex-grow-1 min-w-0"{% if media.media_type == "tv" %} aria-live="polite"{% endif %}>
+                    <div class="detail-feature flex-grow-1 min-w-0 position-relative"{% if media.media_type == "tv" %} aria-live="polite"{% endif %}>
                         {% if media.media_type == "tv" %}
-                            <div class="episode-hero-panels" data-episode-hero-panels>
+                            <button type="button" class="btn detail-info-toggle position-absolute top-0 end-0 d-inline-flex align-items-center justify-content-center" data-series-toggle aria-pressed="false" title="查看全剧信息">
+                                <i class="bi bi-tv" aria-hidden="true" data-series-toggle-icon-tv></i>
+                                <i class="bi bi-play-btn d-none" aria-hidden="true" data-series-toggle-icon-episode></i>
+                                <span class="visually-hidden">切换本集与全剧信息</span>
+                            </button>
+                            <div class="hero-info-stack">
+                            <section class="series-hero-panel hero-pane-hidden" aria-hidden="true" data-series-hero-panel data-hero-backdrop-url="{% if media.backdrop_path %}{{ url_for('static', filename=media.backdrop_path) }}{% endif %}">
+                                <span class="detail-episode-index d-block small fw-bold mb-2">全剧 · 共 {{ media.seasons|length }} 季</span>
+                                <h2 class="h3 fw-bold mb-3">{{ media.name }}</h2>
+
+                                <div class="detail-meta d-flex flex-wrap align-items-center column-gap-3 row-gap-2 small text-body-secondary fw-semibold mb-3">
+                                    {% if media.date_label %}<span>{{ media.date_label }}</span>{% endif %}
+                                    {% if media.genres %}<span>{{ media.genres|join(" / ") }}</span>{% endif %}
+                                </div>
+
+                                {{ overview_block(media.overview) }}
+
+                                <div class="detail-ratings-row mt-3 pt-2">
+                                     {% if media.imdb_rating is not none and media.imdb_rating != "" %}
+                                         <span class="detail-rating-item" title="全剧 IMDb 评分">
+                                             <img class="detail-rating-logo detail-rating-logo--imdb" src="{{ url_for('static', filename='imdb.png') }}" alt="IMDb">
+                                             <span class="detail-rating-score detail-rating-score--imdb">{{ "%.1f"|format(media.imdb_rating) }}</span>
+                                         </span>
+                                     {% endif %}
+                                </div>
+                            </section>
+                            <div class="episode-hero-panels" data-episode-hero-panels aria-hidden="false">
                             {% if media.selected_episode %}
                                 {% set episode = media.selected_episode %}
                                 <section class="episode-hero-panel" data-episode-hero="{{ episode.episode_id }}" data-season-number="{{ episode.season_number }}" data-episode-number="{{ episode.episode_number }}" data-hero-backdrop-url="{% if episode.image %}{{ url_for('static', filename=episode.image) }}{% endif %}">
@@ -139,6 +165,7 @@
                             {% else %}
                                 <p class="text-body-secondary mb-0">暂无单集数据。</p>
                             {% endif %}
+                            </div>
                             </div>
                         {% else %}
                             {% if media.tagline %}<p class="detail-tagline lead fw-semibold mb-3">{{ media.tagline }}</p>{% endif %}

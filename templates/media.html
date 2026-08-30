@@ -92,31 +92,25 @@
                     </div>
                 </div>
 
-                <div class="alert alert-secondary small" role="status">新版录入写入链路尚未接入，当前表单仅保留原页面排版，暂不接受提交。</div>
-
-                <form action="{{ url_for('media') }}" method="post" class="mb-5">
-                    <fieldset disabled>
+                <form action="{{ url_for('import_media') }}" method="post" class="mb-5">
                     <div class="row g-3 align-items-end">
-                        <div class="col-12 col-md-2">
-                            <label class="form-label small fw-semibold" for="media-type">媒体类型</label>
-                            <select class="form-select bg-body-tertiary" id="media-type" name="media_type">
-                                <option value="movie">电影</option>
-                                <option value="tv">剧集单集</option>
-                            </select>
-                        </div>
                         <div class="col-12 col-md-3">
-                            <label class="form-label small fw-semibold" for="media-name" id="media-name-label">电影名称</label>
+                            <label class="form-label small fw-semibold" for="title-id">IMDb Title ID</label>
                             <input
                                 class="form-control bg-body-tertiary"
-                                id="media-name"
-                                name="media_name"
+                                id="title-id"
+                                name="title_id"
                                 type="text"
-                                placeholder="例如：星际穿越"
+                                inputmode="text"
+                                pattern="tt[0-9]+"
+                                placeholder="例如：tt0816692"
+                                autocomplete="off"
+                                spellcheck="false"
                                 required
                             >
                         </div>
-                        <div class="col-6 col-md-1 d-none" data-tv-field>
-                            <label class="form-label small fw-semibold" for="season-number">季 (Season)</label>
+                        <div class="col-6 col-md-2">
+                            <label class="form-label small fw-semibold" for="season-number">季号 <span class="fw-normal text-body-secondary">Series 时必填</span></label>
                             <input
                                 class="form-control bg-body-tertiary"
                                 id="season-number"
@@ -124,11 +118,11 @@
                                 type="number"
                                 min="0"
                                 step="1"
-                                value="1"
+                                placeholder="1"
                             >
                         </div>
-                        <div class="col-6 col-md-1 d-none" data-tv-field>
-                            <label class="form-label small fw-semibold" for="episode-number">集 (Episode)</label>
+                        <div class="col-6 col-md-2">
+                            <label class="form-label small fw-semibold" for="episode-number">集号 <span class="fw-normal text-body-secondary">Series 时必填</span></label>
                             <input
                                 class="form-control bg-body-tertiary"
                                 id="episode-number"
@@ -136,7 +130,7 @@
                                 type="number"
                                 min="1"
                                 step="1"
-                                value="1"
+                                placeholder="1"
                             >
                         </div>
                         <div class="col-12 col-md">
@@ -151,17 +145,16 @@
                             >
                         </div>
                         <div class="col-12 col-md-auto d-grid">
-                            <button class="btn media-primary-action text-nowrap px-4" type="submit">查询并关联</button>
+                            <button class="btn media-primary-action text-nowrap px-4" type="submit">校验并录入</button>
                         </div>
                     </div>
-                    </fieldset>
                 </form>
 
                 <div class="row row-cols-1 row-cols-md-3 g-3">
                     <div class="col">
                         <div class="squircle-card border bg-body-tertiary p-3 h-100 text-start">
-                            <div class="fw-semibold mb-1">IMDb 主数据自动匹配</div>
-                            <div class="small text-body-secondary">本地匹配名称、年份、类型与 IMDb 评分，TMDB 仅补充简介、状态及图片。</div>
+                            <div class="fw-semibold mb-1">IMDb 主数据校验</div>
+                            <div class="small text-body-secondary">本地确认 Title ID、媒体类型、标题、年份、层级与 IMDb 评分，TMDB 仅补充允许的字段和图片。</div>
                         </div>
                     </div>
                     <div class="col">
@@ -185,29 +178,7 @@
 {% block scripts %}
     <script>
         (() => {
-            // 关联表单联动逻辑
-            const mediaType = document.getElementById("media-type");
-            const mediaName = document.getElementById("media-name");
-            const mediaNameLabel = document.getElementById("media-name-label");
-            const seasonNumber = document.getElementById("season-number");
-            const episodeNumber = document.getElementById("episode-number");
-            const tvFields = document.querySelectorAll("[data-tv-field]");
-
-            if (mediaType && mediaName && mediaNameLabel && seasonNumber && episodeNumber) {
-                function syncMediaFields() {
-                    const isTv = mediaType.value === "tv";
-                    tvFields.forEach((field) => field.classList.toggle("d-none", !isTv));
-                    seasonNumber.required = isTv;
-                    episodeNumber.required = isTv;
-                    mediaNameLabel.textContent = isTv ? "剧集名称" : "电影名称";
-                    mediaName.placeholder = isTv ? "例如：绝命毒师" : "例如：星际穿越";
-                }
-
-                mediaType.addEventListener("change", syncMediaFields);
-                syncMediaFields();
-            }
-
-            // 类型切换提交到服务端，与名称、IMDb/TMDB 查询保持同一筛选语义。
+            // 类型筛选提交到服务端，避免概览数据在前端形成第二套筛选逻辑。
             const overviewForm = document.getElementById("overview-search-form");
             const filterRadios = document.querySelectorAll("input[name='type']");
             if (overviewForm) {

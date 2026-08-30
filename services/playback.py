@@ -12,3 +12,4 @@ def is_effectively_completed(
         return False
     remaining = max(duration - position, 0)
     return position / duration >= COMPLETION_RATIO or remaining < REMAINING_THRESHOLD_MS
+
