@@ -1,31 +1,28 @@
-{% macro poster_card(item, show_rating=false) %}
+{% macro progress_bar(progress, compact=false) %}
+    <div class="watch-progress progress" role="progressbar" aria-label="观看进度" aria-valuenow="{{ progress.percent }}" aria-valuemin="0" aria-valuemax="100">
+        <div class="progress-bar" style="width: {{ progress.percent }}%"></div>
+    </div>
+    {% if not compact and progress.position_ms %}
+        <span class="small text-body-secondary">已观看 {{ progress.position_label }}</span>
+    {% endif %}
+{% endmacro %}
+
+{% macro poster_card(item) %}
     <article class="poster-card h-100">
-        <a class="poster-link d-block h-100 text-body text-decoration-none" href="{{ item.detail_url }}" aria-label="查看{{ item.name }}详情">
+        <a class="poster-link d-block h-100 text-body text-decoration-none" href="{{ item.detail_url }}" aria-label="查看{{ item.title }}详情">
             <span class="poster-frame squircle-card ratio ratio-poster d-block overflow-hidden bg-body-tertiary shadow-sm">
-                <span class="d-block">
-                    {% if item.poster_path %}
-                        <img
-                            class="media-cover"
-                            src="{{ url_for('static', filename=item.poster_path) }}"
-                            alt="{{ item.name }}海报"
-                            width="500"
-                            height="750"
-                            loading="lazy"
-                            data-media-image
-                        >
-                    {% endif %}
-                    <span class="image-fallback position-absolute top-0 start-0 w-100 h-100 align-items-center justify-content-center fs-2 text-body-secondary{% if item.poster_path %} d-none{% else %} d-flex{% endif %}" aria-hidden="true">
-                        <i class="bi bi-film"></i>
-                    </span>
-                </span>
+                {% if item.poster %}
+                    <img class="media-cover" src="{{ url_for('static', filename=item.poster) }}" alt="{{ item.title }}海报" width="500" height="750" loading="lazy" data-media-image>
+                {% endif %}
+                <span class="image-fallback position-absolute top-0 start-0 w-100 h-100 align-items-center justify-content-center fs-2 text-body-secondary{% if item.poster %} d-none{% else %} d-flex{% endif %}" aria-hidden="true"><i class="bi bi-film"></i></span>
             </span>
             <span class="d-block pt-3">
-                <span class="d-block text-truncate fw-semibold mb-1">{{ item.name }}</span>
+                <span class="d-block text-truncate fw-semibold mb-1">{{ item.title }}</span>
                 <span class="d-flex align-items-center gap-2 small text-body-secondary">
-                    <span>{{ "电影" if item.media_type == "movie" else "剧集" }}</span>
+                    <span>{{ item.type_label }}</span>
                     {% if item.year %}<span>{{ item.year }}</span>{% endif %}
-                    {% if show_rating and item.imdb_rating is not none %}
-                        <span class="text-warning"><i class="bi bi-star-fill me-1" aria-hidden="true"></i>{{ "%.1f"|format(item.imdb_rating) }}</span>
+                    {% if item.rating is not none %}
+                        <span class="text-warning"><i class="bi bi-star-fill me-1" aria-hidden="true"></i>{{ "%.1f"|format(item.rating) }}</span>
                     {% endif %}
                 </span>
             </span>
@@ -33,19 +30,68 @@
     </article>
 {% endmacro %}
 
-{% macro genre_card(genre) %}
-    <a class="genre-card squircle-card ratio ratio-genre d-block overflow-hidden bg-body-tertiary shadow-sm text-decoration-none" href="{{ genre.detail_url }}" aria-label="查看{{ genre.genre_name }}类别代表电影{{ genre.media_name }}">
-        <span class="d-block">
-            {% if genre.backdrop_path %}
-                <img class="media-cover" src="{{ url_for('static', filename=genre.backdrop_path) }}" alt="{{ genre.media_name }}横版海报" width="960" height="420" loading="lazy" data-media-image>
+{% macro backdrop_card(item, rank=none) %}
+    {% if rank %}
+    <article class="ranked-feature">
+        <span class="ranked-number" aria-hidden="true">{{ rank }}</span>
+        <div class="ranked-feature-card squircle-card ratio ratio-16x9 overflow-hidden bg-body-tertiary shadow-sm position-relative">
+            <div class="ranked-feature-visual">
+            {% if item.backdrop %}
+                <img class="media-cover" src="{{ url_for('static', filename=item.backdrop) }}" alt="{{ item.title }}背景图" width="960" height="540" data-media-image>
             {% endif %}
-            <span class="image-fallback position-absolute top-0 start-0 w-100 h-100 align-items-center justify-content-center fs-2 text-body-secondary{% if genre.backdrop_path %} d-none{% else %} d-flex{% endif %}" aria-hidden="true"><i class="bi bi-film"></i></span>
-            <span class="genre-overlay position-absolute top-0 start-0 w-100 h-100"></span>
-            <span class="genre-name position-absolute bottom-0 start-0 d-flex align-items-center gap-2 p-4 text-white h3 fw-bold mb-0">
-                <i class="bi bi-{{ genre.icon }}" aria-hidden="true"></i>
-                <span>{{ genre.genre_name }}</span>
-            </span>
-        </span>
+            <span class="image-fallback position-absolute top-0 start-0 w-100 h-100 align-items-center justify-content-center fs-2 text-body-secondary{% if item.backdrop %} d-none{% else %} d-flex{% endif %}" aria-hidden="true"><i class="bi bi-film"></i></span>
+            <a class="continue-detail-link position-absolute top-0 start-0 w-100 h-100" href="{{ item.detail_url }}" aria-label="查看{{ item.title }}详情"></a>
+            <span class="ranked-feature-overlay position-absolute top-0 start-0 w-100 h-100"></span>
+            {% if item.logo %}
+                <img class="ranked-feature-logo position-absolute" src="{{ url_for('static', filename=item.logo) }}" alt="" width="320" height="120" data-media-logo>
+            {% endif %}
+            <div class="position-absolute bottom-0 start-0 end-0 p-3 p-lg-4 text-white">
+                <div class="d-flex align-items-end justify-content-between gap-3">
+                    <div class="min-w-0">
+                        <div class="fw-semibold text-truncate">{{ item.title }}</div>
+                        {% if item.subtitle %}<div class="small opacity-75 text-truncate">{{ item.subtitle }}</div>{% endif %}
+                    </div>
+                    {% if item.rating is not none %}<span class="text-warning fw-semibold"><i class="bi bi-star-fill me-1"></i>{{ "%.1f"|format(item.rating) }}</span>{% endif %}
+                </div>
+                {% if item.progress %}<div class="mt-2">{{ progress_bar(item.progress, true) }}</div>{% endif %}
+            </div>
+            </div>
+        </div>
+    </article>
+    {% else %}
+    <article class="continue-card">
+        <div class="continue-frame squircle-card ratio ratio-16x9 overflow-hidden bg-body-tertiary shadow-sm position-relative">
+            <div class="continue-visual">
+            {% if item.backdrop %}
+                <img class="media-cover" src="{{ url_for('static', filename=item.backdrop) }}" alt="{{ item.title }}背景图" width="960" height="540" data-media-image>
+            {% endif %}
+            <span class="image-fallback position-absolute top-0 start-0 w-100 h-100 align-items-center justify-content-center fs-2 text-body-secondary{% if item.backdrop %} d-none{% else %} d-flex{% endif %}" aria-hidden="true"><i class="bi bi-film"></i></span>
+            <a class="continue-detail-link position-absolute top-0 start-0 w-100 h-100" href="{{ item.detail_url }}" aria-label="查看{{ item.title }}详情"></a>
+            {% if item.logo %}
+                <img class="continue-logo position-absolute" src="{{ url_for('static', filename=item.logo) }}" alt="" width="320" height="120" data-media-logo>
+            {% endif %}
+            {% if item.play_url %}
+                <form class="position-absolute top-50 start-50 translate-middle" action="{{ item.play_url }}" method="post">
+                    <button class="play-button btn media-primary-action d-flex align-items-center justify-content-center p-0" type="submit" aria-label="播放{{ item.title }}"><i class="bi bi-play-fill fs-4" aria-hidden="true"></i></button>
+                </form>
+            {% endif %}
+            {% if item.progress %}{{ progress_bar(item.progress, true) }}{% endif %}
+            </div>
+        </div>
+        <div class="continue-meta pt-3">
+            <h3 class="h6 text-truncate mb-1">{{ item.title }}</h3>
+            {% if item.subtitle %}<p class="small text-body-secondary text-truncate mb-0">{{ item.subtitle }}</p>{% endif %}
+        </div>
+    </article>
+    {% endif %}
+{% endmacro %}
+
+{% macro genre_card(item) %}
+    <a class="genre-card squircle-card ratio ratio-genre d-block overflow-hidden bg-body-tertiary shadow-sm text-decoration-none" href="{{ item.detail_url }}" aria-label="查看{{ item.name }}类别">
+        {% if item.backdrop %}<img class="media-cover" src="{{ url_for('static', filename=item.backdrop) }}" alt="{{ item.representative_title }}背景图" width="960" height="420" loading="lazy" data-media-image>{% endif %}
+        <span class="image-fallback position-absolute top-0 start-0 w-100 h-100 align-items-center justify-content-center fs-2 text-body-secondary{% if item.backdrop %} d-none{% else %} d-flex{% endif %}" aria-hidden="true"><i class="bi bi-film"></i></span>
+        <span class="genre-overlay position-absolute top-0 start-0 w-100 h-100"></span>
+        <span class="genre-name position-absolute bottom-0 start-0 p-4 text-white h3 fw-bold mb-0"><i class="bi bi-{{ item.icon }} me-2" aria-hidden="true"></i>{{ item.name }} <small class="fs-6 fw-normal opacity-75">{{ item.count }}</small></span>
     </a>
 {% endmacro %}
 
@@ -54,9 +100,7 @@
     <div class="dropdown">
         <button class="btn btn-sm artwork-menu-btn d-inline-flex align-items-center gap-1 text-nowrap" type="button" data-bs-toggle="dropdown" aria-expanded="false"{% if candidates|length < 2 %} disabled{% endif %}>
             <span>{{ label if candidates else ("无" ~ ("背景图" if image_type == "backdrops" else ("Logo" if image_type == "logos" else "海报"))) }}</span>
-            {% if candidates|length > 1 %}
-                <i class="bi bi-chevron-down opacity-75" style="font-size: 0.65rem;" aria-hidden="true"></i>
-            {% endif %}
+            {% if candidates|length > 1 %}<i class="bi bi-chevron-down opacity-75" style="font-size: 0.65rem;" aria-hidden="true"></i>{% endif %}
         </button>
         {% if candidates|length > 1 %}
             <div class="dropdown-menu {{ menu_class }} artwork-menu artwork-menu--{{ image_type }} shadow">
@@ -66,9 +110,7 @@
                             <button class="artwork-poster-card text-decoration-none border-0 bg-transparent text-start d-flex flex-column{% if image.image_position == 1 %} active{% endif %}" type="button" data-artwork-option data-type="{{ image_type }}" data-position="{{ image.image_position }}" data-src="{{ url_for('static', filename=image.local_path) }}">
                                 <span class="artwork-poster-thumb d-block overflow-hidden bg-body-tertiary position-relative">
                                     <img class="w-100 h-100 object-fit-cover position-absolute top-0 start-0" src="{{ url_for('static', filename=image.local_path) }}" alt="" loading="lazy">
-                                    <span class="artwork-poster-check position-absolute top-0 end-0 m-1.5 badge rounded-pill bg-dark bg-opacity-75 text-white border border-light border-opacity-25{% if image.image_position != 1 %} d-none{% endif %}">
-                                        <i class="bi bi-check-lg"></i>
-                                    </span>
+                                    <span class="artwork-poster-check position-absolute top-0 end-0 m-1.5 badge rounded-pill bg-dark bg-opacity-75 text-white border border-light border-opacity-25{% if image.image_position != 1 %} d-none{% endif %}"><i class="bi bi-check-lg"></i></span>
                                 </span>
                                 <span class="d-flex align-items-center justify-content-between gap-1 pt-1.5 px-1">
                                     <span class="fw-semibold small">海报 {{ loop.index }}</span>
@@ -82,9 +124,7 @@
                         {% for image in candidates %}
                             <button class="dropdown-item artwork-list-item d-flex align-items-center{% if image.image_position == 1 %} active{% endif %}" type="button" data-artwork-option data-type="{{ image_type }}" data-position="{{ image.image_position }}" data-src="{{ url_for('static', filename=image.local_path) }}">
                                 <span class="artwork-choice-slot flex-shrink-0 d-flex align-items-center justify-content-center">
-                                    <span class="artwork-choice-thumb artwork-choice-thumb--{{ image_type }} d-block overflow-hidden bg-body-tertiary">
-                                        <img class="w-100 h-100 {{ 'object-fit-contain p-1.5' if image_type == 'logos' else 'object-fit-cover' }}" src="{{ url_for('static', filename=image.local_path) }}" alt="" loading="lazy">
-                                    </span>
+                                    <span class="artwork-choice-thumb artwork-choice-thumb--{{ image_type }} d-block overflow-hidden bg-body-tertiary"><img class="w-100 h-100 {{ 'object-fit-contain p-1.5' if image_type == 'logos' else 'object-fit-cover' }}" src="{{ url_for('static', filename=image.local_path) }}" alt="" loading="lazy"></span>
                                 </span>
                                 <span class="min-w-0 text-start flex-grow-1">
                                     <span class="d-block fw-semibold small">{{ "背景" if image_type == "backdrops" else "Logo" }} {{ loop.index }}</span>
@@ -101,66 +141,43 @@
 
 {% macro overview_card(item, query="", media_filter="all") %}
     <article class="overview-card h-100" data-media-card data-id="{{ item.media_id }}" data-type="{{ item.media_type }}" data-name="{{ item.name }}" data-original-name="{{ item.original_name }}">
-        <form class="overview-card-form d-flex flex-column h-100" action="{{ url_for('select_media_artwork', media_type=item.media_type, media_id=item.media_id) }}" method="post">
-            <input type="hidden" name="q" value="{{ query }}">
-            <input type="hidden" name="type" value="{{ media_filter }}">
+        <form class="overview-card-form d-flex flex-column h-100" action="{{ url_for('select_media_artwork', title_id=item.media_id) }}" method="post">
+            <input type="hidden" name="return_to" value="{{ request.full_path }}">
             <input type="hidden" name="backdrop_position" value="1" data-artwork-input="backdrops">
             <input type="hidden" name="poster_position" value="1" data-artwork-input="posters">
             <input type="hidden" name="logo_position" value="1" data-artwork-input="logos">
 
             <header class="d-flex align-items-baseline justify-content-between gap-2 mb-2">
-                <h2 class="h6 mb-0 text-truncate" title="查看《{{ item.name }}》详情">
-                    <a class="text-reset text-decoration-none hover-primary fw-semibold" href="{{ item.detail_url }}">{{ item.name }}</a>
-                </h2>
+                <div class="min-w-0">
+                    <h2 class="h6 mb-0 text-truncate" title="查看《{{ item.name }}》详情"><a class="text-reset text-decoration-none hover-primary fw-semibold" href="{{ item.detail_url }}">{{ item.name }}</a></h2>
+                    <span class="d-block small text-body-secondary text-truncate">{{ item.title_id }}{% if item.tmdb_id %} · TMDB {{ item.tmdb_id }}{% endif %}</span>
+                </div>
                 <div class="d-flex align-items-center gap-2 flex-shrink-0">
-                    <span class="small text-body-secondary">
-                        {{ "电影" if item.media_type == "movie" else "剧集" }}{% if item.year %} · {{ item.year }}{% endif %}
-                    </span>
-                    <button type="submit" class="btn btn-sm media-primary-action overview-confirm-btn d-none py-0 px-2" data-artwork-confirm aria-label="确认保存修改">
-                        <i class="bi bi-check2 me-1" aria-hidden="true"></i>保存
-                    </button>
+                    <span class="small text-body-secondary">{{ "电影" if item.media_type == "movie" else "剧集" }}{% if item.year %} · {{ item.year }}{% endif %}</span>
+                    <button type="submit" class="btn btn-sm media-primary-action overview-confirm-btn d-none py-0 px-2" data-artwork-confirm aria-label="确认保存修改"><i class="bi bi-check2 me-1" aria-hidden="true"></i>保存</button>
                 </div>
             </header>
 
             <div class="overview-artwork-row d-flex gap-2">
-                <!-- 横版海报与 Logo (Backdrop + Logo: 8/11 比例，与竖版等高) -->
                 <div class="overview-artwork-col overview-artwork-col--backdrop">
                     <div class="artwork-preview artwork-preview--backdrop position-relative">
                         <div class="artwork-preview-media squircle-card overflow-hidden position-absolute top-0 start-0 w-100 h-100 bg-body-tertiary">
-                            {% if item.backdrop_path %}
-                                <img class="position-absolute top-0 start-0 w-100 h-100 object-fit-cover" src="{{ url_for('static', filename=item.backdrop_path) }}" alt="{{ item.name }}横版海报" loading="lazy" data-media-image data-preview-type="backdrops">
-                            {% endif %}
-                            <span class="image-fallback position-absolute top-0 start-0 w-100 h-100 align-items-center justify-content-center fs-4 text-body-secondary{% if item.backdrop_path %} d-none{% else %} d-flex{% endif %}" aria-hidden="true">
-                                <i class="bi bi-image"></i>
-                            </span>
+                            {% if item.backdrop_path %}<img class="position-absolute top-0 start-0 w-100 h-100 object-fit-cover" src="{{ url_for('static', filename=item.backdrop_path) }}" alt="{{ item.name }}横版海报" loading="lazy" data-media-image data-preview-type="backdrops">{% endif %}
+                            <span class="image-fallback position-absolute top-0 start-0 w-100 h-100 align-items-center justify-content-center fs-4 text-body-secondary{% if item.backdrop_path %} d-none{% else %} d-flex{% endif %}" aria-hidden="true"><i class="bi bi-image"></i></span>
                             <span class="artwork-backdrop-scrim position-absolute bottom-0 start-0 w-100 h-50" aria-hidden="true"></span>
-                            {% if item.logo_path %}
-                                <img class="artwork-backdrop-logo position-absolute" src="{{ url_for('static', filename=item.logo_path) }}" alt="" loading="lazy" data-media-logo data-preview-type="logos">
-                            {% else %}
-                                <img class="artwork-backdrop-logo position-absolute d-none" src="" alt="" loading="lazy" data-media-logo data-preview-type="logos">
-                            {% endif %}
+                            {% if item.logo_path %}<img class="artwork-backdrop-logo position-absolute" src="{{ url_for('static', filename=item.logo_path) }}" alt="" loading="lazy" data-media-logo data-preview-type="logos">{% else %}<img class="artwork-backdrop-logo position-absolute d-none" src="" alt="" loading="lazy" data-media-logo data-preview-type="logos">{% endif %}
                         </div>
-                        <div class="artwork-actions d-flex align-items-center gap-1">
-                            {{ artwork_menu(item, "backdrops", "背景") }}
-                            {{ artwork_menu(item, "logos", "Logo") }}
-                        </div>
+                        <div class="artwork-actions d-flex align-items-center gap-1">{{ artwork_menu(item, "backdrops", "背景") }}{{ artwork_menu(item, "logos", "Logo") }}</div>
                     </div>
                 </div>
 
-                <!-- 竖版海报 (Poster: 3/11 比例，与横版等高) -->
                 <div class="overview-artwork-col overview-artwork-col--poster">
                     <div class="artwork-preview artwork-preview--poster position-relative">
                         <div class="artwork-preview-media squircle-card overflow-hidden position-absolute top-0 start-0 w-100 h-100 bg-body-tertiary">
-                            {% if item.poster_path %}
-                                <img class="position-absolute top-0 start-0 w-100 h-100 object-fit-cover" src="{{ url_for('static', filename=item.poster_path) }}" alt="{{ item.name }}竖版海报" loading="lazy" data-media-image data-preview-type="posters">
-                            {% endif %}
-                            <span class="image-fallback position-absolute top-0 start-0 w-100 h-100 align-items-center justify-content-center fs-4 text-body-secondary{% if item.poster_path %} d-none{% else %} d-flex{% endif %}" aria-hidden="true">
-                                <i class="bi bi-image"></i>
-                            </span>
+                            {% if item.poster_path %}<img class="position-absolute top-0 start-0 w-100 h-100 object-fit-cover" src="{{ url_for('static', filename=item.poster_path) }}" alt="{{ item.name }}竖版海报" loading="lazy" data-media-image data-preview-type="posters">{% endif %}
+                            <span class="image-fallback position-absolute top-0 start-0 w-100 h-100 align-items-center justify-content-center fs-4 text-body-secondary{% if item.poster_path %} d-none{% else %} d-flex{% endif %}" aria-hidden="true"><i class="bi bi-image"></i></span>
                         </div>
-                        <div class="artwork-actions d-flex align-items-center gap-1">
-                            {{ artwork_menu(item, "posters", "海报") }}
-                        </div>
+                        <div class="artwork-actions d-flex align-items-center gap-1">{{ artwork_menu(item, "posters", "海报") }}</div>
                     </div>
                 </div>
             </div>

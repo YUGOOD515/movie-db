@@ -1,0 +1,46 @@
+# 调研记录
+
+- Git 当前基线为 `f0f05e6`，开始时除用户提供的 `frontend.md` 外工作区无未提交代码改动。
+- `query.md` 明确采用三层读取结构：route → query → viewmodel → Jinja，并要求避免 ORM、Repository/Service 和 N+1 查询。
+- 首页查询应在页面级聚合，类别字符串在 ViewModel 拆分；筛选条件应下推 SQL。
+- 详情页需区分 `selected_episode` 与 `resume_episode`，避免把其他 episode 的进度显示到当前选集。
+- 既有项目约定为 `models.py` 管数据库、`helpers.py` 管 TMDB/AList、`app.py` 管流程；本轮按新方案将读取查询拆到 `queries/`，而写入链路待实际检查后兼容处理。
+- `library.db` 完整性为 `ok`，外键违规为 0；实际数据为 521 title（9 movie / 22 series / 490 episode）、854 artwork、728 media_file、15 playback_progress、3 collection、0 collection_item。
+- 当前 `title_basic` 比最初数据字典多出 `tmdb_id`、`original_language`、`average_rating`、`num_votes`，查询必须使用实际字段。
+- 图片类型实际为 `poster`、`landscape_poster`、`logo`、`still`；主要图片可按每种类型 `position = 1` 获取。
+- 当前 `app.py` 仍连接 `movie.db`，读取和写入均通过旧 `models.py`；现有详情 URL 仍为整数 TMDB ID 的 `/movies/<id>`、`/series/<id>`，播放 route 仍是 GET `/play/<media_type>/<source_id>`。
+- 现有测试 `tests/test_imdb_primary.py` 针对旧 `movie.db`，本轮需要新增 `library.db` 链路测试，不能把跳过的旧测试当作验证完成。
+- 现有前端文件和样式可以复用，重点是替换页面数据契约和局部模板，而非重新设计视觉风格。
+- 9 部电影均有 rating，票数范围 79–40947；为满足“票数不是很小”且避免小样本虚高，排行榜采用 `num_votes >= 1000`，当前可得到 7 部可信样本，不强行补足 9 部。
+- 9 部电影和 22 部剧集均有 poster、logo、landscape_poster；490 个 episode 中有 455 个 still，模板必须允许缺图回退。
+- `media_file` 覆盖 9 部 movie 的 13 个版本、490 个 episode 的 715 个版本，series 自身无文件；series 播放与进度必须落到 episode/file。
+- 最近观看实际包含 movie 与 episode；同一 series 有多条 episode 记录，首页应按“作品维度”折叠为每个 movie 或 series 最新一条，避免同一剧集占满列表。
+- 旧详情逻辑已经有多版本、继续播放、选集和媒体参数概念，但字段均为旧表命名且大量整理逻辑堆在 `app.py`；可迁移语义，不能直接复用旧查询。
+- 旧关联/录入链路直接调用 `models.py` 的 `media`、`tmdb_metadata`、`media_source` 等旧表写入函数。当前任务只要求读取链路；切换到 `library.db` 后必须明确隔离，不能让旧写入误写新库。
+- Playwright 实际渲染确认：首页按作品折叠最近观看；S03E12 详情同时显示当前集进度与“继续 S03E13”；管理页能检索 `title_id`/`tmdb_id` 并显示三类图片候选。浏览器控制台无错误。
+- 现有 `migrations/library_schema.sql` 未声明实际 `title_basic` 已使用的 `tmdb_id`、`original_language`、`average_rating`、`num_votes`；已同步建库脚本，否则从头建库无法运行新查询和填充脚本。
+- 最终逐表核对确认建库脚本与当前正式库的 `collection`、`collection_item`、`media_file`、`playback_progress`、`title_artwork`、`title_basic`、`title_relation` 字段定义一致。
+- 正式 `library.db` 的 Git 索引哈希和工作区哈希一致；所有 mutation 测试均使用 SQLite 临时备份副本。
+- 首页原有 `.media-rail--span-6/3/2` 已定义 6:3:2 的比例关系，但新版 `index.html` 只给最近观看使用了无 span 的轨道，其余模块退化成普通 `row` 网格，导致比例、滚动和页面裁切语义全部丢失。
+- Bootstrap `.ratio > *` 会把直接子元素强制铺满容器；最近观看必须保留一层 `continue-visual`，Logo 与播放表单放在该层内部，才能分别按左下角和正中心定位。
+- 1920px 视口下首页内容对齐线为 x=312；最近观看、收藏、最近添加、类别等首项均精确从该位置开始。横向轨道自身从 x=0 延伸至 x=1920，因此右侧内容由整个页面视口裁切。
+- Git 基线仍完整保留旧 `detail.html`、`genre_page.html`、`favorites_page.html`、`media.html` 及对应 CSS/JS 类名；当前路由改为渲染新建的 `title.html`、`catalog.html`、`collection.html`、`manager.html`，视觉偏差主要来自模板替换而非新版查询层。
+- 最稳妥的迁移方式是恢复旧模板作为渲染入口，在 ViewModel 侧补兼容页面字段，并仅修改旧模板中的 route 名、ID 和 POST 参数；不把旧 SQL 或旧 route 内整理逻辑带回来。
+- 新版 `query_title/query_catalog/query_collection/query_manager` 已提供旧页面所需的主要事实数据；缺口集中在旧模板命名和页面形状，例如 `media_type/name/backdrop_path`、季度分组、旧筛选参数和管理页 `image_options`，适合在 ViewModel 末端适配。
+- 当前 `app.py` 四个目标 route 都是简短的 query → ViewModel → template 调用链，可直接更换回旧模板入口，无需恢复旧 `app.py` 的页面整理逻辑。
+- 类别页可直接恢复旧筛选工具栏，只需将旧参数 `media_type/genre_id/min_rating/language_code/recent` 映射为新版 `type/genre/rating/language/added`；海报卡宏已支持新版卡片字段。
+- 收藏页只需把 `folder_id/count` 映射到 `collection_id/item_count`，继续使用旧药丸筛选和六列海报网格。
+- 详情页适合由 `viewmodels/title.py` 生成旧页面兼容形状，因为旧模板需要跨 hero、选集、文件信息复用同一 episode/source 数据；Jinja 中逐处改新版字段会重新引入大量页面逻辑。
+- 媒体管理页适合让 `build_manager_viewmodel` 同时输出旧 `overview` 页面形状和 `image_options`，旧 `media.html` 只改 artwork POST route 与新版 ID。
+- 旧详情模板及 `static/site.js` 的选季/选集结构仍可直接使用；兼容 ViewModel 需提供 `media → seasons → episodes → sources` 层级，并把新版 `title_id/file_id/progress dict` 映射为旧 `episode_id/source_id/progress percent`。
+- 旧详情播放控件使用 GET 链接，而新版 `/play/<file_id>` 是受保护的 POST；应仅把同样视觉类名的 `<a>` 改为 `<form><button>`，不改变按钮、下拉菜单和页面布局。
+- 旧详情收藏按钮可直接改接新版 `media.favorite.action_url`，收藏对象仍由 ViewModel 决定为电影或当前 episode。
+- 新库没有旧 TMDB 表中的创作者、电视网、年龄分级和精确首播日期字段；旧详情对应位置保持原排版并显示“未提供”，不伪造数据。现有年份、评分、简介、类别、图片和文件参数均可正常填充。
+- 恢复后的类别、全部收藏、单收藏夹、电影详情、剧集默认详情和指定 S03E12 详情均已首次返回 200；多季剧集旧模板会一次渲染全部 episode panel，因此响应约 1.57 MB，这是旧交互结构的固有成本，不是查询 N+1。
+- Git 基线 `_media_cards.html` 中管理页的 `artwork_menu` 与 `overview_card` 独立位于第 52–169 行，可恢复这两个宏而不覆盖本轮已修正的首页卡片宏。
+- 旧管理卡是“前端选择三类图片 → 单次保存”的交互，而新版简化卡是每张候选即时 POST；为保持旧 UI，应让新版 artwork route 同时接受 `backdrop_position/poster_position/logo_position`，并继续保留单图参数兼容测试。
+- 切回旧详情形状后，原新版详情专用的 `_resume_episode/_build_metadata` 及 `subtitle/backdrop/overview` 中间变量已无消费者，应删除以保持 ViewModel 层级清晰。
+- 正式库与 Git blob 的七张表逐表行数和排序后内容哈希全部一致，schema/freelist/page_count 等 PRAGMA 也一致；当前文件差异是 SQLite 页面物理布局/变更计数，不存在业务数据或 schema 差异。
+- 文件头变更计数从 6 变为 8，另有 title_artwork 所在页面的物理字节重排；在未确认来源前不直接覆盖正式库。
+- 单独复现实验证明 SQLite `backup()` 不会改变源库文件；具体物理重排来源未复现，但逐表语义一致已排除业务数据丢失。
+- 页面查询连接可以安全使用 `mode=ro`，因为收藏、播放进度和 artwork 写入均通过 `models.py` 的独立写连接执行。

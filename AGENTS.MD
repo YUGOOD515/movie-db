@@ -8,13 +8,13 @@
 
 ## Model
 
-使用 SQLite 双库结构：`imdb.db` 是只读主数据，`library.db` 是七表业务库（`title_basic` / `title_relation` / `title_artwork` / `media_file` / `playback_progress` / `collection` / `collection_item`）。`title_basic` 直接保存 TMDB 补充字段（`tmdb_id`、`overview`、`tagline`、`original_language`、`average_rating`、`num_votes`）。`movie.db` 为遗留库，仅作数据迁移来源，不再新增写入。单集直接保存季号与集号，不设置 season 和 collection 实体。数据库操作集中在 @models.py；@helpers.py 负责对接 TMDB、AList 及图片下载；@scripts/populate_library.py 从遗留库 + IMDb + TMDB 填充 `library.db`。
+使用 SQLite 双库结构：`imdb.db` 是只读主数据，`library.db` 是七表业务库（`title_basic` / `title_relation` / `title_artwork` / `media_file` / `playback_progress` / `collection` / `collection_item`）。`title_basic` 直接保存 TMDB 补充字段（`tmdb_id`、`overview`、`tagline`、`original_language`、`average_rating`、`num_votes`）。单集直接保存季号与集号，不设置 season 和 collection 实体。读操作集中在 @queries/（按页面组织），写操作集中在 @models.py；@helpers.py 负责对接 TMDB、AList 及图片下载。
 
 SQL 代码书写准则：https://www.sqlstyle.guide/zh/
 
 ## Connector
 
-采用 Flask + Jinja 结构，@app.py 负责请求处理与业务流程编排，不直接书写外部请求或 SQL。
+采用 Flask + Jinja 三层结构：@app.py 路由只做"查询 → 整理 → 渲染"编排；@queries/ 只查数据库，@viewmodels/ 把查询结果整理成页面形状（poster/backdrop 卡片、进度、徽章、播放文案），Jinja 只负责 HTML 显示，不做业务判断。
 
 ## View
 
@@ -24,9 +24,9 @@ SQL 代码书写准则：https://www.sqlstyle.guide/zh/
 
 ## 进度存储区
 
-当前阶段：`library.db` 数据迁移全部完成——521 个 title（9 电影 / 22 剧集 / 490 单集）、854 图片、728 媒体文件、15 观看记录与收藏夹已全部录入，与遗留库行数完全对齐；provisional 单集已通过本地 `title_episode` 表完成 IMDb 匹配（@scripts/match_provisional_episodes.py，遗留库中已无 provisional 记录）。
+当前阶段：`library.db` 数据迁移全部完成——521 个 title（9 电影 / 22 剧集 / 490 单集）、854 图片、728 媒体文件、15 观看记录与收藏夹已全部录入，与遗留库行数完全对齐；provisional 单集已通过本地 `title_episode` 表完成 IMDb 匹配（@scripts/match_provisional_episodes.py，遗留库中已无 provisional 记录）。应用读写已切换到 `library.db`，`movie.db` 遗留读写代码与导入脚本已删除，旧评分缓存流程已清理。
 
-下一阶段：将 @models.py 与 @app.py 的读写从 `movie.db` 切换到 `library.db`，迁移完成并验证后淘汰 `movie.db`；清理已停用的旧评分缓存流程。
+下一阶段：接入新版录入写入库链路（当前 @templates/media.html 关联表单为禁用占位）。
 
 ## Tips
 

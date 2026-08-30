@@ -1,0 +1,55 @@
+# 执行记录
+
+## 2026-08-30
+
+- 已读取 `query.md`，确认三层读取职责、目标 route 和通用页面数据结构。
+- 已确认 Git 基线与工作区状态。
+- 已建立本轮文件化计划；下一步检查 `frontend.md`、真实数据库和现有代码。
+- 已读取 `frontend.md` 与 `AGENTS.MD`，确认页面需求和七表业务库状态。
+- 已审计 `library.db` 表、字段和数据量，完整性与外键检查通过。
+- 已定位旧运行时入口：`app.py` 仍指向 `movie.db`，旧查询集中在 `models.py`，route 和测试均依赖旧整数 ID 数据契约。
+- 已核对评分、图片、文件和播放记录覆盖情况，并确定首页最近观看按 movie/series 折叠。
+- 已确认旧详情页可复用交互语义，但查询字段和 route 身份必须全面改为 `title_id`。
+- 已建立 `db.py`，按 Flask 请求生命周期打开和关闭 `library.db` 连接。
+- 已建立页面级 `queries/`：首页、筛选、收藏、详情和管理页查询；复杂关系使用 JOIN/CTE，未引入 ORM。
+- 已建立 `viewmodels/`：统一海报卡片、年份、播放进度、媒体标签、首页、筛选、收藏、详情和管理页数据形状。
+- 新增 Python 模块已通过 `compileall`。
+- 首次组合补丁未应用，原因是 `models.py` 尾部上下文不匹配；没有产生部分修改。
+- 已将 `app.py` 从 900 余行缩减为 261 行，route 内保持参数处理、查询、ViewModel、模板的清晰调用链，且不含 SQL。
+- 已切换运行时数据库为 `library.db`，统一详情 route 为 `/title/<title_id>`，保留旧 TMDB 数字详情 URL 的 308 跳转。
+- 已完成首页、最近添加、未观看、排行榜、类别筛选、收藏、详情与媒体管理模板。
+- 已完成 POST `/play/<file_id>`、收藏切换与主图片替换；一次播放会话只新增一条历史记录，后续采样更新同一行。
+- 已使用 Playwright 检查首页、S03E12 详情和管理页，控制台无错误；截图保存于 `output/playwright/`（已忽略，不作为交付代码）。
+- 已新增 `library.db` 集成测试并保留连接器回归测试；13 项测试全部通过。
+- 已同步 `migrations/library_schema.sql` 的四个实际补充字段。
+- 最终校验通过：Python 编译、13 项单元/集成测试、两个 JavaScript 文件语法检查和 `git diff --check` 均无错误。
+- `migrations/library_schema.sql` 可在内存库完整执行，生成的七张表与正式 `library.db` 逐表字段一致。
+- 正式库只读复核为 `integrity_check=ok`、外键违规 0；`library.db` 工作区哈希与 Git 索引哈希均为 `bff33d6d6ee29dfed142485d455aa9a6bdc78a72`，本轮未改动正式数据。
+- 根据视觉反馈，将首页七个模块全部改回页面级横向滚动轨道：最近观看使用 span-6，收藏夹及电影/剧集类别使用 span-3，最近添加、未观看、最受好评使用 span-2。
+- 最近观看恢复为 Backdrop 图内左下 Logo、正中播放按钮、底边进度条，标题与剧集/年份说明放在图片外。
+- Playwright 在 1920×1080 下验证：所有轨道从 x=312 同一对齐线起始；span-6/3/2 实测宽度约为 453.6/214.8/135.2px；第四张最近观看卡片在右侧露出约 39%。
+- 横向轨道容器覆盖整个 1920px 视口，`overflow-x=auto`，最近观看轨道 `scrollWidth=3667px`，裁切发生在页面视口而非 1320px 内容容器。
+- 已开始第二轮视觉迁移：逐页对照 Git 基线模板，确定恢复旧详情、类别、收藏、媒体管理模板，保留新版数据库查询和路由分层。
+- 已将新版详情原始数据适配为旧 `media/seasons/episodes/sources` 页面形状，包括多版本、媒体参数、进度、评分、外链及当前选集状态。
+- 旧 `detail.html` 的播放链接已改为同样式 POST 表单，收藏按钮改接新版 collection toggle；其余 Hero、选集和信息区 DOM/类名保持旧结构。
+- 旧 `genre_page.html` 已接入新版 type/genre/year/rating/language/sort 参数，保留原分段按钮、下拉菜单、类别药丸和海报网格布局。
+- 收藏查询已支持 `collection_id=None` 的去重“全部收藏”结果，为恢复旧收藏页的“全部”筛选入口提供数据。
+- `app.py` 已将详情、类别和收藏 route 切回旧 `detail.html`、`genre_page.html`、`favorites_page.html`，调用链仍保持 query → ViewModel → template。
+- 收藏页已恢复“全部 + 各收藏夹”药丸导航；全部收藏按 title 去重，各收藏夹仍使用新版 `collection_id`。
+- 媒体管理 ViewModel 已补充旧概览卡需要的 `media_id/media_type/name/*_path/image_options` 页面字段，底层仍使用新版 `title_id` 与三类 artwork 数据。
+- 已恢复旧管理卡 `artwork_menu/overview_card` 宏，沿用原横版背景+Logo、竖版海报和下拉候选布局。
+- `/media` 已切回旧 `media.html`；artwork POST route 同时兼容新版单图提交和旧页面三类 position 一次提交。
+- 媒体概览、搜索结果和禁用的关联页均已返回 200；完整测试仅剩旧/新详情文案契约差异，数据库及其他路由测试通过。
+- 测试已改为校验旧详情的 `detail-hero-grid`、`episode-rail-track`、当前选集面板及旧管理卡 `overview-artwork-row`，不再绑定已废弃的新详情文案。
+- 已删除不再被任何 route 使用的 `catalog.html`、`collection.html`、`manager.html`、`title.html`，避免保留两套视觉实现。
+- 第一轮完整回归通过：13 项单元/集成测试、Python 编译、两个 JavaScript 语法检查和差异检查全部通过。
+- 已删除详情 ViewModel 中仅服务被废弃新模板的 resume/metadata 计算和无用中间变量，使当前层级只保留旧 UI 实际消费的数据。
+- 管理页关联表单保持旧排版但通过 disabled fieldset 禁止提交，并显示新版写入链尚未接入的边界说明。
+- 回归测试已增加旧类别/收藏/管理 DOM 契约，以及旧管理卡三类 artwork 一次提交的 route 验证。
+- 第二轮完整回归仍为 13 项全部通过；随后发现正式库文件哈希变化，当前完整性和外键检查正常，正在做 Git 基线逐表比对。
+- 正式库七表内容与 Git 基线逐表完全一致；已将物理重排版本保存为可恢复 Git blob `6e701641dc13db1f3f864c5c9b49498da6760762`，并把工作区 `library.db` 精确恢复为索引哈希 `bff33d6d6ee29dfed142485d455aa9a6bdc78a72`。
+- `db.py` 查询连接已改为 SQLite `mode=ro`，防止展示链路获得写权限；正式写入仍由 `models.py` 的明确 mutation 承担。
+- 已移除废弃新管理卡遗留的 22 行 CSS，管理页只使用 Git 基线已有的 overview/artwork 样式。
+- 测试新增只读连接拒绝 `DELETE` 的断言，锁定 query 层不会获得写权限。
+- 最终回归通过：13 项测试、Python 编译、JavaScript 语法和 `git diff --check` 均通过；详情、类别、全部/单收藏夹、媒体管理与关联页 route 均在集成测试覆盖内。
+- 最终测试前后 `library.db` 哈希均为 `bff33d6d6ee29dfed142485d455aa9a6bdc78a72`，与 Git 索引一致，正式数据未被本轮页面迁移改变。

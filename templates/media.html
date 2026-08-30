@@ -30,7 +30,7 @@
                         name="q"
                         type="search"
                         value="{{ overview.query }}"
-                        placeholder="按名称或 TMDB ID 搜索..."
+                        placeholder="按名称、IMDb ID 或 TMDB ID 搜索..."
                         aria-label="搜索媒体"
                         autocomplete="off"
                     >
@@ -92,7 +92,10 @@
                     </div>
                 </div>
 
+                <div class="alert alert-secondary small" role="status">新版录入写入链路尚未接入，当前表单仅保留原页面排版，暂不接受提交。</div>
+
                 <form action="{{ url_for('media') }}" method="post" class="mb-5">
+                    <fieldset disabled>
                     <div class="row g-3 align-items-end">
                         <div class="col-12 col-md-2">
                             <label class="form-label small fw-semibold" for="media-type">媒体类型</label>
@@ -151,6 +154,7 @@
                             <button class="btn media-primary-action text-nowrap px-4" type="submit">查询并关联</button>
                         </div>
                     </div>
+                    </fieldset>
                 </form>
 
                 <div class="row row-cols-1 row-cols-md-3 g-3">

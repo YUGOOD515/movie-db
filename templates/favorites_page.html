@@ -11,24 +11,24 @@
                 <h1 class="h4 fw-bold mb-0" id="favorites-page-heading">收藏</h1>
             </div>
             <div class="d-flex align-items-center gap-2">
-                <span class="small text-body-secondary">{{ selected_folder.name if selected_folder else "全部收藏" }} · 共 {{ items|length }} 部作品</span>
+                <span class="small text-body-secondary">{{ page.title }} · 共 {{ page["items"]|length }} 部作品</span>
             </div>
         </header>
 
         <!-- 收藏夹 G2 药丸型切换栏 -->
         <nav class="genre-pills d-flex flex-wrap align-items-center gap-1 mb-4 pb-3 border-bottom" aria-label="收藏夹筛选">
-            <a class="btn btn-sm genre-pill-btn{% if not selected_folder %} active{% endif %}" href="{{ url_for('favorites_library') }}">全部</a>
-            {% for folder in folders %}
-                <a class="btn btn-sm genre-pill-btn{% if selected_folder and selected_folder.folder_id == folder.folder_id %} active{% endif %}" href="{{ url_for('favorites_library', folder_id=folder.folder_id) }}">
-                    {{ folder.name }} <span class="ms-1 small opacity-75">({{ folder.count }})</span>
+            <a class="btn btn-sm genre-pill-btn{% if page.collection_id is none %} active{% endif %}" href="{{ url_for('favorites_library') }}">全部</a>
+            {% for collection in page.collections %}
+                <a class="btn btn-sm genre-pill-btn{% if page.collection_id == collection.collection_id %} active{% endif %}" href="{{ url_for('collection_detail', collection_id=collection.collection_id) }}">
+                    {{ collection.name }} <span class="ms-1 small opacity-75">({{ collection.item_count }})</span>
                 </a>
             {% endfor %}
         </nav>
 
         <!-- 海报网格展示区域 -->
-        {% if items %}
+        {% if page["items"] %}
             <div class="row row-cols-2 row-cols-sm-3 row-cols-md-4 row-cols-lg-6 g-3 g-lg-4">
-                {% for item in items %}
+                {% for item in page["items"] %}
                     <div class="col">{{ poster_card(item) }}</div>
                 {% endfor %}
             </div>
