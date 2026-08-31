@@ -181,6 +181,111 @@
         updateRows();
     });
 
+    // Manager rating refresh: one local background job with a persistent
+    // bottom-center progress notification.
+    document.querySelectorAll("[data-rating-refresh]").forEach((button) => {
+        let pollTimer = null;
+
+        function progressToast() {
+            let toast = document.querySelector("[data-rating-progress-toast]");
+            if (toast) {
+                return toast;
+            }
+            toast = document.createElement("div");
+            toast.className = "rating-progress-toast";
+            toast.dataset.ratingProgressToast = "";
+            toast.setAttribute("role", "status");
+            toast.setAttribute("aria-live", "polite");
+            toast.innerHTML = `
+                <div class="d-flex align-items-center justify-content-between gap-3 mb-2">
+                    <span class="small fw-semibold" data-rating-progress-label>正在刷新评分</span>
+                    <span class="small text-body-secondary" data-rating-progress-count>0 / 0</span>
+                </div>
+                <div class="progress" role="progressbar" aria-label="评分刷新进度" aria-valuemin="0" aria-valuemax="100">
+                    <div class="progress-bar" data-rating-progress-bar style="width: 0%"></div>
+                </div>`;
+            document.body.appendChild(toast);
+            return toast;
+        }
+
+        function renderProgress(status) {
+            const toast = progressToast();
+            const total = Number(status.total) || 0;
+            const completed = Number(status.completed) || 0;
+            const percent = total ? Math.round((completed / total) * 100) : 100;
+            toast.querySelector("[data-rating-progress-label]").textContent = status.running
+                ? `正在刷新评分${status.current_title_id ? ` · ${status.current_title_id}` : ""}`
+                : "评分刷新完成";
+            toast.querySelector("[data-rating-progress-count]").textContent = `${completed} / ${total}`;
+            const bar = toast.querySelector("[data-rating-progress-bar]");
+            bar.style.width = `${percent}%`;
+            bar.closest("[role='progressbar']").setAttribute("aria-valuenow", String(percent));
+            toast.classList.add("rating-progress-toast--show");
+            document.body.classList.add("rating-progress-active");
+        }
+
+        function finishProgress(status) {
+            renderProgress(status);
+            button.disabled = false;
+            window.setTimeout(() => {
+                document.querySelector("[data-rating-progress-toast]")?.classList.remove(
+                    "rating-progress-toast--show",
+                );
+                document.body.classList.remove("rating-progress-active");
+                const message = `评分刷新完成：成功 ${status.succeeded} 条，失败 ${status.failed} 条。`;
+                window.showAppToast?.(message, status.failed ? "warning" : "success");
+            }, 900);
+        }
+
+        async function pollStatus() {
+            try {
+                const response = await fetch(button.dataset.statusUrl);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const status = await response.json();
+                if (status.running) {
+                    button.disabled = true;
+                    renderProgress(status);
+                    pollTimer = window.setTimeout(pollStatus, 600);
+                } else {
+                    finishProgress(status);
+                }
+            } catch {
+                button.disabled = false;
+                window.showAppToast?.("无法读取评分刷新进度。", "danger");
+            }
+        }
+
+        button.addEventListener("click", async () => {
+            button.disabled = true;
+            try {
+                const response = await fetch(button.dataset.startUrl, { method: "POST" });
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const status = await response.json();
+                renderProgress(status);
+                window.clearTimeout(pollTimer);
+                pollTimer = window.setTimeout(pollStatus, 300);
+            } catch {
+                button.disabled = false;
+                window.showAppToast?.("评分刷新启动失败。", "danger");
+            }
+        });
+
+        fetch(button.dataset.statusUrl)
+            .then((response) => response.ok ? response.json() : null)
+            .then((status) => {
+                if (status?.running) {
+                    button.disabled = true;
+                    renderProgress(status);
+                    pollTimer = window.setTimeout(pollStatus, 600);
+                }
+            })
+            .catch(() => {});
+    });
+
     // Detail overview: CSS line-clamp holds 2 lines on first paint; JS then
     // trims the text so the inline "...更多" toggle lands exactly at the end
     // of the second line, right after the last visible character.
@@ -687,26 +792,63 @@
         });
     });
 
-    // Floating toast for save feedback (no page reload, no alert block)
-    function showSaveToast(message, isError = false) {
+    // Global bottom-center notifications. Flask flash messages and client-side
+    // actions share the same queue so notifications never overlap.
+    const appToastQueue = [];
+    let appToastActive = false;
+
+    function showAppToast(message, category = "success") {
+        if (!message) {
+            return;
+        }
+        appToastQueue.push({ message, category });
+        if (appToastActive) {
+            return;
+        }
+        showNextAppToast();
+    }
+
+    function showNextAppToast() {
+        const notification = appToastQueue.shift();
+        if (!notification) {
+            appToastActive = false;
+            return;
+        }
+        appToastActive = true;
         let toast = document.querySelector(".save-toast");
         if (!toast) {
             toast = document.createElement("div");
             toast.className = "save-toast";
-            toast.setAttribute("role", "status");
             document.body.appendChild(toast);
         }
-        toast.textContent = message;
+        const isError = notification.category === "danger"
+            || notification.category === "error";
+        const isWarning = notification.category === "warning";
+        toast.textContent = notification.message;
+        toast.setAttribute("role", isError ? "alert" : "status");
+        toast.setAttribute("aria-live", isError ? "assertive" : "polite");
         toast.classList.toggle("save-toast--error", isError);
+        toast.classList.toggle("save-toast--warning", isWarning);
         toast.classList.remove("save-toast--show");
-        // Restart the animation in case a previous toast is still visible
         void toast.offsetWidth;
         toast.classList.add("save-toast--show");
-        clearTimeout(toast._hideTimer);
-        toast._hideTimer = setTimeout(
-            () => toast.classList.remove("save-toast--show"),
-            2000,
-        );
+        const duration = isError || isWarning ? 4000 : 2200;
+        window.setTimeout(() => {
+            toast.classList.remove("save-toast--show");
+            window.setTimeout(() => {
+                appToastActive = false;
+                showNextAppToast();
+            }, 220);
+        }, duration);
+    }
+
+    document.querySelectorAll("[data-flash-toast]").forEach((message) => {
+        showAppToast(message.textContent.trim(), message.dataset.category);
+    });
+    window.showAppToast = showAppToast;
+
+    function showSaveToast(message, isError = false) {
+        showAppToast(message, isError ? "danger" : "success");
     }
 
     // Overview cards artwork preview trial and confirmation

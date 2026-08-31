@@ -3,7 +3,7 @@ import os
 import secrets
 from pathlib import Path
 
-from flask import abort, Flask, flash, redirect, render_template, request, url_for
+from flask import abort, Flask, flash, jsonify, redirect, render_template, request, url_for
 from flask_session import Session
 
 from connectors import alist, player
@@ -21,7 +21,7 @@ from queries.home import (
     get_unwatched,
     query_home,
 )
-from queries.manager import query_manager
+from queries.manager import get_rating_title_ids, query_manager
 from queries.title import (
     get_playable_file,
     get_title_id_by_tmdb,
@@ -35,6 +35,7 @@ from services.media_import import (
     normalize_batch_import_items,
 )
 from services.playback import is_effectively_completed
+from services.rating_sync import get_rating_refresh_status, start_rating_refresh
 from viewmodels.catalog import (
     build_catalog_viewmodel,
     build_library_viewmodel,
@@ -332,6 +333,19 @@ def _read_batch_import_items() -> list[dict]:
         ]
     }
     return normalize_batch_import_items(payload)
+
+
+@app.post("/manager/ratings/refresh")
+def refresh_manager_ratings():
+    title_ids = get_rating_title_ids(get_db())
+    return jsonify(
+        start_rating_refresh(app.config["DATABASE"], title_ids)
+    )
+
+
+@app.get("/manager/ratings/refresh")
+def manager_rating_refresh_status():
+    return jsonify(get_rating_refresh_status())
 
 
 @app.post("/manager/<title_id>/artwork")

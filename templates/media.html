@@ -108,24 +108,26 @@
             {% endif %}
         </header>
 
-        {% with messages = get_flashed_messages(with_categories=true) %}
-            {% for category, message in messages %}
-                <div class="alert alert-{{ category }} alert-dismissible fade show" role="alert">
-                    {{ message }}
-                    <button class="btn-close" type="button" data-bs-dismiss="alert" aria-label="关闭"></button>
-                </div>
-            {% endfor %}
-        {% endwith %}
-
         {% if active_tab != 'associate' %}
             <!-- ================= 概览板块 (Overview) ================= -->
             <section class="overview-section" aria-labelledby="overview-heading">
                 <h2 class="visually-hidden" id="overview-heading">媒体库概览</h2>
 
                 <!-- 搜索与筛选结果列表 -->
-                <div class="overview-header d-flex align-items-center justify-content-between gap-3 mb-4">
+                <div class="overview-header d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
                     <h3 class="h6 text-body-secondary text-uppercase fw-semibold mb-0" style="letter-spacing: 0.05em;">媒体列表</h3>
-                    <span class="small text-body-secondary" id="overview-count-label">共 {{ overview.media_items|length }} 部作品</span>
+                    <div class="d-flex align-items-center gap-3">
+                        <span class="small text-body-secondary" id="overview-count-label">共 {{ overview.media_items|length }} 部作品</span>
+                        <button
+                            class="btn btn-sm btn-outline-secondary"
+                            type="button"
+                            data-rating-refresh
+                            data-start-url="{{ url_for('refresh_manager_ratings') }}"
+                            data-status-url="{{ url_for('manager_rating_refresh_status') }}"
+                        >
+                            <i class="bi bi-arrow-repeat me-1" aria-hidden="true"></i>刷新评分
+                        </button>
+                    </div>
                 </div>
 
                 <div class="overview-media-list row row-cols-1 row-cols-md-2 row-cols-lg-3 gx-4 gy-5" id="overview-card-grid">

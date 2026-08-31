@@ -5,6 +5,27 @@ from pathlib import Path
 from models.database import connect_writable
 
 
+RATING_COLUMNS = {
+    "mdblist_score",
+    "mdblist_score_average",
+    "rt_critics_score",
+    "rt_critics_votes",
+    "rt_audience_score",
+    "rt_audience_votes",
+    "metacritic_score",
+    "metacritic_votes",
+    "metacritic_user_score",
+    "metacritic_user_votes",
+    "trakt_score",
+    "trakt_votes",
+    "letterboxd_score",
+    "letterboxd_votes",
+    "roger_ebert_rating",
+    "myanimelist_score",
+    "myanimelist_votes",
+}
+
+
 def save_library_playback_progress(
     database_path: str | Path,
     file_id: int,
@@ -218,6 +239,7 @@ def import_media_bundle(
     target_title_id: str,
     alist_path: str,
     probe: dict,
+    ratings_by_title: dict[str, dict] | None = None,
 ) -> int:
     """Write one complete import bundle and its playable file atomically."""
     with closing(connect_writable(database_path)) as db, db:
@@ -289,6 +311,9 @@ def import_media_bundle(
                 """,
                 title,
             )
+
+        for rating_title_id, ratings in (ratings_by_title or {}).items():
+            _update_title_ratings(db, rating_title_id, ratings)
 
         for relation in relations:
             db.execute(
@@ -417,38 +442,22 @@ def update_title_ratings(
     ratings: dict,
 ) -> bool:
     """Update multi-platform ratings for a title in title_basic."""
-    allowed_columns = {
-        "mdblist_score",
-        "mdblist_score_average",
-        "rt_critics_score",
-        "rt_critics_votes",
-        "rt_audience_score",
-        "rt_audience_votes",
-        "metacritic_score",
-        "metacritic_votes",
-        "metacritic_user_score",
-        "metacritic_user_votes",
-        "trakt_score",
-        "trakt_votes",
-        "letterboxd_score",
-        "letterboxd_votes",
-        "roger_ebert_rating",
-        "myanimelist_score",
-        "myanimelist_votes",
-    }
-    updates = {k: v for k, v in ratings.items() if k in allowed_columns}
+    with closing(connect_writable(database_path)) as db, db:
+        return _update_title_ratings(db, title_id, ratings)
+
+
+def _update_title_ratings(db, title_id: str, ratings: dict) -> bool:
+    updates = {key: value for key, value in ratings.items() if key in RATING_COLUMNS}
     if not updates:
         return False
-    set_clause = ", ".join(f"{col} = :{col}" for col in updates.keys())
-    with closing(connect_writable(database_path)) as db, db:
-        cursor = db.execute(
-            f"""
-            UPDATE title_basic
-               SET {set_clause},
-                   updated_at = CURRENT_TIMESTAMP
-             WHERE title_id = :title_id
-            """,
-            {"title_id": title_id, **updates},
-        )
-        return cursor.rowcount > 0
-
+    set_clause = ", ".join(f"{column} = :{column}" for column in updates)
+    cursor = db.execute(
+        f"""
+        UPDATE title_basic
+           SET {set_clause},
+               updated_at = CURRENT_TIMESTAMP
+         WHERE title_id = :title_id
+        """,
+        {"title_id": title_id, **updates},
+    )
+    return cursor.rowcount > 0

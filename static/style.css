@@ -1506,6 +1506,48 @@ body.detail-overview-open [data-episode-target] {
     color: #ffffff;
 }
 
+.save-toast--warning {
+    background-color: var(--bs-warning);
+    color: var(--bs-dark);
+}
+
+.rating-progress-toast {
+    position: fixed;
+    left: 50%;
+    bottom: 2rem;
+    z-index: 1075;
+    width: min(24rem, calc(100vw - 2rem));
+    transform: translate(-50%, 0.5rem);
+    border: 1px solid var(--media-card-border);
+    border-radius: 16px;
+    corner-shape: squircle;
+    background-color: var(--bs-body-bg);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+    padding: 0.8rem 1rem;
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s ease;
+}
+
+.rating-progress-toast--show {
+    opacity: 1;
+    visibility: visible;
+    transform: translate(-50%, 0);
+}
+
+.rating-progress-toast .progress {
+    height: 0.3rem;
+}
+
+.rating-progress-toast .progress-bar {
+    background-color: var(--media-accent);
+    transition: width 0.25s ease;
+}
+
+body.rating-progress-active .save-toast {
+    bottom: 6.75rem;
+}
+
 .genre-dropdown-toggle {
     height: 2rem;
     font-size: 0.8125rem;

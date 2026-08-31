@@ -18,6 +18,7 @@ from models import library as models
 from queries.collection import get_collection_items
 from queries.title import query_title
 from services import media_import as media_import_service
+from services import rating_sync
 from services.playback import is_effectively_completed
 from scripts import fetch_tmdb_metadata as tmdb_connector
 from viewmodels.title import build_title_viewmodel
@@ -259,6 +260,8 @@ class LibraryIntegrationTest(unittest.TestCase):
         )
         self.assertIn("overview-artwork-row", manager)
         self.assertIn("tt0816692", manager)
+        self.assertIn("data-rating-refresh", manager)
+        self.assertIn("/manager/ratings/refresh", manager)
 
         favorites = self.client.get("/favorites").get_data(as_text=True)
         self.assertIn("收藏夹筛选", favorites)
@@ -596,6 +599,9 @@ class LibraryIntegrationTest(unittest.TestCase):
         html = response.get_data(as_text=True)
         self.assertIn("成功 1 条，失败 1 条", html)
         self.assertIn("第 2 条（tt9000002）：模拟失败", html)
+        self.assertIn('data-category="warning"', html)
+        self.assertIn('data-category="danger"', html)
+        self.assertNotIn("alert-warning", html)
         items = import_batch.call_args.kwargs["items"]
         self.assertEqual(items[0]["title_id"], "tt9000001")
         self.assertEqual(items[1]["season_number"], "1")
@@ -629,6 +635,9 @@ class LibraryIntegrationTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("成功 1 条，失败 0 条", response.get_data(as_text=True))
+        self.assertIn("data-flash-toast", response.get_data(as_text=True))
+        self.assertIn('data-category="success"', response.get_data(as_text=True))
+        self.assertNotIn("alert-success", response.get_data(as_text=True))
         item = import_batch.call_args.kwargs["items"][0]
         self.assertEqual(item["season_number"], "1")
         self.assertEqual(item["episode_number"], "2")
@@ -733,6 +742,18 @@ class LibraryIntegrationTest(unittest.TestCase):
             media_import_service.tmdb,
             "build_media_metadata",
             side_effect=metadata,
+        ), patch.object(
+            media_import_service,
+            "fetch_title_rating",
+            side_effect=lambda title_id: {
+                "title_id": title_id,
+                "status": "success",
+                "ratings": {
+                    "mdblist_score": 88,
+                    "rt_critics_score": 94,
+                },
+                "message": None,
+            },
         ):
             movie = self.client.post(
                 "/manager/import",
@@ -764,7 +785,12 @@ class LibraryIntegrationTest(unittest.TestCase):
         with closing(self.connect()) as database:
             imported_titles = database.execute(
                 """
-                SELECT title_id, title_type, display_title, average_rating
+                SELECT title_id,
+                       title_type,
+                       display_title,
+                       average_rating,
+                       mdblist_score,
+                       rt_critics_score
                   FROM title_basic
                  WHERE title_id LIKE 'tt900%'
                  ORDER BY title_id
@@ -790,6 +816,9 @@ class LibraryIntegrationTest(unittest.TestCase):
         self.assertEqual(len(imported_titles), 4)
         self.assertEqual(imported_titles[0]["display_title"], "导入电影")
         self.assertEqual(imported_titles[0]["average_rating"], 8.1)
+        self.assertEqual(imported_titles[0]["mdblist_score"], 88)
+        self.assertEqual(imported_titles[0]["rt_critics_score"], 94)
+        self.assertEqual(imported_titles[1]["mdblist_score"], 88)
         self.assertEqual(
             [row["title_id"] for row in imported_files],
             ["tt9000001", "tt9000003", "tt9000004"],
@@ -813,6 +842,41 @@ class LibraryIntegrationTest(unittest.TestCase):
         self.assertIn("必须填写有效的季号和集号", response.get_data(as_text=True))
         fetch_metadata.assert_not_called()
 
+    def test_rating_refresh_routes_delegate_to_service(self):
+        status = {
+            "running": True,
+            "total": 2,
+            "completed": 0,
+            "succeeded": 0,
+            "failed": 0,
+            "current_title_id": None,
+        }
+        with patch.object(
+            movie_app,
+            "get_rating_title_ids",
+            return_value=["tt0816692", "tt6226232"],
+        ), patch.object(
+            movie_app,
+            "start_rating_refresh",
+            return_value={**status, "started": True},
+        ) as start_refresh:
+            response = self.client.post("/manager/ratings/refresh")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.get_json()["started"])
+        start_refresh.assert_called_once_with(
+            self.database_path,
+            ["tt0816692", "tt6226232"],
+        )
+
+        with patch.object(
+            movie_app,
+            "get_rating_refresh_status",
+            return_value=status,
+        ):
+            response = self.client.get("/manager/ratings/refresh")
+        self.assertEqual(response.get_json(), status)
+
     def test_rendered_local_static_references_exist(self):
         references = set()
         for path in (
@@ -834,6 +898,81 @@ class LibraryIntegrationTest(unittest.TestCase):
         ]
         self.assertGreater(len(references), 4)
         self.assertEqual(missing, [])
+
+
+class RatingSyncUnitTest(unittest.TestCase):
+    def test_extract_rating_fields_maps_supported_platforms(self):
+        fields = rating_sync.extract_rating_fields(
+            {
+                "score": 87,
+                "score_average": 84,
+                "platform_ratings": [
+                    {
+                        "platform_key": "tomatoes_critic",
+                        "score_100": 94.0,
+                        "score_10": 9.4,
+                        "score_display": "94%",
+                        "votes": 320,
+                    },
+                    {
+                        "platform_key": "letterboxd",
+                        "score_100": 82.0,
+                        "score_10": 8.2,
+                        "score_display": "4.1/5.0",
+                        "votes": 5000,
+                    },
+                ],
+            }
+        )
+        self.assertEqual(fields["mdblist_score"], 87)
+        self.assertEqual(fields["rt_critics_score"], 94)
+        self.assertEqual(fields["rt_critics_votes"], 320)
+        self.assertEqual(fields["letterboxd_score"], 4.1)
+
+    def test_sync_title_ratings_fetches_concurrently_and_writes_serially(self):
+        title_ids = ["tt1", "tt2", "tt3"]
+
+        def fetch(title_id):
+            if title_id == "tt2":
+                return {
+                    "title_id": title_id,
+                    "status": "error",
+                    "ratings": {},
+                    "message": "unavailable",
+                }
+            return {
+                "title_id": title_id,
+                "status": "success",
+                "ratings": {"mdblist_score": 80},
+                "message": None,
+            }
+
+        progress = []
+        with patch.object(
+            rating_sync,
+            "fetch_title_rating",
+            side_effect=fetch,
+        ) as fetch_rating, patch.object(
+            rating_sync,
+            "update_title_ratings",
+            return_value=True,
+        ) as update_rating:
+            result = rating_sync.sync_title_ratings(
+                "library.db",
+                title_ids,
+                max_workers=2,
+                progress_callback=progress.append,
+            )
+
+        self.assertEqual(result, {
+            "total": 3,
+            "completed": 3,
+            "succeeded": 2,
+            "failed": 1,
+        })
+        self.assertEqual(fetch_rating.call_count, 3)
+        self.assertEqual(update_rating.call_count, 2)
+        self.assertEqual(progress[-1]["completed"], 3)
 
 
 class ConnectorUnitTest(unittest.TestCase):

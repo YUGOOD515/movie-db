@@ -1,5 +1,6 @@
 import os
 import sys
+from dataclasses import asdict
 from pathlib import Path
 import sqlite3
 import json
@@ -9,9 +10,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from scripts.fetch_multi_platform_ratings import fetch_mdblist_ratings, asdict
-from migrations.002_add_ratings_to_title_basic import extract_rating_fields
+from scripts.fetch_multi_platform_ratings import fetch_mdblist_ratings
 from models.library import update_title_ratings
+from services.rating_sync import extract_rating_fields
 
 def dump_all_library_ratings(output_path: str = "data/ratings.json", update_db: bool = True):
     out_file = Path(output_path)
@@ -89,4 +90,3 @@ def dump_all_library_ratings(output_path: str = "data/ratings.json", update_db: 
 
 if __name__ == "__main__":
     dump_all_library_ratings("data/ratings.json", update_db=True)
-

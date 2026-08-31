@@ -4,6 +4,7 @@ import re
 import shutil
 import sqlite3
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from pathlib import Path
 
@@ -18,6 +19,7 @@ from queries.imdb import (
     get_imdb_title,
     get_series_episodes,
 )
+from services.rating_sync import fetch_title_rating
 
 
 TITLE_ID_PATTERN = re.compile(r"tt[0-9]+")
@@ -227,7 +229,6 @@ def import_media(
                 episode_number,
             )
             alist_path = alist.parse_alist_url(alist_url)
-            alist.validate_alist_video_url(alist_url)
 
             with closing(connect_database(library_database)) as library_db:
                 existing = library_db.execute(
@@ -237,14 +238,19 @@ def import_media(
             if existing is not None and existing["title_id"] != resolved["target"]["title_id"]:
                 raise MediaImportError("该 AList 文件已关联其他影视条目。")
 
-            video_url = alist.get_video_link(alist_path)
-            probe = media_probe.probe_video(video_url)
-            metadata = tmdb.build_media_metadata(resolved["root"]["title_id"])
-            titles, relations, artwork = _build_bundle(
-                imdb_db,
-                resolved["root"],
-                metadata,
-            )
+            root_title_id = resolved["root"]["title_id"]
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                rating_future = executor.submit(fetch_title_rating, root_title_id)
+                alist.validate_alist_video_url(alist_url)
+                video_url = alist.get_video_link(alist_path)
+                probe = media_probe.probe_video(video_url)
+                metadata = tmdb.build_media_metadata(root_title_id)
+                titles, relations, artwork = _build_bundle(
+                    imdb_db,
+                    resolved["root"],
+                    metadata,
+                )
+                rating_result = rating_future.result()
 
         artwork = _new_artwork(library_database, artwork)
         artwork, moved_files = _download_new_artwork(artwork, image_root)
@@ -256,6 +262,11 @@ def import_media(
             target_title_id=resolved["target"]["title_id"],
             alist_path=alist_path,
             probe=probe,
+            ratings_by_title=(
+                {root_title_id: rating_result["ratings"]}
+                if rating_result["status"] == "success"
+                else None
+            ),
         )
         return {
             "file_id": file_id,
@@ -265,6 +276,7 @@ def import_media(
             "root_display_title": resolved["root"]["display_title"],
             "title_count": len(titles),
             "artwork_count": len(artwork),
+            "rating_status": rating_result["status"],
         }
     except MediaImportError:
         _remove_moved_files(moved_files)
