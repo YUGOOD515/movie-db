@@ -143,10 +143,14 @@
             <input type="hidden" name="poster_position" value="1" data-artwork-input="posters">
             <input type="hidden" name="logo_position" value="1" data-artwork-input="logos">
 
-            <header class="d-flex align-items-center justify-content-between gap-2 mb-2">
-                <div class="min-w-0">
-                    <h2 class="h6 mb-0 text-truncate" title="查看《{{ item.name }}》详情"><a class="text-reset text-decoration-none hover-primary fw-semibold" href="{{ item.detail_url }}">{{ item.name }}</a><span class="ms-2 small text-body-secondary fw-normal text-nowrap">{{ item.type_label }}{% if item.year %} · {{ item.year }}{% endif %}</span></h2>
-                    <span class="d-block text-body-secondary text-truncate" style="font-size: 0.72rem;">{{ item.title_id }}{% if item.tmdb_id %} · {{ item.tmdb_id }}{% endif %}</span>
+            <header class="overview-card-header">
+                <div class="overview-card-info">
+                    <h2 class="overview-card-title h6 mb-0 text-truncate" title="查看《{{ item.name }}》详情">
+                        <a class="text-reset text-decoration-none hover-primary fw-semibold" href="{{ item.detail_url }}">{{ item.name }}</a>
+                    </h2>
+                    <div class="overview-card-meta text-truncate text-body-secondary">
+                        <span>{{ item.type_label }}{% if item.year %} · {{ item.year }}{% endif %}</span> · <span class="overview-card-ids">{{ item.title_id }}{% if item.tmdb_id %} · {{ item.tmdb_id }}{% endif %}</span>
+                    </div>
                 </div>
                 <div class="flex-shrink-0">
                     <button type="submit" class="btn btn-sm genre-dropdown-toggle overview-confirm-btn d-none" data-artwork-confirm aria-label="确认保存修改"><i class="bi bi-check2 me-1" aria-hidden="true"></i>保存</button>

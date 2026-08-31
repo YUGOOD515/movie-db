@@ -21,6 +21,7 @@ from queries.imdb import (
 
 
 TITLE_ID_PATTERN = re.compile(r"tt[0-9]+")
+MAX_BATCH_ITEMS = 100
 
 
 class MediaImportError(ValueError):
@@ -271,3 +272,68 @@ def import_media(
     except (OSError, RuntimeError, ValueError, sqlite3.Error, requests.RequestException) as error:
         _remove_moved_files(moved_files)
         raise MediaImportError(str(error)) from error
+
+
+def normalize_batch_import_items(payload) -> list[dict]:
+    items = payload.get("items") if isinstance(payload, dict) else payload
+    if not isinstance(items, list):
+        raise MediaImportError("JSON 顶层必须是数组，或包含 items 数组。")
+    if not items:
+        raise MediaImportError("批量录入至少需要一条数据。")
+    if len(items) > MAX_BATCH_ITEMS:
+        raise MediaImportError(f"单次最多录入 {MAX_BATCH_ITEMS} 条数据。")
+
+    normalized = []
+    for index, item in enumerate(items, start=1):
+        if not isinstance(item, dict):
+            raise MediaImportError(f"第 {index} 条数据必须是 JSON 对象。")
+        normalized.append(
+            {
+                field: _normalize_batch_value(item.get(field), index, field)
+                for field in (
+                    "title_id",
+                    "season_number",
+                    "episode_number",
+                    "alist_url",
+                )
+            }
+        )
+    return normalized
+
+
+def _normalize_batch_value(value, index: int, field: str) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, bool) or not isinstance(value, (str, int)):
+        raise MediaImportError(f"第 {index} 条的 {field} 必须是字符串、整数或 null。")
+    return str(value).strip()
+
+
+def import_media_batch(
+    *,
+    library_database: str | Path,
+    imdb_database: str | Path,
+    image_root: str | Path,
+    items: list[dict],
+) -> dict:
+    successes = []
+    failures = []
+    for index, item in enumerate(items, start=1):
+        try:
+            result = import_media(
+                library_database=library_database,
+                imdb_database=imdb_database,
+                image_root=image_root,
+                **item,
+            )
+        except MediaImportError as error:
+            failures.append(
+                {
+                    "index": index,
+                    "title_id": item.get("title_id", ""),
+                    "message": str(error),
+                }
+            )
+        else:
+            successes.append({"index": index, **result})
+    return {"successes": successes, "failures": failures}

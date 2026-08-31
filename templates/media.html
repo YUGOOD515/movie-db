@@ -1,6 +1,65 @@
 {% extends "layout.html" %}
 {% from "_media_cards.html" import overview_card %}
 
+{% macro batch_import_row() %}
+    <div class="batch-import-row d-flex align-items-center gap-2" data-batch-import-row>
+        <span class="batch-row-index text-body-secondary fw-semibold flex-shrink-0" data-batch-row-label>1</span>
+        <div class="row g-2 align-items-center flex-grow-1 min-w-0">
+            <div class="col-12 col-md-3 col-lg-2">
+                <input
+                    class="form-control form-control-sm bg-body-tertiary"
+                    name="title_id"
+                    type="text"
+                    inputmode="text"
+                    pattern="tt[0-9]+"
+                    placeholder="IMDb ID (如 tt0816692)"
+                    aria-label="IMDb Title ID"
+                    autocomplete="off"
+                    spellcheck="false"
+                    required
+                >
+            </div>
+            <div class="col-6 col-md-2 col-lg-1">
+                <input
+                    class="form-control form-control-sm bg-body-tertiary"
+                    name="season_number"
+                    type="number"
+                    min="0"
+                    step="1"
+                    placeholder="季号"
+                    aria-label="季号 (Series 必填)"
+                    title="季号 (Series 必填)"
+                >
+            </div>
+            <div class="col-6 col-md-2 col-lg-1">
+                <input
+                    class="form-control form-control-sm bg-body-tertiary"
+                    name="episode_number"
+                    type="number"
+                    min="1"
+                    step="1"
+                    placeholder="集号"
+                    aria-label="集号 (Series 必填)"
+                    title="集号 (Series 必填)"
+                >
+            </div>
+            <div class="col-12 col-md-5 col-lg-8">
+                <input
+                    class="form-control form-control-sm bg-body-tertiary"
+                    name="alist_url"
+                    type="url"
+                    placeholder="AList 视频直链 ({{ alist_origin }}/d/...)"
+                    aria-label="AList 视频直链"
+                    required
+                >
+            </div>
+        </div>
+        <button class="btn btn-sm batch-remove-btn flex-shrink-0" type="button" data-batch-remove aria-label="删除此条录入数据" title="删除此条">
+            <i class="bi bi-trash3" aria-hidden="true"></i>
+        </button>
+    </div>
+{% endmacro %}
+
 {% block title %}
     - 媒体资源管理
 {% endblock %}
@@ -85,91 +144,44 @@
         {% else %}
             <!-- ================= 关联板块 (Association) ================= -->
             <section class="association-section" aria-labelledby="associate-heading">
-                <div class="d-flex align-items-baseline justify-content-between gap-3 mb-4">
+                <div class="d-flex flex-wrap align-items-end justify-content-between gap-3 mb-4">
                     <div>
                         <h2 class="h5 mb-1" id="associate-heading">录入与关联</h2>
                         <p class="text-body-secondary small mb-0">以 IMDb 本地数据建立媒体身份，补充 TMDB 简介与图片，并关联 AList 视频文件。</p>
                     </div>
+                    <div class="d-flex flex-wrap align-items-center gap-2">
+                        <label class="btn btn-sm btn-outline-secondary mb-0" for="batch-json-file">
+                            <i class="bi bi-upload me-1" aria-hidden="true"></i>上传 JSON
+                        </label>
+                        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('static', filename='templates/media_import_template.json') }}" download>
+                            <i class="bi bi-download me-1" aria-hidden="true"></i>JSON 模板
+                        </a>
+                    </div>
                 </div>
 
-                <form action="{{ url_for('import_media') }}" method="post" class="mb-5">
-                    <div class="row g-3 align-items-end">
-                        <div class="col-12 col-md-3">
-                            <label class="form-label small fw-semibold" for="title-id">IMDb Title ID</label>
-                            <input
-                                class="form-control bg-body-tertiary"
-                                id="title-id"
-                                name="title_id"
-                                type="text"
-                                inputmode="text"
-                                pattern="tt[0-9]+"
-                                placeholder="例如：tt0816692"
-                                autocomplete="off"
-                                spellcheck="false"
-                                required
-                            >
-                        </div>
-                        <div class="col-6 col-md-2">
-                            <label class="form-label small fw-semibold" for="season-number">季号 <span class="fw-normal text-body-secondary">Series 时必填</span></label>
-                            <input
-                                class="form-control bg-body-tertiary"
-                                id="season-number"
-                                name="season_number"
-                                type="number"
-                                min="0"
-                                step="1"
-                                placeholder="1"
-                            >
-                        </div>
-                        <div class="col-6 col-md-2">
-                            <label class="form-label small fw-semibold" for="episode-number">集号 <span class="fw-normal text-body-secondary">Series 时必填</span></label>
-                            <input
-                                class="form-control bg-body-tertiary"
-                                id="episode-number"
-                                name="episode_number"
-                                type="number"
-                                min="1"
-                                step="1"
-                                placeholder="1"
-                            >
-                        </div>
-                        <div class="col-12 col-md">
-                            <label class="form-label small fw-semibold" for="alist-url">AList 视频直链</label>
-                            <input
-                                class="form-control bg-body-tertiary"
-                                id="alist-url"
-                                name="alist_url"
-                                type="url"
-                                placeholder="{{ alist_origin }}/d/...?sign=..."
-                                required
-                            >
-                        </div>
-                        <div class="col-12 col-md-auto d-grid">
-                            <button class="btn media-primary-action text-nowrap px-4" type="submit">校验并录入</button>
-                        </div>
+                <form action="{{ url_for('import_media_batch') }}" method="post" enctype="multipart/form-data" class="mb-5" data-batch-import-form>
+                    <input class="visually-hidden" id="batch-json-file" name="json_file" type="file" accept=".json,application/json" data-batch-json-file>
+                    <p class="small text-body-secondary mb-3" data-batch-file-status>可逐条添加，也可上传 JSON 后检查并编辑。</p>
+
+                    <div class="d-flex flex-column gap-2" data-batch-import-rows>
+                        {{ batch_import_row() }}
+                    </div>
+
+                    <div class="d-flex align-items-center gap-2 mt-3">
+                        <button class="btn batch-add-btn flex-shrink-0" type="button" data-batch-add aria-label="新增一条" title="新增一条">
+                            <i class="bi bi-plus-lg" aria-hidden="true"></i>
+                        </button>
+                        <span class="small text-body-secondary" data-batch-count>共 1 条</span>
+                    </div>
+
+                    <div class="d-flex justify-content-center mt-4">
+                        <button class="btn btn-sm media-primary-action px-4 text-nowrap" type="submit" data-batch-submit>校验并批量录入</button>
                     </div>
                 </form>
 
-                <div class="row row-cols-1 row-cols-md-3 g-3">
-                    <div class="col">
-                        <div class="squircle-card border bg-body-tertiary p-3 h-100 text-start">
-                            <div class="fw-semibold mb-1">IMDb 主数据校验</div>
-                            <div class="small text-body-secondary">本地确认 Title ID、媒体类型、标题、年份、层级与 IMDb 评分，TMDB 仅补充允许的字段和图片。</div>
-                        </div>
-                    </div>
-                    <div class="col">
-                        <div class="squircle-card border bg-body-tertiary p-3 h-100 text-start">
-                            <div class="fw-semibold mb-1">图片资源本地化</div>
-                            <div class="small text-body-secondary">自动下载高清中文海报、透明 Logo、背景大图及单集剧照至本地存储。</div>
-                        </div>
-                    </div>
-                    <div class="col">
-                        <div class="squircle-card border bg-body-tertiary p-3 h-100 text-start">
-                            <div class="fw-semibold mb-1">AList 来源直接绑定</div>
-                            <div class="small text-body-secondary">关联网盘与本地存储视频路径，支持电影单片与剧集单集多源一键调用播放。</div>
-                        </div>
-                    </div>
-                </div>
+                <template data-batch-import-template>
+                    {{ batch_import_row() }}
+                </template>
             </section>
         {% endif %}
     </div>

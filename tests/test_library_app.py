@@ -1,3 +1,4 @@
+import io
 import json
 import os
 import re
@@ -278,7 +279,10 @@ class LibraryIntegrationTest(unittest.TestCase):
         association = self.client.get("/media?tab=associate").get_data(
             as_text=True
         )
-        self.assertIn('action="/manager/import"', association)
+        self.assertIn('action="/manager/import/batch"', association)
+        self.assertIn("data-batch-add", association)
+        self.assertIn('name="json_file"', association)
+        self.assertIn("media_import_template.json", association)
         self.assertNotIn("<fieldset disabled>", association)
 
     def test_missing_resources_return_404(self):
@@ -558,6 +562,102 @@ class LibraryIntegrationTest(unittest.TestCase):
         self.assertNotIn("function applyFilter", html)
         self.assertNotIn("request.full_path", html)
 
+    def test_batch_import_accepts_form_rows_and_reports_partial_failure(self):
+        result = {
+            "successes": [{"index": 1, "display_title": "导入电影"}],
+            "failures": [
+                {
+                    "index": 2,
+                    "title_id": "tt9000002",
+                    "message": "模拟失败",
+                }
+            ],
+        }
+        with patch.object(
+            movie_app,
+            "import_media_batch_service",
+            return_value=result,
+        ) as import_batch:
+            response = self.client.post(
+                "/manager/import/batch",
+                data={
+                    "title_id": ["tt9000001", "tt9000002"],
+                    "season_number": ["", "1"],
+                    "episode_number": ["", "1"],
+                    "alist_url": [
+                        "http://127.0.0.1:5244/d/Movies/Import.mkv?sign=one",
+                        "http://127.0.0.1:5244/d/Series/S01E01.mkv?sign=two",
+                    ],
+                },
+                follow_redirects=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        self.assertIn("成功 1 条，失败 1 条", html)
+        self.assertIn("第 2 条（tt9000002）：模拟失败", html)
+        items = import_batch.call_args.kwargs["items"]
+        self.assertEqual(items[0]["title_id"], "tt9000001")
+        self.assertEqual(items[1]["season_number"], "1")
+
+    def test_batch_import_accepts_json_upload_and_rejects_invalid_json(self):
+        payload = {
+            "items": [
+                {
+                    "title_id": "tt9000002",
+                    "season_number": 1,
+                    "episode_number": 2,
+                    "alist_url": "http://127.0.0.1:5244/d/Series/S01E02.mkv?sign=three",
+                }
+            ]
+        }
+        with patch.object(
+            movie_app,
+            "import_media_batch_service",
+            return_value={"successes": [{"index": 1}], "failures": []},
+        ) as import_batch:
+            response = self.client.post(
+                "/manager/import/batch",
+                data={
+                    "json_file": (
+                        io.BytesIO(json.dumps(payload).encode("utf-8")),
+                        "media.json",
+                    )
+                },
+                follow_redirects=True,
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("成功 1 条，失败 0 条", response.get_data(as_text=True))
+        item = import_batch.call_args.kwargs["items"][0]
+        self.assertEqual(item["season_number"], "1")
+        self.assertEqual(item["episode_number"], "2")
+
+        with patch.object(movie_app, "import_media_batch_service") as invalid_batch:
+            invalid = self.client.post(
+                "/manager/import/batch",
+                data={"json_file": (io.BytesIO(b"{bad"), "invalid.json")},
+                follow_redirects=True,
+            )
+        self.assertIn(
+            "JSON 文件不是有效的 UTF-8 JSON 数据",
+            invalid.get_data(as_text=True),
+        )
+        invalid_batch.assert_not_called()
+
+    def test_json_import_template_is_valid_and_complete(self):
+        response = self.client.get(
+            "/static/templates/media_import_template.json"
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = json.loads(response.get_data(as_text=True))
+        response.close()
+        self.assertGreaterEqual(len(payload["items"]), 2)
+        self.assertEqual(
+            set(payload["items"][0]),
+            {"title_id", "season_number", "episode_number", "alist_url"},
+        )
+
     def test_title_id_import_accepts_movie_series_and_episode(self):
         movie_metadata = {
             "title_basic": {
@@ -737,6 +837,40 @@ class LibraryIntegrationTest(unittest.TestCase):
 
 
 class ConnectorUnitTest(unittest.TestCase):
+    def test_batch_import_service_isolates_item_failures(self):
+        items = [
+            {
+                "title_id": "tt9000001",
+                "season_number": "",
+                "episode_number": "",
+                "alist_url": "http://media.test/one",
+            },
+            {
+                "title_id": "tt9000002",
+                "season_number": "1",
+                "episode_number": "1",
+                "alist_url": "http://media.test/two",
+            },
+        ]
+        with patch.object(
+            media_import_service,
+            "import_media",
+            side_effect=[
+                {"file_id": 1, "display_title": "成功条目"},
+                media_import_service.MediaImportError("失败条目"),
+            ],
+        ):
+            result = media_import_service.import_media_batch(
+                library_database="library.db",
+                imdb_database="imdb.db",
+                image_root="images",
+                items=items,
+            )
+
+        self.assertEqual(result["successes"][0]["index"], 1)
+        self.assertEqual(result["failures"][0]["index"], 2)
+        self.assertEqual(result["failures"][0]["title_id"], "tt9000002")
+
     def test_connector_credentials_come_from_environment(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(
             tmdb_connector, "PROJECT_ROOT", Path(directory)

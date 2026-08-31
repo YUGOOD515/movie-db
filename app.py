@@ -1,3 +1,4 @@
+import json
 import os
 import secrets
 from pathlib import Path
@@ -27,7 +28,12 @@ from queries.title import (
     query_title,
 )
 from services.alist_process import start_configured_alist
-from services.media_import import MediaImportError, import_media as import_media_service
+from services.media_import import (
+    import_media_batch as import_media_batch_service,
+    MediaImportError,
+    import_media as import_media_service,
+    normalize_batch_import_items,
+)
 from services.playback import is_effectively_completed
 from viewmodels.catalog import (
     build_catalog_viewmodel,
@@ -44,6 +50,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DATABASE_PATH = BASE_DIR / "library.db"
 IMDB_DATABASE_PATH = BASE_DIR / "imdb.db"
 IMAGE_ROOT = BASE_DIR / "static" / "images"
+MAX_BATCH_JSON_BYTES = 1024 * 1024
 
 app = Flask(__name__)
 app.config.update(
@@ -261,6 +268,70 @@ def import_media():
             q=result["root_display_title"],
         )
     )
+
+
+@app.post("/manager/import/batch")
+def import_media_batch():
+    try:
+        items = _read_batch_import_items()
+        result = import_media_batch_service(
+            library_database=app.config["DATABASE"],
+            imdb_database=app.config["IMDB_DATABASE"],
+            image_root=app.config["IMAGE_ROOT"],
+            items=items,
+        )
+    except MediaImportError as error:
+        flash(str(error), "danger")
+        return redirect(url_for("media", tab="associate"))
+
+    successes = result["successes"]
+    failures = result["failures"]
+    if not failures:
+        category = "success"
+    elif successes:
+        category = "warning"
+    else:
+        category = "danger"
+    flash(
+        f"批量处理完成：成功 {len(successes)} 条，失败 {len(failures)} 条。",
+        category,
+    )
+    for failure in failures[:10]:
+        title_id = failure["title_id"] or "未填写 Title ID"
+        flash(
+            f"第 {failure['index']} 条（{title_id}）：{failure['message']}",
+            "danger",
+        )
+    if len(failures) > 10:
+        flash(f"另有 {len(failures) - 10} 条失败信息未展开。", "danger")
+    return redirect(url_for("media", tab="associate"))
+
+
+def _read_batch_import_items() -> list[dict]:
+    upload = request.files.get("json_file")
+    if upload is not None and upload.filename:
+        raw = upload.stream.read(MAX_BATCH_JSON_BYTES + 1)
+        if len(raw) > MAX_BATCH_JSON_BYTES:
+            raise MediaImportError("JSON 文件不能超过 1 MiB。")
+        try:
+            payload = json.loads(raw.decode("utf-8-sig"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as error:
+            raise MediaImportError("JSON 文件不是有效的 UTF-8 JSON 数据。") from error
+        return normalize_batch_import_items(payload)
+
+    fields = ("title_id", "season_number", "episode_number", "alist_url")
+    values = {field: request.form.getlist(field) for field in fields}
+    counts = {len(entries) for entries in values.values()}
+    if len(counts) != 1:
+        raise MediaImportError("批量表单字段数量不一致，请刷新页面后重试。")
+    row_count = counts.pop() if counts else 0
+    payload = {
+        "items": [
+            {field: values[field][index] for field in fields}
+            for index in range(row_count)
+        ]
+    }
+    return normalize_batch_import_items(payload)
 
 
 @app.post("/manager/<title_id>/artwork")

@@ -1,0 +1,16 @@
+{
+  "items": [
+    {
+      "title_id": "tt0816692",
+      "season_number": null,
+      "episode_number": null,
+      "alist_url": "http://127.0.0.1:5244/d/Movies/Interstellar.mkv?sign=replace-with-valid-sign"
+    },
+    {
+      "title_id": "tt0903747",
+      "season_number": 1,
+      "episode_number": 1,
+      "alist_url": "http://127.0.0.1:5244/d/Series/Breaking%20Bad/S01E01.mkv?sign=replace-with-valid-sign"
+    }
+  ]
+}

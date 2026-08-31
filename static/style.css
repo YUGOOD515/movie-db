@@ -368,6 +368,42 @@ select {
     position: relative;
 }
 
+.overview-card-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-bottom: 0.45rem;
+    min-height: 2.75rem;
+}
+
+.overview-card-info {
+    min-width: 0;
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+
+.overview-card-title {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    line-height: 1.35;
+    margin-bottom: 0;
+}
+
+.overview-card-meta {
+    font-size: 0.72rem;
+    line-height: 1.35;
+    color: var(--bs-secondary-color);
+    opacity: 0.85;
+}
+
+.overview-card-ids {
+    font-family: "SF Mono", SFMono-Regular, ui-monospace, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    letter-spacing: -0.01em;
+}
+
 .overview-artwork-row {
     width: 100%;
     display: flex;
@@ -1365,6 +1401,78 @@ body.detail-overview-open [data-episode-target] {
     padding-right: 0.85rem;
     height: 2rem;
     font-size: 0.8125rem;
+}
+
+.association-section .btn-sm,
+.batch-import-row .form-control {
+    height: 2rem;
+    font-size: 0.8125rem;
+}
+
+.batch-row-index {
+    width: 1.5rem;
+    min-width: 1.5rem;
+    height: 2rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    font-size: 0.8125rem;
+    font-variant-numeric: tabular-nums;
+    user-select: none;
+}
+
+.batch-add-btn {
+    width: 1.5rem;
+    min-width: 1.5rem;
+    height: 1.5rem;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--bs-secondary-color);
+    background: transparent;
+    border: 0;
+    border-radius: 6px;
+    corner-shape: squircle;
+    font-size: 0.8125rem;
+    line-height: 1;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.batch-add-btn:hover:not(:disabled) {
+    background-color: var(--bs-tertiary-bg);
+    color: var(--bs-body-color);
+}
+
+.batch-add-btn:disabled {
+    opacity: 0.25;
+    cursor: not-allowed;
+}
+
+.batch-remove-btn {
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--bs-secondary-color);
+    background: transparent;
+    border: 0;
+    border-radius: 10px;
+    corner-shape: squircle;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.batch-remove-btn:hover:not(:disabled) {
+    background-color: rgba(var(--bs-danger-rgb), 0.12);
+    color: var(--bs-danger);
+}
+
+.batch-remove-btn:disabled {
+    opacity: 0.25;
+    cursor: not-allowed;
 }
 
 .save-toast {
