@@ -26,6 +26,7 @@ from queries.title import (
     get_title_id_by_tmdb,
     query_title,
 )
+from services.alist_process import start_configured_alist
 from services.media_import import MediaImportError, import_media as import_media_service
 from services.playback import is_effectively_completed
 from viewmodels.catalog import (
@@ -56,6 +57,7 @@ app.config.update(
 )
 Session(app)
 init_database(app)
+start_configured_alist()
 
 
 @app.get("/")

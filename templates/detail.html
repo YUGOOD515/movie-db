@@ -119,7 +119,7 @@
 
                     <div class="detail-feature flex-grow-1 min-w-0 position-relative"{% if media.media_type == "tv" %} aria-live="polite"{% endif %}>
                         {% if media.media_type == "tv" %}
-                            <button type="button" class="btn detail-info-toggle position-absolute top-0 end-0 d-inline-flex align-items-center justify-content-center" data-series-toggle aria-pressed="false" title="查看全剧信息">
+                            <button type="button" class="detail-info-toggle btn border-0 bg-transparent d-flex align-items-center justify-content-center p-0" data-series-toggle aria-pressed="false" title="查看全剧信息">
                                 <i class="bi bi-tv" aria-hidden="true" data-series-toggle-icon-tv></i>
                                 <i class="bi bi-play-btn d-none" aria-hidden="true" data-series-toggle-icon-episode></i>
                                 <span class="visually-hidden">切换本集与全剧信息</span>
@@ -137,12 +137,19 @@
                                 {{ overview_block(media.overview) }}
 
                                 <div class="detail-ratings-row mt-3 pt-2">
-                                     {% if media.imdb_rating is not none and media.imdb_rating != "" %}
-                                         <span class="detail-rating-item" title="全剧 IMDb 评分">
-                                             <img class="detail-rating-logo detail-rating-logo--imdb" src="{{ url_for('static', filename='imdb.png') }}" alt="IMDb">
-                                             <span class="detail-rating-score detail-rating-score--imdb">{{ "%.1f"|format(media.imdb_rating) }}</span>
-                                         </span>
-                                     {% endif %}
+                                    {% if media.ratings %}
+                                        {% for rating in media.ratings %}
+                                            <span class="detail-rating-item" title="{{ rating.title }}">
+                                                <img class="detail-rating-logo detail-rating-logo--{{ rating.key }}" src="{{ url_for('static', filename=rating.icon) }}" alt="{{ rating.name }}">
+                                                <span class="detail-rating-score detail-rating-score--{{ rating.key }}">{{ rating.score }}</span>
+                                            </span>
+                                        {% endfor %}
+                                    {% elif media.imdb_rating is not none and media.imdb_rating != "" %}
+                                        <span class="detail-rating-item" title="全剧 IMDb 评分">
+                                            <img class="detail-rating-logo detail-rating-logo--imdb" src="{{ url_for('static', filename='imdb.png') }}" alt="IMDb">
+                                            <span class="detail-rating-score detail-rating-score--imdb">{{ "%.1f"|format(media.imdb_rating) }}</span>
+                                        </span>
+                                    {% endif %}
                                 </div>
                             </section>
                             <div class="episode-hero-panels" data-episode-hero-panels aria-hidden="false">
@@ -185,7 +192,14 @@
                             </div>
                             {{ overview_block(media.overview) }}
                             <div class="detail-ratings-row mt-3 pt-2">
-                                {% if media.imdb_rating is not none and media.imdb_rating != "" %}
+                                {% if media.ratings %}
+                                    {% for rating in media.ratings %}
+                                        <span class="detail-rating-item" title="{{ rating.title }}">
+                                            <img class="detail-rating-logo detail-rating-logo--{{ rating.key }}" src="{{ url_for('static', filename=rating.icon) }}" alt="{{ rating.name }}">
+                                            <span class="detail-rating-score detail-rating-score--{{ rating.key }}">{{ rating.score }}</span>
+                                        </span>
+                                    {% endfor %}
+                                {% elif media.imdb_rating is not none and media.imdb_rating != "" %}
                                     <span class="detail-rating-item" title="IMDb 评分">
                                         <img class="detail-rating-logo detail-rating-logo--imdb" src="{{ url_for('static', filename='imdb.png') }}" alt="IMDb">
                                         <span class="detail-rating-score detail-rating-score--imdb">{{ "%.1f"|format(media.imdb_rating) }}</span>

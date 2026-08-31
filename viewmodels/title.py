@@ -491,6 +491,125 @@ def _build_episode_state(
     }
 
 
+def _format_ratings(title: dict) -> list[dict]:
+    """Format all available platform ratings for movie or series."""
+    ratings = []
+
+    # 1. IMDb
+    imdb_rating = title.get("average_rating")
+    if imdb_rating is not None and imdb_rating != "":
+        votes = title.get("num_votes")
+        ratings.append({
+            "key": "imdb",
+            "name": "IMDb",
+            "icon": "imdb.png",
+            "score": f"{float(imdb_rating):.1f}",
+            "title": f"IMDb: {float(imdb_rating):.1f}/10" + (f" ({votes:,} 票)" if votes else ""),
+        })
+
+    # 2. Rotten Tomatoes (Critics)
+    rt_critics = title.get("rt_critics_score")
+    if rt_critics is not None and rt_critics != "":
+        score_val = int(rt_critics)
+        icon = (
+            "icons/ratings/rt_certified.svg"
+            if score_val >= 75
+            else (
+                "icons/ratings/rt_fresh.svg"
+                if score_val >= 60
+                else "icons/ratings/rt_rotten.svg"
+            )
+        )
+        votes = title.get("rt_critics_votes")
+        ratings.append({
+            "key": "rt_critics",
+            "name": "Rotten Tomatoes (影评人)",
+            "icon": icon,
+            "score": f"{score_val}%",
+            "title": f"烂番茄影评人: {score_val}%" + (f" ({votes} 篇影评)" if votes else ""),
+        })
+
+    # 3. Rotten Tomatoes (Audience)
+    rt_audience = title.get("rt_audience_score")
+    if rt_audience is not None and rt_audience != "":
+        score_val = int(rt_audience)
+        icon = (
+            "icons/ratings/rt_popcorn.svg"
+            if score_val >= 60
+            else "icons/ratings/rt_spilled.svg"
+        )
+        votes = title.get("rt_audience_votes")
+        ratings.append({
+            "key": "rt_audience",
+            "name": "Rotten Tomatoes (观众)",
+            "icon": icon,
+            "score": f"{score_val}%",
+            "title": f"烂番茄观众: {score_val}%" + (f" ({votes:,} 评分)" if votes else ""),
+        })
+
+    # 4. Metacritic (Metascore)
+    mc_score = title.get("metacritic_score")
+    if mc_score is not None and mc_score != "":
+        score_val = int(mc_score)
+        icon = (
+            "icons/ratings/metascore_positive.svg"
+            if score_val >= 61
+            else (
+                "icons/ratings/metascore_mixed.svg"
+                if score_val >= 40
+                else "icons/ratings/metascore_negative.svg"
+            )
+        )
+        votes = title.get("metacritic_votes")
+        ratings.append({
+            "key": "metacritic",
+            "name": "Metacritic",
+            "icon": icon,
+            "score": f"{score_val}",
+            "title": f"Metacritic: {score_val}/100" + (f" ({votes} 家媒体)" if votes else ""),
+        })
+
+    # 5. Letterboxd
+    lb_score = title.get("letterboxd_score")
+    if lb_score is not None and lb_score != "":
+        score_val = float(lb_score)
+        votes = title.get("letterboxd_votes")
+        ratings.append({
+            "key": "letterboxd",
+            "name": "Letterboxd",
+            "icon": "icons/ratings/letterboxd.svg",
+            "score": f"{score_val:.1f}",
+            "title": f"Letterboxd: {score_val:.1f}/5.0" + (f" ({votes:,} 评分)" if votes else ""),
+        })
+
+    # 6. Trakt
+    trakt_score = title.get("trakt_score")
+    if trakt_score is not None and trakt_score != "":
+        score_val = int(trakt_score)
+        votes = title.get("trakt_votes")
+        ratings.append({
+            "key": "trakt",
+            "name": "Trakt",
+            "icon": "icons/ratings/trakt_colored.svg",
+            "score": f"{score_val}%",
+            "title": f"Trakt: {score_val}%" + (f" ({votes:,} 评分)" if votes else ""),
+        })
+
+    # 7. Roger Ebert
+    re_rating = title.get("roger_ebert_rating")
+    if re_rating is not None and re_rating != "":
+        score_val = float(re_rating)
+        ratings.append({
+            "key": "rogerebert",
+            "name": "Roger Ebert",
+            "icon": "icons/ratings/star.svg",
+            "score": f"{score_val:.1f}",
+            "title": f"Roger Ebert: {score_val:.1f}/4.0",
+        })
+
+    return ratings
+
+
 def _build_source_state(
     sources: list[dict],
     featured_source: dict | None,
@@ -613,6 +732,7 @@ def build_title_viewmodel(
         "overview": title.get("overview") or "暂无简介。",
         "genres": genres,
         "imdb_rating": title.get("average_rating"),
+        "ratings": _format_ratings(title),
         "runtime_label": _runtime_label(title, selected_episode, featured_source),
         "date_label": format_year(title),
         "release_date": str(title.get("start_year") or ""),

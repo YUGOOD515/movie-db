@@ -1,0 +1,2515 @@
+{
+  "metadata": {
+    "generated_at": "2026-08-31T02:36:15+0800",
+    "total_titles": 31,
+    "success_count": 31,
+    "failed_count": 0,
+    "total_time_seconds": 31.8,
+    "source": "MDBList API"
+  },
+  "ratings": {
+    "tt0816692": {
+      "imdb_id": "tt0816692",
+      "status": "success",
+      "latency_ms": 940.17,
+      "title": "Interstellar",
+      "year": 2014,
+      "media_type": "movie",
+      "score": 83,
+      "score_average": 83,
+      "platform_ratings": [
+        {
+          "platform_key": "imdb",
+          "platform_name": "IMDb",
+          "score_display": "8.7/10",
+          "score_10": 8.7,
+          "score_100": 87.0,
+          "votes": 2597874,
+          "url": "https://www.imdb.com/title/tt0816692/"
+        },
+        {
+          "platform_key": "tomatoes_critic",
+          "platform_name": "Rotten Tomatoes (影评人)",
+          "score_display": "73%",
+          "score_10": 7.3,
+          "score_100": 73.0,
+          "votes": 373,
+          "url": "https://www.rottentomatoes.com/m/interstellar_2014"
+        },
+        {
+          "platform_key": "tomatoes_audience",
+          "platform_name": "Rotten Tomatoes (观众)",
+          "score_display": "87%",
+          "score_10": 8.7,
+          "score_100": 87.0,
+          "votes": 14267,
+          "url": null
+        },
+        {
+          "platform_key": "metacritic_critic",
+          "platform_name": "Metacritic (Metascore)",
+          "score_display": "74/100",
+          "score_10": 7.4,
+          "score_100": 74.0,
+          "votes": 46,
+          "url": "https://www.metacritic.com/movie/interstellar"
+        },
+        {
+          "platform_key": "metacritic_user",
+          "platform_name": "Metacritic (用户)",
+          "score_display": "8.7/10",
+          "score_10": 8.7,
+          "score_100": 87.0,
+          "votes": 5814,
+          "url": null
+        },
+        {
+          "platform_key": "tmdb",
+          "platform_name": "TMDb",
+          "score_display": "85%",
+          "score_10": 8.5,
+          "score_100": 85.0,
+          "votes": 40955,
+          "url": null
+        },
+        {
+          "platform_key": "trakt",
+          "platform_name": "Trakt",
+          "score_display": "88%",
+          "score_10": 8.8,
+          "score_100": 88.0,
+          "votes": 83498,
+          "url": null
+        },
+        {
+          "platform_key": "letterboxd",
+          "platform_name": "Letterboxd",
+          "score_display": "4.5/5.0",
+          "score_10": 9.0,
+          "score_100": 90.0,
+          "votes": 6323696,
+          "url": "https://letterboxd.com/film/interstellar/"
+        },
+        {
+          "platform_key": "rogerebert",
+          "platform_name": "Roger Ebert",
+          "score_display": "3.5/4.0 stars",
+          "score_10": 8.8,
+          "score_100": 87.5,
+          "votes": null,
+          "url": "https://www.rogerebert.com/reviews/interstellar-2014"
+        }
+      ],
+      "error_message": null,
+      "library_type": "movie",
+      "library_primary_title": "Interstellar",
+      "library_start_year": 2014
+    },
+    "tt12042730": {
+      "imdb_id": "tt12042730",
+      "status": "success",
+      "latency_ms": 981.04,
+      "title": "Project Hail Mary",
+      "year": 2026,
+      "media_type": "movie",
+      "score": 83,
+      "score_average": 83,
+      "platform_ratings": [
+        {
+          "platform_key": "imdb",
+          "platform_name": "IMDb",
+          "score_display": "8.2/10",
+          "score_10": 8.2,
+          "score_100": 82.0,
+          "votes": 525018,
+          "url": "https://www.imdb.com/title/tt12042730/"
+        },
+        {
+          "platform_key": "tomatoes_critic",
+          "platform_name": "Rotten Tomatoes (影评人)",
+          "score_display": "95%",
+          "score_10": 9.5,
+          "score_100": 95.0,
+          "votes": 430,
+          "url": "https://www.rottentomatoes.com/m/project_hail_mary"
+        },
+        {
+          "platform_key": "tomatoes_audience",
+          "platform_name": "Rotten Tomatoes (观众)",
+          "score_display": "95%",
+          "score_10": 9.5,
+          "score_100": 95.0,
+          "votes": 8294,
+          "url": null
+        },
+        {
+          "platform_key": "metacritic_critic",
+          "platform_name": "Metacritic (Metascore)",
+          "score_display": "77/100",
+          "score_10": 7.7,
+          "score_100": 77.0,
+          "votes": 60,
+          "url": "https://www.metacritic.com/movie/project-hail-mary"
+        },
+        {
+          "platform_key": "metacritic_user",
+          "platform_name": "Metacritic (用户)",
+          "score_display": "8.2/10",
+          "score_10": 8.2,
+          "score_100": 82.0,
+          "votes": 1215,
+          "url": null
+        },
+        {
+          "platform_key": "tmdb",
+          "platform_name": "TMDb",
+          "score_display": "86%",
+          "score_10": 8.6,
+          "score_100": 86.0,
+          "votes": 7360,
+          "url": null
+        },
+        {
+          "platform_key": "trakt",
+          "platform_name": "Trakt",
+          "score_display": "87%",
+          "score_10": 8.7,
+          "score_100": 87.0,
+          "votes": 47325,
+          "url": null
+        },
+        {
+          "platform_key": "letterboxd",
+          "platform_name": "Letterboxd",
+          "score_display": "4.3/5.0",
+          "score_10": 8.6,
+          "score_100": 86.0,
+          "votes": 4282231,
+          "url": "https://letterboxd.com/film/project-hail-mary/"
+        },
+        {
+          "platform_key": "rogerebert",
+          "platform_name": "Roger Ebert",
+          "score_display": "2.5/4.0 stars",
+          "score_10": 6.2,
+          "score_100": 62.5,
+          "votes": null,
+          "url": "https://www.rogerebert.com/reviews/project-hail-mary-ryan-gosling-movie-review-2026"
+        }
+      ],
+      "error_message": null,
+      "library_type": "movie",
+      "library_primary_title": "Project Hail Mary",
+      "library_start_year": 2026
+    },
+    "tt1485796": {
+      "imdb_id": "tt1485796",
+      "status": "success",
+      "latency_ms": 781.69,
+      "title": "The Greatest Showman",
+      "year": 2017,
+      "media_type": "movie",
+      "score": 72,
+      "score_average": 72,
+      "platform_ratings": [
+        {
+          "platform_key": "imdb",
+          "platform_name": "IMDb",
+          "score_display": "7.5/10",
+          "score_10": 7.5,
+          "score_100": 75.0,
+          "votes": 352673,
+          "url": "https://www.imdb.com/title/tt1485796/"
+        },
+        {
+          "platform_key": "tomatoes_critic",
+          "platform_name": "Rotten Tomatoes (影评人)",
+          "score_display": "56%",
+          "score_10": 5.6,
+          "score_100": 56.0,
+          "votes": 263,
+          "url": "https://www.rottentomatoes.com/m/the_greatest_showman_2017"
+        },
+        {
+          "platform_key": "tomatoes_audience",
+          "platform_name": "Rotten Tomatoes (观众)",
+          "score_display": "86%",
+          "score_10": 8.6,
+          "score_100": 86.0,
+          "votes": 6848,
+          "url": null
+        },
+        {
+          "platform_key": "metacritic_critic",
+          "platform_name": "Metacritic (Metascore)",
+          "score_display": "48/100",
+          "score_10": 4.8,
+          "score_100": 48.0,
+          "votes": 43,
+          "url": "https://www.metacritic.com/movie/the-greatest-showman"
+        },
+        {
+          "platform_key": "metacritic_user",
+          "platform_name": "Metacritic (用户)",
+          "score_display": "7.4/10",
+          "score_10": 7.4,
+          "score_100": 74.0,
+          "votes": 651,
+          "url": null
+        },
+        {
+          "platform_key": "tmdb",
+          "platform_name": "TMDb",
+          "score_display": "78%",
+          "score_10": 7.8,
+          "score_100": 78.0,
+          "votes": 10194,
+          "url": null
+        },
+        {
+          "platform_key": "trakt",
+          "platform_name": "Trakt",
+          "score_display": "81%",
+          "score_10": 8.1,
+          "score_100": 81.0,
+          "votes": 20748,
+          "url": null
+        },
+        {
+          "platform_key": "letterboxd",
+          "platform_name": "Letterboxd",
+          "score_display": "3.6/5.0",
+          "score_10": 7.2,
+          "score_100": 72.0,
+          "votes": 1417037,
+          "url": "https://letterboxd.com/film/the-greatest-showman/"
+        },
+        {
+          "platform_key": "rogerebert",
+          "platform_name": "Roger Ebert",
+          "score_display": "3.5/4.0 stars",
+          "score_10": 8.8,
+          "score_100": 87.5,
+          "votes": null,
+          "url": "https://www.rogerebert.com/reviews/the-greatest-showman-2017"
+        }
+      ],
+      "error_message": null,
+      "library_type": "movie",
+      "library_primary_title": "The Greatest Showman",
+      "library_start_year": 2017
+    },
+    "tt22084616": {
+      "imdb_id": "tt22084616",
+      "status": "success",
+      "latency_ms": 941.92,
+      "title": "Spider-Man: Brand New Day",
+      "year": 2026,
+      "media_type": "movie",
+      "score": 80,
+      "score_average": 80,
+      "platform_ratings": [
+        {
+          "platform_key": "imdb",
+          "platform_name": "IMDb",
+          "score_display": "8.0/10",
+          "score_10": 8.0,
+          "score_100": 80.0,
+          "votes": 269599,
+          "url": "https://www.imdb.com/title/tt22084616/"
+        },
+        {
+          "platform_key": "tomatoes_critic",
+          "platform_name": "Rotten Tomatoes (影评人)",
+          "score_display": "89%",
+          "score_10": 8.9,
+          "score_100": 89.0,
+          "votes": 424,
+          "url": "https://www.rottentomatoes.com/m/spider_man_brand_new_day"
+        },
+        {
+          "platform_key": "tomatoes_audience",
+          "platform_name": "Rotten Tomatoes (观众)",
+          "score_display": "98%",
+          "score_10": 9.8,
+          "score_100": 98.0,
+          "votes": 5039,
+          "url": null
+        },
+        {
+          "platform_key": "metacritic_critic",
+          "platform_name": "Metacritic (Metascore)",
+          "score_display": "66/100",
+          "score_10": 6.6,
+          "score_100": 66.0,
+          "votes": 56,
+          "url": "https://www.metacritic.com/movie/spider-man-brand-new-day"
+        },
+        {
+          "platform_key": "metacritic_user",
+          "platform_name": "Metacritic (用户)",
+          "score_display": "7.9/10",
+          "score_10": 7.9,
+          "score_100": 79.0,
+          "votes": 919,
+          "url": null
+        },
+        {
+          "platform_key": "tmdb",
+          "platform_name": "TMDb",
+          "score_display": "79%",
+          "score_10": 7.9,
+          "score_100": 79.0,
+          "votes": 2242,
+          "url": null
+        },
+        {
+          "platform_key": "trakt",
+          "platform_name": "Trakt",
+          "score_display": "87%",
+          "score_10": 8.7,
+          "score_100": 87.0,
+          "votes": 24627,
+          "url": null
+        },
+        {
+          "platform_key": "letterboxd",
+          "platform_name": "Letterboxd",
+          "score_display": "4.1/5.0",
+          "score_10": 8.2,
+          "score_100": 82.0,
+          "votes": 3726779,
+          "url": "https://letterboxd.com/film/spider-man-brand-new-day/"
+        },
+        {
+          "platform_key": "rogerebert",
+          "platform_name": "Roger Ebert",
+          "score_display": "2.5/4.0 stars",
+          "score_10": 6.2,
+          "score_100": 62.5,
+          "votes": null,
+          "url": "https://www.rogerebert.com/reviews/spider-man-brand-new-day-2026-movie-review"
+        }
+      ],
+      "error_message": null,
+      "library_type": "movie",
+      "library_primary_title": "Spider-Man: Brand New Day",
+      "library_start_year": 2026
+    },
+    "tt26443616": {
+      "imdb_id": "tt26443616",
+      "status": "success",
+      "latency_ms": 941.44,
+      "title": "Hoppers",
+      "year": 2026,
+      "media_type": "movie",
+      "score": 83,
+      "score_average": 83,
+      "platform_ratings": [
+        {
+          "platform_key": "imdb",
+          "platform_name": "IMDb",
+          "score_display": "7.2/10",
+          "score_10": 7.2,
+          "score_100": 72.0,
+          "votes": 82900,
+          "url": "https://www.imdb.com/title/tt26443616/"
+        },
+        {
+          "platform_key": "tomatoes_critic",
+          "platform_name": "Rotten Tomatoes (影评人)",
+          "score_display": "94%",
+          "score_10": 9.4,
+          "score_100": 94.0,
+          "votes": 234,
+          "url": "https://www.rottentomatoes.com/m/hoppers"
+        },
+        {
+          "platform_key": "tomatoes_audience",
+          "platform_name": "Rotten Tomatoes (观众)",
+          "score_display": "93%",
+          "score_10": 9.3,
+          "score_100": 93.0,
+          "votes": 1747,
+          "url": null
+        },
+        {
+          "platform_key": "metacritic_critic",
+          "platform_name": "Metacritic (Metascore)",
+          "score_display": "73/100",
+          "score_10": 7.3,
+          "score_100": 73.0,
+          "votes": 46,
+          "url": "https://www.metacritic.com/movie/hoppers"
+        },
+        {
+          "platform_key": "metacritic_user",
+          "platform_name": "Metacritic (用户)",
+          "score_display": "7.4/10",
+          "score_10": 7.4,
+          "score_100": 74.0,
+          "votes": 230,
+          "url": null
+        },
+        {
+          "platform_key": "tmdb",
+          "platform_name": "TMDb",
+          "score_display": "82%",
+          "score_10": 8.2,
+          "score_100": 82.0,
+          "votes": 2254,
+          "url": null
+        },
+        {
+          "platform_key": "trakt",
+          "platform_name": "Trakt",
+          "score_display": "79%",
+          "score_10": 7.9,
+          "score_100": 79.0,
+          "votes": 11962,
+          "url": null
+        },
+        {
+          "platform_key": "letterboxd",
+          "platform_name": "Letterboxd",
+          "score_display": "3.7/5.0",
+          "score_10": 7.4,
+          "score_100": 74.0,
+          "votes": 939858,
+          "url": "https://letterboxd.com/film/hoppers/"
+        },
+        {
+          "platform_key": "rogerebert",
+          "platform_name": "Roger Ebert",
+          "score_display": "4.0/4.0 stars",
+          "score_10": 10.0,
+          "score_100": 100.0,
+          "votes": null,
+          "url": "https://www.rogerebert.com/reviews/hoppers-pixar-film-review-2026"
+        }
+      ],
+      "error_message": null,
+      "library_type": "movie",
+      "library_primary_title": "Hoppers",
+      "library_start_year": 2026
+    },
+    "tt26657236": {
+      "imdb_id": "tt26657236",
+      "status": "success",
+      "latency_ms": 950.48,
+      "title": "Backrooms",
+      "year": 2026,
+      "media_type": "movie",
+      "score": 73,
+      "score_average": 73,
+      "platform_ratings": [
+        {
+          "platform_key": "imdb",
+          "platform_name": "IMDb",
+          "score_display": "6.8/10",
+          "score_10": 6.8,
+          "score_100": 68.0,
+          "votes": 185805,
+          "url": "https://www.imdb.com/title/tt26657236/"
+        },
+        {
+          "platform_key": "tomatoes_critic",
+          "platform_name": "Rotten Tomatoes (影评人)",
+          "score_display": "87%",
+          "score_10": 8.7,
+          "score_100": 87.0,
+          "votes": 303,
+          "url": "https://www.rottentomatoes.com/m/backrooms"
+        },
+        {
+          "platform_key": "tomatoes_audience",
+          "platform_name": "Rotten Tomatoes (观众)",
+          "score_display": "74%",
+          "score_10": 7.4,
+          "score_100": 74.0,
+          "votes": 2778,
+          "url": null
+        },
+        {
+          "platform_key": "metacritic_critic",
+          "platform_name": "Metacritic (Metascore)",
+          "score_display": "76/100",
+          "score_10": 7.6,
+          "score_100": 76.0,
+          "votes": 47,
+          "url": "https://www.metacritic.com/movie/backrooms"
+        },
+        {
+          "platform_key": "metacritic_user",
+          "platform_name": "Metacritic (用户)",
+          "score_display": "7.2/10",
+          "score_10": 7.2,
+          "score_100": 72.0,
+          "votes": 688,
+          "url": null
+        },
+        {
+          "platform_key": "tmdb",
+          "platform_name": "TMDb",
+          "score_display": "70%",
+          "score_10": 7.0,
+          "score_100": 70.0,
+          "votes": 2971,
+          "url": null
+        },
+        {
+          "platform_key": "trakt",
+          "platform_name": "Trakt",
+          "score_display": "67%",
+          "score_10": 6.7,
+          "score_100": 67.0,
+          "votes": 16561,
+          "url": null
+        },
+        {
+          "platform_key": "letterboxd",
+          "platform_name": "Letterboxd",
+          "score_display": "3.3/5.0",
+          "score_10": 6.6,
+          "score_100": 66.0,
+          "votes": 2856335,
+          "url": "https://letterboxd.com/film/backrooms-2026/"
+        },
+        {
+          "platform_key": "rogerebert",
+          "platform_name": "Roger Ebert",
+          "score_display": "3.0/4.0 stars",
+          "score_10": 7.5,
+          "score_100": 75.0,
+          "votes": null,
+          "url": "https://www.rogerebert.com/reviews/backrooms-chiwetel-ejiofor-renate-reinsve-a24-film-review-2026"
+        }
+      ],
+      "error_message": null,
+      "library_type": "movie",
+      "library_primary_title": "Backrooms",
+      "library_start_year": 2026
+    },
+    "tt31648020": {
+      "imdb_id": "tt31648020",
+      "status": "success",
+      "latency_ms": 808.28,
+      "title": "The Last Dance",
+      "year": 2024,
+      "media_type": "movie",
+      "score": 81,
+      "score_average": 84,
+      "platform_ratings": [
+        {
+          "platform_key": "imdb",
+          "platform_name": "IMDb",
+          "score_display": "7.6/10",
+          "score_10": 7.6,
+          "score_100": 76.0,
+          "votes": 3681,
+          "url": "https://www.imdb.com/title/tt31648020/"
+        },
+        {
+          "platform_key": "tomatoes_critic",
+          "platform_name": "Rotten Tomatoes (影评人)",
+          "score_display": "100%",
+          "score_10": 10.0,
+          "score_100": 100.0,
+          "votes": 15,
+          "url": "https://www.rottentomatoes.com/m/the_last_dance_2024"
+        },
+        {
+          "platform_key": "tomatoes_audience",
+          "platform_name": "Rotten Tomatoes (观众)",
+          "score_display": "97%",
+          "score_10": 9.7,
+          "score_100": 97.0,
+          "votes": 30,
+          "url": null
+        },
+        {
+          "platform_key": "tmdb",
+          "platform_name": "TMDb",
+          "score_display": "79%",
+          "score_10": 7.9,
+          "score_100": 79.0,
+          "votes": 79,
+          "url": null
+        },
+        {
+          "platform_key": "trakt",
+          "platform_name": "Trakt",
+          "score_display": "80%",
+          "score_10": 8.0,
+          "score_100": 80.0,
+          "votes": 334,
+          "url": null
+        },
+        {
+          "platform_key": "letterboxd",
+          "platform_name": "Letterboxd",
+          "score_display": "3.7/5.0",
+          "score_10": 7.4,
+          "score_100": 74.0,
+          "votes": 9278,
+          "url": "https://letterboxd.com/film/the-last-dance-2024-1/"
+        }
+      ],
+      "error_message": null,
+      "library_type": "movie",
+      "library_primary_title": "The Last Dance",
+      "library_start_year": 2024
+    },
+    "tt3783958": {
+      "imdb_id": "tt3783958",
+      "status": "success",
+      "latency_ms": 943.26,
+      "title": "La La Land",
+      "year": 2016,
+      "media_type": "movie",
+      "score": 84,
+      "score_average": 84,
+      "platform_ratings": [
+        {
+          "platform_key": "imdb",
+          "platform_name": "IMDb",
+          "score_display": "8.0/10",
+          "score_10": 8.0,
+          "score_100": 80.0,
+          "votes": 776239,
+          "url": "https://www.imdb.com/title/tt3783958/"
+        },
+        {
+          "platform_key": "tomatoes_critic",
+          "platform_name": "Rotten Tomatoes (影评人)",
+          "score_display": "91%",
+          "score_10": 9.1,
+          "score_100": 91.0,
+          "votes": 471,
+          "url": "https://www.rottentomatoes.com/m/la_la_land"
+        },
+        {
+          "platform_key": "tomatoes_audience",
+          "platform_name": "Rotten Tomatoes (观众)",
+          "score_display": "82%",
+          "score_10": 8.2,
+          "score_100": 82.0,
+          "votes": 5186,
+          "url": null
+        },
+        {
+          "platform_key": "metacritic_critic",
+          "platform_name": "Metacritic (Metascore)",
+          "score_display": "94/100",
+          "score_10": 9.4,
+          "score_100": 94.0,
+          "votes": 54,
+          "url": "https://www.metacritic.com/movie/la-la-land"
+        },
+        {
+          "platform_key": "metacritic_user",
+          "platform_name": "Metacritic (用户)",
+          "score_display": "8.4/10",
+          "score_10": 8.4,
+          "score_100": 84.0,
+          "votes": 2783,
+          "url": null
+        },
+        {
+          "platform_key": "tmdb",
+          "platform_name": "TMDb",
+          "score_display": "78%",
+          "score_10": 7.8,
+          "score_100": 78.0,
+          "votes": 18404,
+          "url": null
+        },
+        {
+          "platform_key": "trakt",
+          "platform_name": "Trakt",
+          "score_display": "78%",
+          "score_10": 7.8,
+          "score_100": 78.0,
+          "votes": 29836,
+          "url": null
+        },
+        {
+          "platform_key": "letterboxd",
+          "platform_name": "Letterboxd",
+          "score_display": "4.1/5.0",
+          "score_10": 8.2,
+          "score_100": 82.0,
+          "votes": 5152581,
+          "url": "https://letterboxd.com/film/la-la-land/"
+        },
+        {
+          "platform_key": "rogerebert",
+          "platform_name": "Roger Ebert",
+          "score_display": "3.5/4.0 stars",
+          "score_10": 8.8,
+          "score_100": 87.5,
+          "votes": null,
+          "url": "https://www.rogerebert.com/reviews/la-la-land-2016"
+        }
+      ],
+      "error_message": null,
+      "library_type": "movie",
+      "library_primary_title": "La La Land",
+      "library_start_year": 2016
+    },
+    "tt9288776": {
+      "imdb_id": "tt9288776",
+      "status": "success",
+      "latency_ms": 745.69,
+      "title": "White Snake",
+      "year": 2019,
+      "media_type": "movie",
+      "score": 69,
+      "score_average": 69,
+      "platform_ratings": [
+        {
+          "platform_key": "imdb",
+          "platform_name": "IMDb",
+          "score_display": "7.0/10",
+          "score_10": 7.0,
+          "score_100": 70.0,
+          "votes": 6521,
+          "url": "https://www.imdb.com/title/tt9288776/"
+        },
+        {
+          "platform_key": "tomatoes_critic",
+          "platform_name": "Rotten Tomatoes (影评人)",
+          "score_display": "70%",
+          "score_10": 7.0,
+          "score_100": 70.0,
+          "votes": 23,
+          "url": "https://www.rottentomatoes.com/m/white_snake"
+        },
+        {
+          "platform_key": "tomatoes_audience",
+          "platform_name": "Rotten Tomatoes (观众)",
+          "score_display": "84%",
+          "score_10": 8.4,
+          "score_100": 84.0,
+          "votes": 23,
+          "url": null
+        },
+        {
+          "platform_key": "metacritic_critic",
+          "platform_name": "Metacritic (Metascore)",
+          "score_display": "60/100",
+          "score_10": 6.0,
+          "score_100": 60.0,
+          "votes": 6,
+          "url": "https://www.metacritic.com/movie/white-snake"
+        },
+        {
+          "platform_key": "metacritic_user",
+          "platform_name": "Metacritic (用户)",
+          "score_display": "7.2/10",
+          "score_10": 7.2,
+          "score_100": 72.0,
+          "votes": 20,
+          "url": null
+        },
+        {
+          "platform_key": "tmdb",
+          "platform_name": "TMDb",
+          "score_display": "77%",
+          "score_10": 7.7,
+          "score_100": 77.0,
+          "votes": 568,
+          "url": null
+        },
+        {
+          "platform_key": "trakt",
+          "platform_name": "Trakt",
+          "score_display": "76%",
+          "score_10": 7.6,
+          "score_100": 76.0,
+          "votes": 954,
+          "url": null
+        },
+        {
+          "platform_key": "letterboxd",
+          "platform_name": "Letterboxd",
+          "score_display": "3.3/5.0",
+          "score_10": 6.6,
+          "score_100": 66.0,
+          "votes": 9250,
+          "url": "https://letterboxd.com/film/white-snake-2019/"
+        },
+        {
+          "platform_key": "rogerebert",
+          "platform_name": "Roger Ebert",
+          "score_display": "2.0/4.0 stars",
+          "score_10": 5.0,
+          "score_100": 50.0,
+          "votes": null,
+          "url": "https://www.rogerebert.com/reviews/white-snake-movie-review-2019"
+        },
+        {
+          "platform_key": "myanimelist",
+          "platform_name": "MyAnimeList",
+          "score_display": "7.50/10",
+          "score_10": 7.5,
+          "score_100": 75.0,
+          "votes": 4874,
+          "url": null
+        }
+      ],
+      "error_message": null,
+      "library_type": "movie",
+      "library_primary_title": "White Snake",
+      "library_start_year": 2019
+    },
+    "tt10919420": {
+      "imdb_id": "tt10919420",
+      "status": "success",
+      "latency_ms": 750.72,
+      "title": "Squid Game",
+      "year": 2021,
+      "media_type": "show",
+      "score": 75,
+      "score_average": 75,
+      "platform_ratings": [
+        {
+          "platform_key": "imdb",
+          "platform_name": "IMDb",
+          "score_display": "7.9/10",
+          "score_10": 7.9,
+          "score_100": 79.0,
+          "votes": 774632,
+          "url": "https://www.imdb.com/title/tt10919420/"
+        },
+        {
+          "platform_key": "tomatoes_critic",
+          "platform_name": "Rotten Tomatoes (影评人)",
+          "score_display": "86%",
+          "score_10": 8.6,
+          "score_100": 86.0,
+          "votes": 252,
+          "url": "https://www.rottentomatoes.com/tv/squid_game"
+        },
+        {
+          "platform_key": "tomatoes_audience",
+          "platform_name": "Rotten Tomatoes (观众)",
+          "score_display": "67%",
+          "score_10": 6.7,
+          "score_100": 67.0,
+          "votes": null,
+          "url": null
+        },
+        {
+          "platform_key": "metacritic_critic",
+          "platform_name": "Metacritic (Metascore)",
+          "score_display": "65/100",
+          "score_10": 6.5,
+          "score_100": 65.0,
+          "votes": 75,
+          "url": "https://www.metacritic.com/tv/squid-game"
+        },
+        {
+          "platform_key": "metacritic_user",
+          "platform_name": "Metacritic (用户)",
+          "score_display": "6.8/10",
+          "score_10": 6.8,
+          "score_100": 68.0,
+          "votes": 1790,
+          "url": null
+        },
+        {
+          "platform_key": "tmdb",
+          "platform_name": "TMDb",
+          "score_display": "78%",
+          "score_10": 7.8,
+          "score_100": 78.0,
+          "votes": 17684,
+          "url": null
+        },
+        {
+          "platform_key": "trakt",
+          "platform_name": "Trakt",
+          "score_display": "77%",
+          "score_10": 7.7,
+          "score_100": 77.0,
+          "votes": 37855,
+          "url": null
+        },
+        {
+          "platform_key": "letterboxd",
+          "platform_name": "Letterboxd",
+          "score_display": "3.7/5.0",
+          "score_10": 7.4,
+          "score_100": 74.0,
+          "votes": 1418705,
+          "url": "https://letterboxd.com/film/squid-game/"
+        }
+      ],
+      "error_message": null,
+      "library_type": "series",
+      "library_primary_title": "Squid Game",
+      "library_start_year": 2021
+    },
+    "tt11280740": {
+      "imdb_id": "tt11280740",
+      "status": "success",
+      "latency_ms": 775.71,
+      "title": "Severance",
+      "year": 2022,
+      "media_type": "show",
+      "score": 85,
+      "score_average": 85,
+      "platform_ratings": [
+        {
+          "platform_key": "imdb",
+          "platform_name": "IMDb",
+          "score_display": "8.6/10",
+          "score_10": 8.6,
+          "score_100": 86.0,
+          "votes": 403596,
+          "url": "https://www.imdb.com/title/tt11280740/"
+        },
+        {
+          "platform_key": "tomatoes_critic",
+          "platform_name": "Rotten Tomatoes (影评人)",
+          "score_display": "95%",
+          "score_10": 9.5,
+          "score_100": 95.0,
+          "votes": 241,
+          "url": "https://www.rottentomatoes.com/tv/severance"
+        },
+        {
+          "platform_key": "tomatoes_audience",
+          "platform_name": "Rotten Tomatoes (观众)",
+          "score_display": "80%",
+          "score_10": 8.0,
+          "score_100": 80.0,
+          "votes": null,
+          "url": null
+        },
+        {
+          "platform_key": "metacritic_critic",
+          "platform_name": "Metacritic (Metascore)",
+          "score_display": "85/100",
+          "score_10": 8.5,
+          "score_100": 85.0,
+          "votes": 82,
+          "url": "https://www.metacritic.com/tv/severance"
+        },
+        {
+          "platform_key": "metacritic_user",
+          "platform_name": "Metacritic (用户)",
+          "score_display": "8.4/10",
+          "score_10": 8.4,
+          "score_100": 84.0,
+          "votes": 1030,
+          "url": null
+        },
+        {
+          "platform_key": "tmdb",
+          "platform_name": "TMDb",
+          "score_display": "83%",
+          "score_10": 8.3,
+          "score_100": 83.0,
+          "votes": 2899,
+          "url": null
+        },
+        {
+          "platform_key": "trakt",
+          "platform_name": "Trakt",
+          "score_display": "86%",
+          "score_10": 8.6,
+          "score_100": 86.0,
+          "votes": 24265,
+          "url": null
+        }
+      ],
+      "error_message": null,
+      "library_type": "series",
+      "library_primary_title": "Severance",
+      "library_start_year": 2022
+    },
+    "tt13696452": {
+      "imdb_id": "tt13696452",
+      "status": "success",
+      "latency_ms": 788.88,
+      "title": "Money Heist: Korea - Joint Economic Area",
+      "year": 2022,
+      "media_type": "show",
+      "score": 66,
+      "score_average": 66,
+      "platform_ratings": [
+        {
+          "platform_key": "imdb",
+          "platform_name": "IMDb",
+          "score_display": "5.9/10",
+          "score_10": 5.9,
+          "score_100": 59.0,
+          "votes": 10820,
+          "url": "https://www.imdb.com/title/tt13696452/"
+        },
+        {
+          "platform_key": "tomatoes_critic",
+          "platform_name": "Rotten Tomatoes (影评人)",
+          "score_display": "71%",
+          "score_10": 7.1,
+          "score_100": 71.0,
+          "votes": 17,
+          "url": "https://www.rottentomatoes.com/tv/money_heist_korea_joint_economic_area"
+        },
+        {
+          "platform_key": "tomatoes_audience",
+          "platform_name": "Rotten Tomatoes (观众)",
+          "score_display": "66%",
+          "score_10": 6.6,
+          "score_100": 66.0,
+          "votes": null,
+          "url": null
+        },
+        {
+          "platform_key": "metacritic_critic",
+          "platform_name": "Metacritic (Metascore)",
+          "score_display": "56/100",
+          "score_10": 5.6,
+          "score_100": 56.0,
+          "votes": 6,
+          "url": "https://www.metacritic.com/tv/jongiyi-jib-gongdonggyeongjeguyeog"
+        },
+        {
+          "platform_key": "tmdb",
+          "platform_name": "TMDb",
+          "score_display": "77%",
+          "score_10": 7.7,
+          "score_100": 77.0,
+          "votes": 730,
+          "url": null
+        },
+        {
+          "platform_key": "trakt",
+          "platform_name": "Trakt",
+          "score_display": "71%",
+          "score_10": 7.1,
+          "score_100": 71.0,
+          "votes": 893,
+          "url": null
+        },
+        {
+          "platform_key": "letterboxd",
+          "platform_name": "Letterboxd",
+          "score_display": "3.7/5.0",
+          "score_10": 7.4,
+          "score_100": 74.0,
+          "votes": 7739,
+          "url": "https://letterboxd.com/film/money-heist-korea-joint-economic-area/"
+        }
+      ],
+      "error_message": null,
+      "library_type": "series",
+      "library_primary_title": "Money Heist: Korea - Joint Economic Area",
+      "library_start_year": 2022
+    },
+    "tt14688458": {
+      "imdb_id": "tt14688458",
+      "status": "success",
+      "latency_ms": 749.27,
+      "title": "Silo",
+      "year": 2023,
+      "media_type": "show",
+      "score": 80,
+      "score_average": 80,
+      "platform_ratings": [
+        {
+          "platform_key": "imdb",
+          "platform_name": "IMDb",
+          "score_display": "8.1/10",
+          "score_10": 8.1,
+          "score_100": 81.0,
+          "votes": 230974,
+          "url": "https://www.imdb.com/title/tt14688458/"
+        },
+        {
+          "platform_key": "tomatoes_critic",
+          "platform_name": "Rotten Tomatoes (影评人)",
+          "score_display": "92%",
+          "score_10": 9.2,
+          "score_100": 92.0,
+          "votes": 130,
+          "url": "https://www.rottentomatoes.com/tv/silo"
+        },
+        {
+          "platform_key": "tomatoes_audience",
+          "platform_name": "Rotten Tomatoes (观众)",
+          "score_display": "66%",
+          "score_10": 6.6,
+          "score_100": 66.0,
+          "votes": null,
+          "url": null
+        },
+        {
+          "platform_key": "metacritic_critic",
+          "platform_name": "Metacritic (Metascore)",
+          "score_display": "77/100",
+          "score_10": 7.7,
+          "score_100": 77.0,
+          "votes": 44,
+          "url": "https://www.metacritic.com/tv/silo"
+        },
+        {
+          "platform_key": "metacritic_user",
+          "platform_name": "Metacritic (用户)",
+          "score_display": "6.9/10",
+          "score_10": 6.9,
+          "score_100": 69.0,
+          "votes": 648,
+          "url": null
+        },
+        {
+          "platform_key": "tmdb",
+          "platform_name": "TMDb",
+          "score_display": "81%",
+          "score_10": 8.1,
+          "score_100": 81.0,
+          "votes": 2510,
+          "url": null
+        },
+        {
+          "platform_key": "trakt",
+          "platform_name": "Trakt",
+          "score_display": "83%",
+          "score_10": 8.3,
+          "score_100": 83.0,
+          "votes": 18493,
+          "url": null
+        }
+      ],
+      "error_message": null,
+      "library_type": "series",
+      "library_primary_title": "Silo",
+      "library_start_year": 2023
+    },
+    "tt16288804": {
+      "imdb_id": "tt16288804",
+      "status": "success",
+      "latency_ms": 756.09,
+      "title": "Berlin",
+      "year": 2023,
+      "media_type": "show",
+      "score": 63,
+      "score_average": 63,
+      "platform_ratings": [
+        {
+          "platform_key": "imdb",
+          "platform_name": "IMDb",
+          "score_display": "7.1/10",
+          "score_10": 7.1,
+          "score_100": 71.0,
+          "votes": 43028,
+          "url": "https://www.imdb.com/title/tt16288804/"
+        },
+        {
+          "platform_key": "tomatoes_critic",
+          "platform_name": "Rotten Tomatoes (影评人)",
+          "score_display": "70%",
+          "score_10": 7.0,
+          "score_100": 70.0,
+          "votes": 10,
+          "url": "https://www.rottentomatoes.com/tv/berlin_2023"
+        },
+        {
+          "platform_key": "tomatoes_audience",
+          "platform_name": "Rotten Tomatoes (观众)",
+          "score_display": "49%",
+          "score_10": 4.9,
+          "score_100": 49.0,
+          "votes": null,
+          "url": null
+        },
+        {
+          "platform_key": "metacritic_critic",
+          "platform_name": "Metacritic (Metascore)",
+          "score_display": "40/100",
+          "score_10": 4.0,
+          "score_100": 40.0,
+          "votes": 4,
+          "url": "https://www.metacritic.com/tv/berlin"
+        },
+        {
+          "platform_key": "metacritic_user",
+          "platform_name": "Metacritic (用户)",
+          "score_display": "5.5/10",
+          "score_10": 5.5,
+          "score_100": 55.0,
+          "votes": 33,
+          "url": null
+        },
+        {
+          "platform_key": "tmdb",
+          "platform_name": "TMDb",
+          "score_display": "76%",
+          "score_10": 7.6,
+          "score_100": 76.0,
+          "votes": 704,
+          "url": null
+        },
+        {
+          "platform_key": "trakt",
+          "platform_name": "Trakt",
+          "score_display": "74%",
+          "score_10": 7.4,
+          "score_100": 74.0,
+          "votes": 3568,
+          "url": null
+        },
+        {
+          "platform_key": "letterboxd",
+          "platform_name": "Letterboxd",
+          "score_display": "3.5/5.0",
+          "score_10": 7.0,
+          "score_100": 70.0,
+          "votes": 3038,
+          "url": "https://letterboxd.com/film/berlin-2023-1/"
+        }
+      ],
+      "error_message": null,
+      "library_type": "series",
+      "library_primary_title": "Berlin and the Jewels of Paris",
+      "library_start_year": 2023
+    },
+    "tt1870479": {
+      "imdb_id": "tt1870479",
+      "status": "success",
+      "latency_ms": 772.81,
+      "title": "The Newsroom",
+      "year": 2012,
+      "media_type": "show",
+      "score": 80,
+      "score_average": 80,
+      "platform_ratings": [
+        {
+          "platform_key": "imdb",
+          "platform_name": "IMDb",
+          "score_display": "8.6/10",
+          "score_10": 8.6,
+          "score_100": 86.0,
+          "votes": 136307,
+          "url": "https://www.imdb.com/title/tt1870479/"
+        },
+        {
+          "platform_key": "tomatoes_audience",
+          "platform_name": "Rotten Tomatoes (观众)",
+          "score_display": "90%",
+          "score_10": 9.0,
+          "score_100": 90.0,
+          "votes": null,
+          "url": null
+        },
+        {
+          "platform_key": "metacritic_critic",
+          "platform_name": "Metacritic (Metascore)",
+          "score_display": "61/100",
+          "score_10": 6.1,
+          "score_100": 61.0,
+          "votes": 67,
+          "url": "https://www.metacritic.com/tv/the-newsroom"
+        },
+        {
+          "platform_key": "metacritic_user",
+          "platform_name": "Metacritic (用户)",
+          "score_display": "8.1/10",
+          "score_10": 8.1,
+          "score_100": 81.0,
+          "votes": 781,
+          "url": null
+        },
+        {
+          "platform_key": "tmdb",
+          "platform_name": "TMDb",
+          "score_display": "80%",
+          "score_10": 8.0,
+          "score_100": 80.0,
+          "votes": 760,
+          "url": null
+        },
+        {
+          "platform_key": "trakt",
+          "platform_name": "Trakt",
+          "score_display": "84%",
+          "score_10": 8.4,
+          "score_100": 84.0,
+          "votes": 5453,
+          "url": null
+        }
+      ],
+      "error_message": null,
+      "library_type": "series",
+      "library_primary_title": "The Newsroom",
+      "library_start_year": 2012
+    },
+    "tt19395018": {
+      "imdb_id": "tt19395018",
+      "status": "success",
+      "latency_ms": 758.07,
+      "title": "Constellation",
+      "year": 2024,
+      "media_type": "show",
+      "score": 66,
+      "score_average": 66,
+      "platform_ratings": [
+        {
+          "platform_key": "imdb",
+          "platform_name": "IMDb",
+          "score_display": "6.7/10",
+          "score_10": 6.7,
+          "score_100": 67.0,
+          "votes": 22365,
+          "url": "https://www.imdb.com/title/tt19395018/"
+        },
+        {
+          "platform_key": "tomatoes_critic",
+          "platform_name": "Rotten Tomatoes (影评人)",
+          "score_display": "72%",
+          "score_10": 7.2,
+          "score_100": 72.0,
+          "votes": 53,
+          "url": "https://www.rottentomatoes.com/tv/constellation"
+        },
+        {
+          "platform_key": "tomatoes_audience",
+          "platform_name": "Rotten Tomatoes (观众)",
+          "score_display": "62%",
+          "score_10": 6.2,
+          "score_100": 62.0,
+          "votes": null,
+          "url": null
+        },
+        {
+          "platform_key": "metacritic_critic",
+          "platform_name": "Metacritic (Metascore)",
+          "score_display": "63/100",
+          "score_10": 6.3,
+          "score_100": 63.0,
+          "votes": 23,
+          "url": "https://www.metacritic.com/tv/constellation"
+        },
+        {
+          "platform_key": "metacritic_user",
+          "platform_name": "Metacritic (用户)",
+          "score_display": "5.7/10",
+          "score_10": 5.7,
+          "score_100": 57.0,
+          "votes": 76,
+          "url": null
+        },
+        {
+          "platform_key": "tmdb",
+          "platform_name": "TMDb",
+          "score_display": "69%",
+          "score_10": 6.9,
+          "score_100": 69.0,
+          "votes": 381,
+          "url": null
+        },
+        {
+          "platform_key": "trakt",
+          "platform_name": "Trakt",
+          "score_display": "66%",
+          "score_10": 6.6,
+          "score_100": 66.0,
+          "votes": 1810,
+          "url": null
+        }
+      ],
+      "error_message": null,
+      "library_type": "series",
+      "library_primary_title": "Constellation",
+      "library_start_year": 2024
+    },
+    "tt21344706": {
+      "imdb_id": "tt21344706",
+      "status": "success",
+      "latency_ms": 773.04,
+      "title": "The Glory",
+      "year": 2022,
+      "media_type": "show",
+      "score": 85,
+      "score_average": 85,
+      "platform_ratings": [
+        {
+          "platform_key": "imdb",
+          "platform_name": "IMDb",
+          "score_display": "8.2/10",
+          "score_10": 8.2,
+          "score_100": 82.0,
+          "votes": 46375,
+          "url": "https://www.imdb.com/title/tt21344706/"
+        },
+        {
+          "platform_key": "tomatoes_critic",
+          "platform_name": "Rotten Tomatoes (影评人)",
+          "score_display": "82%",
+          "score_10": 8.2,
+          "score_100": 82.0,
+          "votes": 11,
+          "url": "https://www.rottentomatoes.com/tv/the_glory"
+        },
+        {
+          "platform_key": "tomatoes_audience",
+          "platform_name": "Rotten Tomatoes (观众)",
+          "score_display": "93%",
+          "score_10": 9.3,
+          "score_100": 93.0,
+          "votes": null,
+          "url": null
+        },
+        {
+          "platform_key": "metacritic_user",
+          "platform_name": "Metacritic (用户)",
+          "score_display": "6.8/10",
+          "score_10": 6.8,
+          "score_100": 68.0,
+          "votes": 18,
+          "url": null
+        },
+        {
+          "platform_key": "tmdb",
+          "platform_name": "TMDb",
+          "score_display": "84%",
+          "score_10": 8.4,
+          "score_100": 84.0,
+          "votes": 947,
+          "url": null
+        },
+        {
+          "platform_key": "trakt",
+          "platform_name": "Trakt",
+          "score_display": "85%",
+          "score_10": 8.5,
+          "score_100": 85.0,
+          "votes": 3278,
+          "url": null
+        },
+        {
+          "platform_key": "letterboxd",
+          "platform_name": "Letterboxd",
+          "score_display": "4.3/5.0",
+          "score_10": 8.6,
+          "score_100": 86.0,
+          "votes": 135432,
+          "url": "https://letterboxd.com/film/the-glory/"
+        }
+      ],
+      "error_message": null,
+      "library_type": "series",
+      "library_primary_title": "The Glory",
+      "library_start_year": 2022
+    },
+    "tt22202452": {
+      "imdb_id": "tt22202452",
+      "status": "success",
+      "latency_ms": 808.53,
+      "title": "Pluribus",
+      "year": 2025,
+      "media_type": "show",
+      "score": 82,
+      "score_average": 82,
+      "platform_ratings": [
+        {
+          "platform_key": "imdb",
+          "platform_name": "IMDb",
+          "score_display": "7.9/10",
+          "score_10": 7.9,
+          "score_100": 79.0,
+          "votes": 171123,
+          "url": "https://www.imdb.com/title/tt22202452/"
+        },
+        {
+          "platform_key": "tomatoes_critic",
+          "platform_name": "Rotten Tomatoes (影评人)",
+          "score_display": "99%",
+          "score_10": 9.9,
+          "score_100": 99.0,
+          "votes": 122,
+          "url": "https://www.rottentomatoes.com/tv/pluribus"
+        },
+        {
+          "platform_key": "tomatoes_audience",
+          "platform_name": "Rotten Tomatoes (观众)",
+          "score_display": "68%",
+          "score_10": 6.8,
+          "score_100": 68.0,
+          "votes": null,
+          "url": null
+        },
+        {
+          "platform_key": "metacritic_critic",
+          "platform_name": "Metacritic (Metascore)",
+          "score_display": "87/100",
+          "score_10": 8.7,
+          "score_100": 87.0,
+          "votes": 38,
+          "url": "https://www.metacritic.com/tv/pluribus"
+        },
+        {
+          "platform_key": "metacritic_user",
+          "platform_name": "Metacritic (用户)",
+          "score_display": "7.1/10",
+          "score_10": 7.1,
+          "score_100": 71.0,
+          "votes": 591,
+          "url": null
+        },
+        {
+          "platform_key": "tmdb",
+          "platform_name": "TMDb",
+          "score_display": "79%",
+          "score_10": 7.9,
+          "score_100": 79.0,
+          "votes": 1063,
+          "url": null
+        },
+        {
+          "platform_key": "trakt",
+          "platform_name": "Trakt",
+          "score_display": "82%",
+          "score_10": 8.2,
+          "score_100": 82.0,
+          "votes": 14588,
+          "url": null
+        }
+      ],
+      "error_message": null,
+      "library_type": "series",
+      "library_primary_title": "Pluribus",
+      "library_start_year": 2025
+    },
+    "tt30444310": {
+      "imdb_id": "tt30444310",
+      "status": "success",
+      "latency_ms": 777.99,
+      "title": "Murderbot",
+      "year": 2025,
+      "media_type": "show",
+      "score": 78,
+      "score_average": 78,
+      "platform_ratings": [
+        {
+          "platform_key": "imdb",
+          "platform_name": "IMDb",
+          "score_display": "7.4/10",
+          "score_10": 7.4,
+          "score_100": 74.0,
+          "votes": 42425,
+          "url": "https://www.imdb.com/title/tt30444310/"
+        },
+        {
+          "platform_key": "tomatoes_critic",
+          "platform_name": "Rotten Tomatoes (影评人)",
+          "score_display": "95%",
+          "score_10": 9.5,
+          "score_100": 95.0,
+          "votes": 82,
+          "url": "https://www.rottentomatoes.com/tv/murderbot"
+        },
+        {
+          "platform_key": "tomatoes_audience",
+          "platform_name": "Rotten Tomatoes (观众)",
+          "score_display": "82%",
+          "score_10": 8.2,
+          "score_100": 82.0,
+          "votes": null,
+          "url": null
+        },
+        {
+          "platform_key": "metacritic_critic",
+          "platform_name": "Metacritic (Metascore)",
+          "score_display": "71/100",
+          "score_10": 7.1,
+          "score_100": 71.0,
+          "votes": 29,
+          "url": "https://www.metacritic.com/tv/murderbot"
+        },
+        {
+          "platform_key": "metacritic_user",
+          "platform_name": "Metacritic (用户)",
+          "score_display": "6.5/10",
+          "score_10": 6.5,
+          "score_100": 65.0,
+          "votes": 154,
+          "url": null
+        },
+        {
+          "platform_key": "tmdb",
+          "platform_name": "TMDb",
+          "score_display": "73%",
+          "score_10": 7.3,
+          "score_100": 73.0,
+          "votes": 509,
+          "url": null
+        },
+        {
+          "platform_key": "trakt",
+          "platform_name": "Trakt",
+          "score_display": "75%",
+          "score_10": 7.5,
+          "score_100": 75.0,
+          "votes": 5191,
+          "url": null
+        }
+      ],
+      "error_message": null,
+      "library_type": "series",
+      "library_primary_title": "Murderbot",
+      "library_start_year": 2025
+    },
+    "tt31314751": {
+      "imdb_id": "tt31314751",
+      "status": "success",
+      "latency_ms": 880.67,
+      "title": "All Her Fault",
+      "year": 2025,
+      "media_type": "show",
+      "score": 75,
+      "score_average": 75,
+      "platform_ratings": [
+        {
+          "platform_key": "imdb",
+          "platform_name": "IMDb",
+          "score_display": "7.5/10",
+          "score_10": 7.5,
+          "score_100": 75.0,
+          "votes": 50469,
+          "url": "https://www.imdb.com/title/tt31314751/"
+        },
+        {
+          "platform_key": "tomatoes_critic",
+          "platform_name": "Rotten Tomatoes (影评人)",
+          "score_display": "80%",
+          "score_10": 8.0,
+          "score_100": 80.0,
+          "votes": 44,
+          "url": "https://www.rottentomatoes.com/tv/all_her_fault"
+        },
+        {
+          "platform_key": "tomatoes_audience",
+          "platform_name": "Rotten Tomatoes (观众)",
+          "score_display": "74%",
+          "score_10": 7.4,
+          "score_100": 74.0,
+          "votes": null,
+          "url": null
+        },
+        {
+          "platform_key": "metacritic_critic",
+          "platform_name": "Metacritic (Metascore)",
+          "score_display": "63/100",
+          "score_10": 6.3,
+          "score_100": 63.0,
+          "votes": 18,
+          "url": "https://www.metacritic.com/tv/all-her-fault"
+        },
+        {
+          "platform_key": "metacritic_user",
+          "platform_name": "Metacritic (用户)",
+          "score_display": "6.8/10",
+          "score_10": 6.8,
+          "score_100": 68.0,
+          "votes": 64,
+          "url": null
+        },
+        {
+          "platform_key": "tmdb",
+          "platform_name": "TMDb",
+          "score_display": "80%",
+          "score_10": 8.0,
+          "score_100": 80.0,
+          "votes": 316,
+          "url": null
+        },
+        {
+          "platform_key": "trakt",
+          "platform_name": "Trakt",
+          "score_display": "78%",
+          "score_10": 7.8,
+          "score_100": 78.0,
+          "votes": 3746,
+          "url": null
+        },
+        {
+          "platform_key": "letterboxd",
+          "platform_name": "Letterboxd",
+          "score_display": "3.8/5.0",
+          "score_10": 7.6,
+          "score_100": 76.0,
+          "votes": 70308,
+          "url": "https://letterboxd.com/film/all-her-fault/"
+        },
+        {
+          "platform_key": "rogerebert",
+          "platform_name": "Roger Ebert",
+          "score_display": "3.0/4.0 stars",
+          "score_10": 7.5,
+          "score_100": 75.0,
+          "votes": null,
+          "url": "https://www.rogerebert.com/reviews/all-her-fault-sarah-snook-peacock-tv-review-2025"
+        }
+      ],
+      "error_message": null,
+      "library_type": "series",
+      "library_primary_title": "All Her Fault",
+      "library_start_year": 2025
+    },
+    "tt31806037": {
+      "imdb_id": "tt31806037",
+      "status": "success",
+      "latency_ms": 1052.74,
+      "title": "Adolescence",
+      "year": 2025,
+      "media_type": "show",
+      "score": 85,
+      "score_average": 85,
+      "platform_ratings": [
+        {
+          "platform_key": "imdb",
+          "platform_name": "IMDb",
+          "score_display": "8.1/10",
+          "score_10": 8.1,
+          "score_100": 81.0,
+          "votes": 314568,
+          "url": "https://www.imdb.com/title/tt31806037/"
+        },
+        {
+          "platform_key": "tomatoes_critic",
+          "platform_name": "Rotten Tomatoes (影评人)",
+          "score_display": "97%",
+          "score_10": 9.7,
+          "score_100": 97.0,
+          "votes": 112,
+          "url": "https://www.rottentomatoes.com/tv/adolescence"
+        },
+        {
+          "platform_key": "tomatoes_audience",
+          "platform_name": "Rotten Tomatoes (观众)",
+          "score_display": "74%",
+          "score_10": 7.4,
+          "score_100": 74.0,
+          "votes": null,
+          "url": null
+        },
+        {
+          "platform_key": "metacritic_critic",
+          "platform_name": "Metacritic (Metascore)",
+          "score_display": "91/100",
+          "score_10": 9.1,
+          "score_100": 91.0,
+          "votes": 29,
+          "url": "https://www.metacritic.com/tv/adolescence"
+        },
+        {
+          "platform_key": "metacritic_user",
+          "platform_name": "Metacritic (用户)",
+          "score_display": "7.1/10",
+          "score_10": 7.1,
+          "score_100": 71.0,
+          "votes": 563,
+          "url": null
+        },
+        {
+          "platform_key": "tmdb",
+          "platform_name": "TMDb",
+          "score_display": "78%",
+          "score_10": 7.8,
+          "score_100": 78.0,
+          "votes": 1728,
+          "url": null
+        },
+        {
+          "platform_key": "trakt",
+          "platform_name": "Trakt",
+          "score_display": "78%",
+          "score_10": 7.8,
+          "score_100": 78.0,
+          "votes": 16812,
+          "url": null
+        },
+        {
+          "platform_key": "letterboxd",
+          "platform_name": "Letterboxd",
+          "score_display": "4.1/5.0",
+          "score_10": 8.2,
+          "score_100": 82.0,
+          "votes": 1258867,
+          "url": "https://letterboxd.com/film/adolescence-2025/"
+        },
+        {
+          "platform_key": "rogerebert",
+          "platform_name": "Roger Ebert",
+          "score_display": "4.0/4.0 stars",
+          "score_10": 10.0,
+          "score_100": 100.0,
+          "votes": null,
+          "url": "https://www.rogerebert.com/reviews/adolescence-netflix-tv-review-2025"
+        }
+      ],
+      "error_message": null,
+      "library_type": "series",
+      "library_primary_title": "Adolescence",
+      "library_start_year": 2025
+    },
+    "tt32247369": {
+      "imdb_id": "tt32247369",
+      "status": "success",
+      "latency_ms": 790.39,
+      "title": "Ren Yu",
+      "year": 2026,
+      "media_type": "show",
+      "score": 0,
+      "score_average": 0,
+      "platform_ratings": [
+        {
+          "platform_key": "imdb",
+          "platform_name": "IMDb",
+          "score_display": "7.5/10",
+          "score_10": 7.5,
+          "score_100": 75.0,
+          "votes": 16,
+          "url": "https://www.imdb.com/title/tt32247369/"
+        },
+        {
+          "platform_key": "tmdb",
+          "platform_name": "TMDb",
+          "score_display": "90%",
+          "score_10": 9.0,
+          "score_100": 90.0,
+          "votes": 2,
+          "url": null
+        },
+        {
+          "platform_key": "trakt",
+          "platform_name": "Trakt",
+          "score_display": "70%",
+          "score_10": 7.0,
+          "score_100": 70.0,
+          "votes": 6,
+          "url": null
+        }
+      ],
+      "error_message": null,
+      "library_type": "series",
+      "library_primary_title": "Ren Yu",
+      "library_start_year": 2026
+    },
+    "tt3230854": {
+      "imdb_id": "tt3230854",
+      "status": "success",
+      "latency_ms": 800.08,
+      "title": "The Expanse",
+      "year": 2015,
+      "media_type": "show",
+      "score": 83,
+      "score_average": 83,
+      "platform_ratings": [
+        {
+          "platform_key": "imdb",
+          "platform_name": "IMDb",
+          "score_display": "8.5/10",
+          "score_10": 8.5,
+          "score_100": 85.0,
+          "votes": 194478,
+          "url": "https://www.imdb.com/title/tt3230854/"
+        },
+        {
+          "platform_key": "tomatoes_critic",
+          "platform_name": "Rotten Tomatoes (影评人)",
+          "score_display": "95%",
+          "score_10": 9.5,
+          "score_100": 95.0,
+          "votes": 188,
+          "url": "https://www.rottentomatoes.com/tv/the_expanse"
+        },
+        {
+          "platform_key": "tomatoes_audience",
+          "platform_name": "Rotten Tomatoes (观众)",
+          "score_display": "85%",
+          "score_10": 8.5,
+          "score_100": 85.0,
+          "votes": null,
+          "url": null
+        },
+        {
+          "platform_key": "metacritic_critic",
+          "platform_name": "Metacritic (Metascore)",
+          "score_display": "72/100",
+          "score_10": 7.2,
+          "score_100": 72.0,
+          "votes": 40,
+          "url": "https://www.metacritic.com/tv/the-expanse"
+        },
+        {
+          "platform_key": "metacritic_user",
+          "platform_name": "Metacritic (用户)",
+          "score_display": "8.6/10",
+          "score_10": 8.6,
+          "score_100": 86.0,
+          "votes": 1826,
+          "url": null
+        },
+        {
+          "platform_key": "tmdb",
+          "platform_name": "TMDb",
+          "score_display": "80%",
+          "score_10": 8.0,
+          "score_100": 80.0,
+          "votes": 2905,
+          "url": null
+        },
+        {
+          "platform_key": "trakt",
+          "platform_name": "Trakt",
+          "score_display": "85%",
+          "score_10": 8.5,
+          "score_100": 85.0,
+          "votes": 13537,
+          "url": null
+        }
+      ],
+      "error_message": null,
+      "library_type": "series",
+      "library_primary_title": "The Expanse",
+      "library_start_year": 2015
+    },
+    "tt34809853": {
+      "imdb_id": "tt34809853",
+      "status": "success",
+      "latency_ms": 769.21,
+      "title": "Teach You a Lesson",
+      "year": 2026,
+      "media_type": "show",
+      "score": 90,
+      "score_average": 90,
+      "platform_ratings": [
+        {
+          "platform_key": "imdb",
+          "platform_name": "IMDb",
+          "score_display": "8.4/10",
+          "score_10": 8.4,
+          "score_100": 84.0,
+          "votes": 19096,
+          "url": "https://www.imdb.com/title/tt34809853/"
+        },
+        {
+          "platform_key": "tomatoes_critic",
+          "platform_name": "Rotten Tomatoes (影评人)",
+          "score_display": "90%",
+          "score_10": 9.0,
+          "score_100": 90.0,
+          "votes": 10,
+          "url": "https://www.rottentomatoes.com/tv/teach_you_a_lesson"
+        },
+        {
+          "platform_key": "tomatoes_audience",
+          "platform_name": "Rotten Tomatoes (观众)",
+          "score_display": "94%",
+          "score_10": 9.4,
+          "score_100": 94.0,
+          "votes": null,
+          "url": null
+        },
+        {
+          "platform_key": "tmdb",
+          "platform_name": "TMDb",
+          "score_display": "94%",
+          "score_10": 9.4,
+          "score_100": 94.0,
+          "votes": 833,
+          "url": null
+        },
+        {
+          "platform_key": "trakt",
+          "platform_name": "Trakt",
+          "score_display": "88%",
+          "score_10": 8.8,
+          "score_100": 88.0,
+          "votes": 2422,
+          "url": null
+        },
+        {
+          "platform_key": "letterboxd",
+          "platform_name": "Letterboxd",
+          "score_display": "4.3/5.0",
+          "score_10": 8.6,
+          "score_100": 86.0,
+          "votes": 82521,
+          "url": "https://letterboxd.com/film/teach-you-a-lesson-2026/"
+        }
+      ],
+      "error_message": null,
+      "library_type": "series",
+      "library_primary_title": "Teach You a Lesson",
+      "library_start_year": 2026
+    },
+    "tt35418163": {
+      "imdb_id": "tt35418163",
+      "status": "success",
+      "latency_ms": 783.15,
+      "title": "Xiao Fang",
+      "year": 2026,
+      "media_type": "show",
+      "score": 0,
+      "score_average": 0,
+      "platform_ratings": [
+        {
+          "platform_key": "imdb",
+          "platform_name": "IMDb",
+          "score_display": "8.1/10",
+          "score_10": 8.1,
+          "score_100": 81.0,
+          "votes": 23,
+          "url": "https://www.imdb.com/title/tt35418163/"
+        },
+        {
+          "platform_key": "tmdb",
+          "platform_name": "TMDb",
+          "score_display": "86%",
+          "score_10": 8.6,
+          "score_100": 86.0,
+          "votes": 3,
+          "url": null
+        },
+        {
+          "platform_key": "trakt",
+          "platform_name": "Trakt",
+          "score_display": "94%",
+          "score_10": 9.4,
+          "score_100": 94.0,
+          "votes": 7,
+          "url": null
+        }
+      ],
+      "error_message": null,
+      "library_type": "series",
+      "library_primary_title": "Xiao Fang",
+      "library_start_year": 2026
+    },
+    "tt42178219": {
+      "imdb_id": "tt42178219",
+      "status": "success",
+      "latency_ms": 775.8,
+      "title": "Berlin and the Lady with an Ermine",
+      "year": 2026,
+      "media_type": "show",
+      "score": 75,
+      "score_average": 75,
+      "platform_ratings": [
+        {
+          "platform_key": "imdb",
+          "platform_name": "IMDb",
+          "score_display": "6.9/10",
+          "score_10": 6.9,
+          "score_100": 69.0,
+          "votes": 10112,
+          "url": "https://www.imdb.com/title/tt42178219/"
+        },
+        {
+          "platform_key": "metacritic_user",
+          "platform_name": "Metacritic (用户)",
+          "score_display": "5.5/10",
+          "score_10": 5.5,
+          "score_100": 55.0,
+          "votes": 11,
+          "url": null
+        },
+        {
+          "platform_key": "tmdb",
+          "platform_name": "TMDb",
+          "score_display": "80%",
+          "score_10": 8.0,
+          "score_100": 80.0,
+          "votes": 213,
+          "url": null
+        },
+        {
+          "platform_key": "trakt",
+          "platform_name": "Trakt",
+          "score_display": "75%",
+          "score_10": 7.5,
+          "score_100": 75.0,
+          "votes": 2254,
+          "url": null
+        },
+        {
+          "platform_key": "letterboxd",
+          "platform_name": "Letterboxd",
+          "score_display": "3.4/5.0",
+          "score_10": 6.8,
+          "score_100": 68.0,
+          "votes": 4260,
+          "url": "https://letterboxd.com/film/berlin-and-the-lady-with-an-ermine/"
+        }
+      ],
+      "error_message": null,
+      "library_type": "series",
+      "library_primary_title": "Berlin and the Lady with an Ermine",
+      "library_start_year": 2026
+    },
+    "tt43551392": {
+      "imdb_id": "tt43551392",
+      "status": "success",
+      "latency_ms": 809.26,
+      "title": "Deep In",
+      "year": 2026,
+      "media_type": "show",
+      "score": 58,
+      "score_average": 88,
+      "platform_ratings": [
+        {
+          "platform_key": "imdb",
+          "platform_name": "IMDb",
+          "score_display": "8.3/10",
+          "score_10": 8.3,
+          "score_100": 83.0,
+          "votes": 423,
+          "url": "https://www.imdb.com/title/tt43551392/"
+        },
+        {
+          "platform_key": "tmdb",
+          "platform_name": "TMDb",
+          "score_display": "94%",
+          "score_10": 9.4,
+          "score_100": 94.0,
+          "votes": 14,
+          "url": null
+        },
+        {
+          "platform_key": "trakt",
+          "platform_name": "Trakt",
+          "score_display": "87%",
+          "score_10": 8.7,
+          "score_100": 87.0,
+          "votes": 200,
+          "url": null
+        },
+        {
+          "platform_key": "letterboxd",
+          "platform_name": "Letterboxd",
+          "score_display": "3.7/5.0",
+          "score_10": 7.4,
+          "score_100": 74.0,
+          "votes": 1476,
+          "url": "https://letterboxd.com/film/deep-in-2026/"
+        }
+      ],
+      "error_message": null,
+      "library_type": "series",
+      "library_primary_title": "Deep In",
+      "library_start_year": 2026
+    },
+    "tt5753856": {
+      "imdb_id": "tt5753856",
+      "status": "success",
+      "latency_ms": 802.68,
+      "title": "Dark",
+      "year": 2017,
+      "media_type": "show",
+      "score": 86,
+      "score_average": 86,
+      "platform_ratings": [
+        {
+          "platform_key": "imdb",
+          "platform_name": "IMDb",
+          "score_display": "8.7/10",
+          "score_10": 8.7,
+          "score_100": 87.0,
+          "votes": 559641,
+          "url": "https://www.imdb.com/title/tt5753856/"
+        },
+        {
+          "platform_key": "tomatoes_critic",
+          "platform_name": "Rotten Tomatoes (影评人)",
+          "score_display": "95%",
+          "score_10": 9.5,
+          "score_100": 95.0,
+          "votes": 113,
+          "url": "https://www.rottentomatoes.com/tv/dark"
+        },
+        {
+          "platform_key": "tomatoes_audience",
+          "platform_name": "Rotten Tomatoes (观众)",
+          "score_display": "94%",
+          "score_10": 9.4,
+          "score_100": 94.0,
+          "votes": null,
+          "url": null
+        },
+        {
+          "platform_key": "metacritic_critic",
+          "platform_name": "Metacritic (Metascore)",
+          "score_display": "72/100",
+          "score_10": 7.2,
+          "score_100": 72.0,
+          "votes": 18,
+          "url": "https://www.metacritic.com/tv/dark"
+        },
+        {
+          "platform_key": "metacritic_user",
+          "platform_name": "Metacritic (用户)",
+          "score_display": "8.8/10",
+          "score_10": 8.8,
+          "score_100": 88.0,
+          "votes": 1529,
+          "url": null
+        },
+        {
+          "platform_key": "tmdb",
+          "platform_name": "TMDb",
+          "score_display": "84%",
+          "score_10": 8.4,
+          "score_100": 84.0,
+          "votes": 7800,
+          "url": null
+        },
+        {
+          "platform_key": "trakt",
+          "platform_name": "Trakt",
+          "score_display": "86%",
+          "score_10": 8.6,
+          "score_100": 86.0,
+          "votes": 23321,
+          "url": null
+        }
+      ],
+      "error_message": null,
+      "library_type": "series",
+      "library_primary_title": "Dark",
+      "library_start_year": 2017
+    },
+    "tt6226232": {
+      "imdb_id": "tt6226232",
+      "status": "success",
+      "latency_ms": 764.35,
+      "title": "Young Sheldon",
+      "year": 2017,
+      "media_type": "show",
+      "score": 76,
+      "score_average": 76,
+      "platform_ratings": [
+        {
+          "platform_key": "imdb",
+          "platform_name": "IMDb",
+          "score_display": "7.8/10",
+          "score_10": 7.8,
+          "score_100": 78.0,
+          "votes": 152098,
+          "url": "https://www.imdb.com/title/tt6226232/"
+        },
+        {
+          "platform_key": "tomatoes_audience",
+          "platform_name": "Rotten Tomatoes (观众)",
+          "score_display": "84%",
+          "score_10": 8.4,
+          "score_100": 84.0,
+          "votes": null,
+          "url": null
+        },
+        {
+          "platform_key": "metacritic_critic",
+          "platform_name": "Metacritic (Metascore)",
+          "score_display": "63/100",
+          "score_10": 6.3,
+          "score_100": 63.0,
+          "votes": 28,
+          "url": "https://www.metacritic.com/tv/young-sheldon"
+        },
+        {
+          "platform_key": "metacritic_user",
+          "platform_name": "Metacritic (用户)",
+          "score_display": "6.4/10",
+          "score_10": 6.4,
+          "score_100": 64.0,
+          "votes": 385,
+          "url": null
+        },
+        {
+          "platform_key": "tmdb",
+          "platform_name": "TMDb",
+          "score_display": "80%",
+          "score_10": 8.0,
+          "score_100": 80.0,
+          "votes": 3071,
+          "url": null
+        },
+        {
+          "platform_key": "trakt",
+          "platform_name": "Trakt",
+          "score_display": "77%",
+          "score_10": 7.7,
+          "score_100": 77.0,
+          "votes": 8677,
+          "url": null
+        }
+      ],
+      "error_message": null,
+      "library_type": "series",
+      "library_primary_title": "Young Sheldon",
+      "library_start_year": 2017
+    },
+    "tt9054904": {
+      "imdb_id": "tt9054904",
+      "status": "success",
+      "latency_ms": 767.63,
+      "title": "Why Women Kill",
+      "year": 2019,
+      "media_type": "show",
+      "score": 78,
+      "score_average": 78,
+      "platform_ratings": [
+        {
+          "platform_key": "imdb",
+          "platform_name": "IMDb",
+          "score_display": "8.3/10",
+          "score_10": 8.3,
+          "score_100": 83.0,
+          "votes": 39039,
+          "url": "https://www.imdb.com/title/tt9054904/"
+        },
+        {
+          "platform_key": "tomatoes_critic",
+          "platform_name": "Rotten Tomatoes (影评人)",
+          "score_display": "77%",
+          "score_10": 7.7,
+          "score_100": 77.0,
+          "votes": 35,
+          "url": "https://www.rottentomatoes.com/tv/why_women_kill"
+        },
+        {
+          "platform_key": "tomatoes_audience",
+          "platform_name": "Rotten Tomatoes (观众)",
+          "score_display": "88%",
+          "score_10": 8.8,
+          "score_100": 88.0,
+          "votes": null,
+          "url": null
+        },
+        {
+          "platform_key": "metacritic_critic",
+          "platform_name": "Metacritic (Metascore)",
+          "score_display": "62/100",
+          "score_10": 6.2,
+          "score_100": 62.0,
+          "votes": 18,
+          "url": "https://www.metacritic.com/tv/why-women-kill"
+        },
+        {
+          "platform_key": "metacritic_user",
+          "platform_name": "Metacritic (用户)",
+          "score_display": "6.8/10",
+          "score_10": 6.8,
+          "score_100": 68.0,
+          "votes": 65,
+          "url": null
+        },
+        {
+          "platform_key": "tmdb",
+          "platform_name": "TMDb",
+          "score_display": "79%",
+          "score_10": 7.9,
+          "score_100": 79.0,
+          "votes": 399,
+          "url": null
+        },
+        {
+          "platform_key": "trakt",
+          "platform_name": "Trakt",
+          "score_display": "80%",
+          "score_10": 8.0,
+          "score_100": 80.0,
+          "votes": 1662,
+          "url": null
+        }
+      ],
+      "error_message": null,
+      "library_type": "series",
+      "library_primary_title": "Why Women Kill",
+      "library_start_year": 2019
+    },
+    "tt9892936": {
+      "imdb_id": "tt9892936",
+      "status": "success",
+      "latency_ms": 798.0,
+      "title": "One Hundred Years of Solitude",
+      "year": 2024,
+      "media_type": "show",
+      "score": 83,
+      "score_average": 83,
+      "platform_ratings": [
+        {
+          "platform_key": "imdb",
+          "platform_name": "IMDb",
+          "score_display": "8.3/10",
+          "score_10": 8.3,
+          "score_100": 83.0,
+          "votes": 21178,
+          "url": "https://www.imdb.com/title/tt9892936/"
+        },
+        {
+          "platform_key": "tomatoes_critic",
+          "platform_name": "Rotten Tomatoes (影评人)",
+          "score_display": "87%",
+          "score_10": 8.7,
+          "score_100": 87.0,
+          "votes": 30,
+          "url": "https://www.rottentomatoes.com/tv/one_hundred_years_of_solitude"
+        },
+        {
+          "platform_key": "tomatoes_audience",
+          "platform_name": "Rotten Tomatoes (观众)",
+          "score_display": "90%",
+          "score_10": 9.0,
+          "score_100": 90.0,
+          "votes": null,
+          "url": null
+        },
+        {
+          "platform_key": "metacritic_critic",
+          "platform_name": "Metacritic (Metascore)",
+          "score_display": "80/100",
+          "score_10": 8.0,
+          "score_100": 80.0,
+          "votes": 19,
+          "url": "https://www.metacritic.com/tv/one-hundred-years-of-solitude"
+        },
+        {
+          "platform_key": "metacritic_user",
+          "platform_name": "Metacritic (用户)",
+          "score_display": "7.9/10",
+          "score_10": 7.9,
+          "score_100": 79.0,
+          "votes": 55,
+          "url": null
+        },
+        {
+          "platform_key": "tmdb",
+          "platform_name": "TMDb",
+          "score_display": "79%",
+          "score_10": 7.9,
+          "score_100": 79.0,
+          "votes": 244,
+          "url": null
+        },
+        {
+          "platform_key": "trakt",
+          "platform_name": "Trakt",
+          "score_display": "80%",
+          "score_10": 8.0,
+          "score_100": 80.0,
+          "votes": 934,
+          "url": null
+        }
+      ],
+      "error_message": null,
+      "library_type": "series",
+      "library_primary_title": "One Hundred Years of Solitude",
+      "library_start_year": 2024
+    }
+  }
+}

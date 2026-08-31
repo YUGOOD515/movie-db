@@ -9,7 +9,8 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 from urllib.parse import unquote
 
-import app as movie_app
+with patch.dict(os.environ, {"ALIST_AUTOSTART": "0"}):
+    import app as movie_app
 from connectors import alist, media_probe, player
 from models import database as database_module
 from models import library as models

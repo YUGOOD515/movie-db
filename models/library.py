@@ -409,3 +409,46 @@ def import_media_bundle(
             "SELECT file_id FROM media_file WHERE alist_path = ?",
             (alist_path,),
         ).fetchone()[0]
+
+
+def update_title_ratings(
+    database_path: str | Path,
+    title_id: str,
+    ratings: dict,
+) -> bool:
+    """Update multi-platform ratings for a title in title_basic."""
+    allowed_columns = {
+        "mdblist_score",
+        "mdblist_score_average",
+        "rt_critics_score",
+        "rt_critics_votes",
+        "rt_audience_score",
+        "rt_audience_votes",
+        "metacritic_score",
+        "metacritic_votes",
+        "metacritic_user_score",
+        "metacritic_user_votes",
+        "trakt_score",
+        "trakt_votes",
+        "letterboxd_score",
+        "letterboxd_votes",
+        "roger_ebert_rating",
+        "myanimelist_score",
+        "myanimelist_votes",
+    }
+    updates = {k: v for k, v in ratings.items() if k in allowed_columns}
+    if not updates:
+        return False
+    set_clause = ", ".join(f"{col} = :{col}" for col in updates.keys())
+    with closing(connect_writable(database_path)) as db, db:
+        cursor = db.execute(
+            f"""
+            UPDATE title_basic
+               SET {set_clause},
+                   updated_at = CURRENT_TIMESTAMP
+             WHERE title_id = :title_id
+            """,
+            {"title_id": title_id, **updates},
+        )
+        return cursor.rowcount > 0
+

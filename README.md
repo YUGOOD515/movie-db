@@ -10,6 +10,8 @@
 
 ```powershell
 $env:FLASK_SECRET_KEY = "生成的随机密钥"
+$env:ALIST_DIR = "C:\alist"
+$env:ALIST_AUTOSTART = "1"
 $env:ALIST_ORIGIN = "http://127.0.0.1:5244"
 $env:ALIST_USERNAME = "AList 用户名"
 $env:ALIST_PASSWORD = "AList 密码"
@@ -22,5 +24,7 @@ $env:TMDB_TOKEN = "TMDB API Read Access Token"
 uv sync
 uv run flask --app app run
 ```
+
+配置 `ALIST_DIR` 后，应用启动时会先检查 `ALIST_ORIGIN`。如果 AList 尚未运行，应用会在该目录执行 `alist.exe start`，并等待服务可用；已运行的实例不会重复启动。未配置 `ALIST_DIR`，或将 `ALIST_AUTOSTART` 设为 `0` 时，保持原来的手动启动方式。AList 作为独立后台进程运行，Flask 退出时不会自动停止它。
 
 TMDB 与 AList 凭据不得写入源码或提交到 Git。曾经进入 Git 历史的凭据应在对应服务中轮换。
