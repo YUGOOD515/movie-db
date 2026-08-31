@@ -1,7 +1,12 @@
+import sys
+sys.path = [p for p in sys.path if "AppData" not in p] + [p for p in sys.path if "AppData" in p]
+
 import io
 import json
 import os
 import re
+import requests
+import shutil
 import sqlite3
 import tempfile
 import unittest
@@ -12,7 +17,7 @@ from urllib.parse import unquote
 
 with patch.dict(os.environ, {"ALIST_AUTOSTART": "0"}):
     import app as movie_app
-from connectors import alist, media_probe, player
+from connectors import alist, media_probe, player, tmdb
 from models import database as database_module
 from models import library as models
 from queries.collection import get_collection_items
@@ -565,9 +570,9 @@ class LibraryIntegrationTest(unittest.TestCase):
         self.assertNotIn("function applyFilter", html)
         self.assertNotIn("request.full_path", html)
 
-    def test_batch_import_accepts_form_rows_and_reports_partial_failure(self):
+    def test_batch_import_reports_full_rollback(self):
         result = {
-            "successes": [{"index": 1, "display_title": "导入电影"}],
+            "successes": [],
             "failures": [
                 {
                     "index": 2,
@@ -597,10 +602,10 @@ class LibraryIntegrationTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
-        self.assertIn("成功 1 条，失败 1 条", html)
+        self.assertIn("批量录入失败，全部内容均未写入", html)
         self.assertIn("第 2 条（tt9000002）：模拟失败", html)
-        self.assertIn('data-category="warning"', html)
         self.assertIn('data-category="danger"', html)
+        self.assertNotIn('data-category="warning"', html)
         self.assertNotIn("alert-warning", html)
         items = import_batch.call_args.kwargs["items"]
         self.assertEqual(items[0]["title_id"], "tt9000001")
@@ -634,7 +639,7 @@ class LibraryIntegrationTest(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn("成功 1 条，失败 0 条", response.get_data(as_text=True))
+        self.assertIn("批量录入完成：成功 1 条", response.get_data(as_text=True))
         self.assertIn("data-flash-toast", response.get_data(as_text=True))
         self.assertIn('data-category="success"', response.get_data(as_text=True))
         self.assertNotIn("alert-success", response.get_data(as_text=True))
@@ -899,6 +904,286 @@ class LibraryIntegrationTest(unittest.TestCase):
         self.assertGreater(len(references), 4)
         self.assertEqual(missing, [])
 
+    def test_batch_import_failure_rolls_back_entire_transaction(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_db = Path(temp_dir) / "test_rollback.db"
+            temp_images = Path(temp_dir) / "images"
+            temp_images.mkdir()
+            shutil.copyfile(self.database_path, temp_db)
+
+            # Get initial counts
+            with closing(sqlite3.connect(temp_db)) as db:
+                before_titles = db.execute("SELECT COUNT(*) FROM title_basic").fetchone()[0]
+                before_files = db.execute("SELECT COUNT(*) FROM media_file").fetchone()[0]
+
+            items = [
+                {"title_id": "tt9000002", "season_number": "1", "episode_number": "1", "alist_url": "http://127.0.0.1:5244/d/Newsroom/S01E01.mkv?sign=abc"},
+                {"title_id": "tt9000002", "season_number": "1", "episode_number": "2", "alist_url": "http://127.0.0.1:5244/d/Newsroom/S01E02.mkv?sign=abc"},
+                {"title_id": "tt9000002", "season_number": "1", "episode_number": "3", "alist_url": "http://127.0.0.1:5244/d/Newsroom/S01E03.mkv?sign=abc"},
+            ]
+
+            # Intentionally fail on item 2
+            def probe_side_effect(url):
+                if "S01E02" in url:
+                    raise ValueError("Simulated probe error on E02")
+                return {
+                    "duration_ms": 3600000,
+                    "file_size_bytes": 100000,
+                    "bit_rate": 1000,
+                    "container_format": "matroska",
+                    "video_codec": "hevc",
+                    "video_width": 1920,
+                    "video_height": 1080,
+                    "video_frame_rate": 24.0,
+                    "video_pixel_format": "yuv420p",
+                    "video_dynamic_range": None,
+                    "audio_codec": "aac",
+                    "audio_channels": 2,
+                    "audio_channel_layout": "stereo",
+                }
+
+            artwork_path = "images/tt9000002/backdrops/1.jpg"
+            metadata = {
+                "title_basic": {},
+                "title_artwork": [
+                    {
+                        "title_id": "tt9000002",
+                        "artwork_type": "landscape_poster",
+                        "position": 1,
+                        "remote_path": "/backdrop.jpg",
+                        "local_path": artwork_path,
+                    }
+                ],
+                "episodes": [],
+            }
+
+            def stage_images(payload, image_root):
+                for image in payload["title_artwork"]:
+                    relative = Path(*Path(image["local_path"]).parts[1:])
+                    target = Path(image_root) / relative
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(b"staged image")
+                return {"downloaded": 1, "skipped": 0, "failed": 0}
+
+            with patch.object(alist, "validate_alist_video_url", return_value=None), \
+                 patch.object(alist, "get_video_link", side_effect=lambda p: f"http://127.0.0.1:5244/d{p}"), \
+                 patch.object(media_probe, "probe_video", side_effect=probe_side_effect), \
+                 patch.object(media_import_service, "fetch_title_rating", return_value={"status": "skipped", "ratings": {}}), \
+                 patch.object(tmdb, "build_media_metadata", return_value=metadata), \
+                 patch.object(tmdb, "download_metadata_images", side_effect=stage_images):
+
+                result = media_import_service.import_media_batch(
+                    library_database=temp_db,
+                    imdb_database=self.imdb_path,
+                    image_root=temp_images,
+                    items=items,
+                )
+
+            self.assertEqual(len(result["successes"]), 0)
+            self.assertEqual(len(result["failures"]), 1)
+            self.assertEqual(result["failures"][0]["index"], 2)
+
+            # Check that database has 0 partial leftovers
+            with closing(sqlite3.connect(temp_db)) as db:
+                after_titles = db.execute("SELECT COUNT(*) FROM title_basic").fetchone()[0]
+                after_files = db.execute("SELECT COUNT(*) FROM media_file").fetchone()[0]
+
+            self.assertEqual(before_titles, after_titles)
+            self.assertEqual(before_files, after_files)
+            self.assertFalse((Path(temp_dir) / artwork_path).exists())
+            self.assertFalse((Path(temp_dir) / "thumbnails" / artwork_path).exists())
+
+    def test_batch_write_failure_removes_published_artwork(self):
+        image_root = Path(self.temporary_directory.name) / "images"
+        artwork_path = "images/tt9000002/backdrops/1.jpg"
+        metadata = {
+            "title_basic": {},
+            "title_artwork": [
+                {
+                    "title_id": "tt9000002",
+                    "artwork_type": "landscape_poster",
+                    "position": 1,
+                    "remote_path": "/backdrop.jpg",
+                    "local_path": artwork_path,
+                }
+            ],
+            "episodes": [],
+        }
+
+        def stage_images(payload, staging_root):
+            for image in payload["title_artwork"]:
+                target = Path(staging_root) / Path(*Path(image["local_path"]).parts[1:])
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(b"staged image")
+            return {"downloaded": 1, "skipped": 0, "failed": 0}
+
+        original_import = media_import_service.import_media_bundle
+        write_count = 0
+
+        def fail_second_write(**kwargs):
+            nonlocal write_count
+            write_count += 1
+            if write_count == 2:
+                raise RuntimeError("simulated write failure")
+            return original_import(**kwargs)
+
+        items = [
+            {"title_id": "tt9000003", "season_number": "", "episode_number": "", "alist_url": "http://127.0.0.1:5244/d/Series/E01.mkv?sign=one"},
+            {"title_id": "tt9000004", "season_number": "", "episode_number": "", "alist_url": "http://127.0.0.1:5244/d/Series/E02.mkv?sign=two"},
+        ]
+        with closing(self.connect()) as database:
+            before_files = database.execute("SELECT COUNT(*) FROM media_file").fetchone()[0]
+
+        with patch.object(alist, "validate_alist_video_url", return_value=None), \
+             patch.object(alist, "get_video_link", return_value="https://media.test/episode"), \
+             patch.object(media_probe, "probe_video", return_value={"duration_ms": 1000}), \
+             patch.object(media_import_service, "fetch_title_rating", return_value={"status": "skipped", "ratings": {}}), \
+             patch.object(tmdb, "build_media_metadata", return_value=metadata), \
+             patch.object(tmdb, "download_metadata_images", side_effect=stage_images), \
+             patch.object(media_import_service, "import_media_bundle", side_effect=fail_second_write):
+            result = media_import_service.import_media_batch(
+                library_database=self.database_path,
+                imdb_database=self.imdb_path,
+                image_root=image_root,
+                items=items,
+            )
+
+        with closing(self.connect()) as database:
+            after_files = database.execute("SELECT COUNT(*) FROM media_file").fetchone()[0]
+        self.assertEqual(result["successes"], [])
+        self.assertEqual(result["failures"][0]["index"], 2)
+        self.assertEqual(before_files, after_files)
+        self.assertFalse((Path(self.temporary_directory.name) / artwork_path).exists())
+
+    def test_batch_prepares_every_item_before_acquiring_write_lock(self):
+        lock_state = []
+        calls = 0
+
+        def probe_video(_url):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                with closing(sqlite3.connect(self.database_path, timeout=0.05)) as db:
+                    try:
+                        db.execute("BEGIN IMMEDIATE")
+                        db.rollback()
+                        lock_state.append("available")
+                    except sqlite3.OperationalError as error:
+                        lock_state.append(str(error))
+            return {"duration_ms": 3_600_000}
+
+        items = [
+            {"title_id": "tt9000003", "season_number": "", "episode_number": "", "alist_url": "http://127.0.0.1:5244/d/Series/E01.mkv?sign=one"},
+            {"title_id": "tt9000004", "season_number": "", "episode_number": "", "alist_url": "http://127.0.0.1:5244/d/Series/E02.mkv?sign=two"},
+        ]
+        with patch.object(alist, "validate_alist_video_url", return_value=None), \
+             patch.object(alist, "get_video_link", side_effect=lambda path: f"https://media.test{path}"), \
+             patch.object(media_probe, "probe_video", side_effect=probe_video), \
+             patch.object(media_import_service, "fetch_title_rating", return_value={"status": "skipped", "ratings": {}}), \
+             patch.object(tmdb, "build_media_metadata", return_value={"title_basic": {}, "title_artwork": [], "episodes": []}), \
+             patch.object(media_import_service, "_build_series_context", wraps=media_import_service._build_series_context) as build_context:
+            result = media_import_service.import_media_batch(
+                library_database=self.database_path,
+                imdb_database=self.imdb_path,
+                image_root=Path(self.temporary_directory.name) / "images",
+                items=items,
+            )
+
+        self.assertEqual(lock_state, ["available"])
+        self.assertEqual(build_context.call_count, 1)
+        self.assertEqual(len(result["successes"]), 2)
+        self.assertEqual(result["failures"], [])
+
+    def test_batch_normalizes_context_errors(self):
+        item = {
+            "title_id": "tt9000002",
+            "season_number": "1",
+            "episode_number": "1",
+            "alist_url": "http://127.0.0.1:5244/d/Series/E01.mkv?sign=one",
+        }
+        with patch.object(
+            media_import_service,
+            "fetch_title_rating",
+            return_value={"status": "skipped", "ratings": {}},
+        ), patch.object(
+            tmdb,
+            "build_media_metadata",
+            side_effect=requests.Timeout("tmdb timeout"),
+        ):
+            result = media_import_service.import_media_batch(
+                library_database=self.database_path,
+                imdb_database=self.imdb_path,
+                image_root=Path(self.temporary_directory.name) / "images",
+                items=[item],
+            )
+
+        self.assertEqual(result["successes"], [])
+        self.assertEqual(result["failures"][0]["index"], 1)
+        self.assertIn("tmdb timeout", result["failures"][0]["message"])
+
+    def test_thumbnail_failure_does_not_change_committed_import(self):
+        metadata = {
+            "title_basic": {},
+            "title_artwork": [
+                {
+                    "title_id": "tt9000001",
+                    "artwork_type": "landscape_poster",
+                    "position": 1,
+                    "remote_path": "/backdrop.jpg",
+                    "local_path": "images/tt9000001/backdrops/1.jpg",
+                }
+            ],
+            "episodes": [],
+        }
+
+        def stage_images(payload, image_root):
+            image = payload["title_artwork"][0]
+            target = Path(image_root) / Path(*Path(image["local_path"]).parts[1:])
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(b"image")
+            return {"downloaded": 1, "skipped": 0, "failed": 0}
+
+        item = {
+            "title_id": "tt9000001",
+            "season_number": "",
+            "episode_number": "",
+            "alist_url": "http://127.0.0.1:5244/d/Movies/Movie.mkv?sign=one",
+        }
+        with patch.object(alist, "validate_alist_video_url", return_value=None), \
+             patch.object(alist, "get_video_link", return_value="https://media.test/movie"), \
+             patch.object(media_probe, "probe_video", return_value={"duration_ms": 1000}), \
+             patch.object(media_import_service, "fetch_title_rating", return_value={"status": "skipped", "ratings": {}}), \
+             patch.object(tmdb, "build_media_metadata", return_value=metadata), \
+             patch.object(tmdb, "download_metadata_images", side_effect=stage_images), \
+             patch.object(media_import_service, "ensure_thumbnail", side_effect=RuntimeError("thumbnail failed")):
+            result = media_import_service.import_media_batch(
+                library_database=self.database_path,
+                imdb_database=self.imdb_path,
+                image_root=Path(self.temporary_directory.name) / "images",
+                items=[item],
+            )
+
+        self.assertEqual(len(result["successes"]), 1)
+        self.assertEqual(result["failures"], [])
+        with closing(self.connect()) as database:
+            stored = database.execute(
+                "SELECT title_id FROM media_file WHERE alist_path = ?",
+                ("/Movies/Movie.mkv",),
+            ).fetchone()
+        self.assertEqual(stored["title_id"], "tt9000001")
+
+    def test_card_image_filter_memoizes_within_request(self):
+        with patch.object(
+            movie_app,
+            "get_card_image_path",
+            side_effect=lambda path, static_root=None: path,
+        ) as resolve_path:
+            response = self.client.get("/")
+
+        self.assertEqual(response.status_code, 200)
+        paths = [call.args[0] for call in resolve_path.call_args_list]
+        self.assertEqual(len(paths), len(set(paths)))
+
 
 class RatingSyncUnitTest(unittest.TestCase):
     def test_extract_rating_fields_maps_supported_platforms(self):
@@ -976,40 +1261,6 @@ class RatingSyncUnitTest(unittest.TestCase):
 
 
 class ConnectorUnitTest(unittest.TestCase):
-    def test_batch_import_service_isolates_item_failures(self):
-        items = [
-            {
-                "title_id": "tt9000001",
-                "season_number": "",
-                "episode_number": "",
-                "alist_url": "http://media.test/one",
-            },
-            {
-                "title_id": "tt9000002",
-                "season_number": "1",
-                "episode_number": "1",
-                "alist_url": "http://media.test/two",
-            },
-        ]
-        with patch.object(
-            media_import_service,
-            "import_media",
-            side_effect=[
-                {"file_id": 1, "display_title": "成功条目"},
-                media_import_service.MediaImportError("失败条目"),
-            ],
-        ):
-            result = media_import_service.import_media_batch(
-                library_database="library.db",
-                imdb_database="imdb.db",
-                image_root="images",
-                items=items,
-            )
-
-        self.assertEqual(result["successes"][0]["index"], 1)
-        self.assertEqual(result["failures"][0]["index"], 2)
-        self.assertEqual(result["failures"][0]["title_id"], "tt9000002")
-
     def test_connector_credentials_come_from_environment(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(
             tmdb_connector, "PROJECT_ROOT", Path(directory)

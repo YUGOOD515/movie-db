@@ -35,6 +35,7 @@ def query_title_cards(
     parameters: tuple = (),
     order_sql: str = "title.display_title COLLATE NOCASE",
     limit: int | None = None,
+    include_artwork: bool = True,
 ) -> list[dict]:
     limit_sql = ""
     query_parameters = list(parameters)
@@ -42,6 +43,11 @@ def query_title_cards(
         limit_sql = "LIMIT ?"
         query_parameters.append(limit)
 
+    artwork_sql = (
+        CARD_ARTWORK_SQL
+        if include_artwork
+        else "NULL AS poster_path, NULL AS backdrop_path, NULL AS logo_path"
+    )
     rows = db.execute(
         f"""
         SELECT title.title_id,
@@ -57,7 +63,7 @@ def query_title_cards(
                title.average_rating,
                title.num_votes,
                title.added_at,
-               {CARD_ARTWORK_SQL}
+               {artwork_sql}
           FROM title_basic AS title
          WHERE {where_sql}
          ORDER BY {order_sql}

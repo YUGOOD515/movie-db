@@ -252,7 +252,7 @@
                                         <div class="episode-rail-item media-rail-item"><article class="episode-card position-relative{% if episode.active %} active{% endif %}" data-episode-card>
                                             <div class="episode-still-frame squircle-card ratio ratio-16x9 overflow-hidden bg-body-tertiary shadow-sm">
                                                 <div>
-                                                    {% if episode.image %}<img class="media-cover" src="{{ url_for('static', filename=episode.image) }}" alt="{{ media.name }}第 {{ episode.season_number }} 季第 {{ episode.episode_number }} 集剧照" width="640" height="360" loading="lazy" data-media-image>{% endif %}
+                                                    {% if episode.image %}<img class="media-cover" src="{{ url_for('static', filename=episode.image|card_image) }}" alt="{{ media.name }}第 {{ episode.season_number }} 季第 {{ episode.episode_number }} 集剧照" width="640" height="360" loading="lazy" data-media-image>{% endif %}
                                                     <span class="image-fallback position-absolute top-0 start-0 w-100 h-100 align-items-center justify-content-center fs-2 text-body-secondary{% if episode.image %} d-none{% else %} d-flex{% endif %}" aria-hidden="true"><i class="bi bi-film"></i></span>
                                                     <span class="episode-card-scrim position-absolute top-0 start-0 w-100 h-100" aria-hidden="true"></span>
                                                     <span class="episode-selected-badge badge position-absolute">当前</span>

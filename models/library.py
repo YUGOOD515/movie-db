@@ -231,7 +231,7 @@ def _set_primary_artwork(
 
 
 def import_media_bundle(
-    database_path: str | Path,
+    database_path: str | Path | None = None,
     *,
     titles: list[dict],
     relations: list[dict],
@@ -240,10 +240,14 @@ def import_media_bundle(
     alist_path: str,
     probe: dict,
     ratings_by_title: dict[str, dict] | None = None,
+    db: sqlite3.Connection | None = None,
 ) -> int:
-    """Write one complete import bundle and its playable file atomically."""
-    with closing(connect_writable(database_path)) as db, db:
-        existing_file = db.execute(
+    """Write one complete import bundle, owning or joining one transaction."""
+    if (database_path is None) == (db is None):
+        raise ValueError("必须且只能提供 database_path 或 db。")
+
+    def _execute_bundle(connection):
+        existing_file = connection.execute(
             "SELECT file_id, title_id FROM media_file WHERE alist_path = ?",
             (alist_path,),
         ).fetchone()
@@ -251,7 +255,7 @@ def import_media_bundle(
             raise ValueError("该 AList 文件已关联其他影视条目。")
 
         for title in titles:
-            db.execute(
+            connection.execute(
                 """
                 INSERT INTO title_basic (
                     title_id,
@@ -313,10 +317,10 @@ def import_media_bundle(
             )
 
         for rating_title_id, ratings in (ratings_by_title or {}).items():
-            _update_title_ratings(db, rating_title_id, ratings)
+            _update_title_ratings(connection, rating_title_id, ratings)
 
         for relation in relations:
-            db.execute(
+            connection.execute(
                 """
                 INSERT INTO title_relation (
                     episode_id,
@@ -338,7 +342,7 @@ def import_media_bundle(
             )
 
         for image in artwork:
-            db.execute(
+            connection.execute(
                 """
                 INSERT OR IGNORE INTO title_artwork (
                     title_id,
@@ -374,7 +378,7 @@ def import_media_bundle(
             "audio_channels": probe.get("audio_channels"),
             "audio_channel_layout": probe.get("audio_channel_layout"),
         }
-        db.execute(
+        connection.execute(
             """
             INSERT INTO media_file (
                 title_id,
@@ -430,10 +434,16 @@ def import_media_bundle(
             """,
             values,
         )
-        return db.execute(
+        return connection.execute(
             "SELECT file_id FROM media_file WHERE alist_path = ?",
             (alist_path,),
         ).fetchone()[0]
+
+    if db is not None:
+        return _execute_bundle(db)
+
+    with closing(connect_writable(database_path)) as connection, connection:
+        return _execute_bundle(connection)
 
 
 def update_title_ratings(

@@ -63,23 +63,20 @@ def get_title_files(db: Connection, title_id: str) -> list[dict]:
     return dictionaries(
         db.execute(
             """
-            WITH latest_progress AS (
-                SELECT progress.*,
-                       ROW_NUMBER() OVER (
-                           PARTITION BY progress.file_id
-                               ORDER BY progress.watched_at DESC,
-                                        progress.playback_id DESC
-                       ) AS progress_rank
-                  FROM playback_progress AS progress
-            )
             SELECT file.*,
                    progress.playback_id,
                    progress.position_ms,
                    progress.watched_at
               FROM media_file AS file
-              LEFT JOIN latest_progress AS progress
-                ON progress.file_id = file.file_id
-               AND progress.progress_rank = 1
+              LEFT JOIN playback_progress AS progress
+                ON progress.playback_id = (
+                       SELECT latest.playback_id
+                         FROM playback_progress AS latest
+                        WHERE latest.file_id = file.file_id
+                        ORDER BY latest.watched_at DESC,
+                                 latest.playback_id DESC
+                        LIMIT 1
+                   )
              WHERE file.title_id = ?
              ORDER BY file.file_id
             """,
@@ -92,15 +89,6 @@ def get_series_episode_rows(db: Connection, series_id: str) -> list[dict]:
     return dictionaries(
         db.execute(
             """
-            WITH latest_progress AS (
-                SELECT progress.*,
-                       ROW_NUMBER() OVER (
-                           PARTITION BY progress.file_id
-                               ORDER BY progress.watched_at DESC,
-                                        progress.playback_id DESC
-                       ) AS progress_rank
-                  FROM playback_progress AS progress
-            )
             SELECT episode.title_id AS episode_id,
                    episode.tmdb_id AS episode_tmdb_id,
                    episode.primary_title AS episode_primary_title,
@@ -144,9 +132,15 @@ def get_series_episode_rows(db: Connection, series_id: str) -> list[dict]:
                 ON episode.title_id = relation.episode_id
               LEFT JOIN media_file AS file
                 ON file.title_id = episode.title_id
-              LEFT JOIN latest_progress AS progress
-                ON progress.file_id = file.file_id
-               AND progress.progress_rank = 1
+              LEFT JOIN playback_progress AS progress
+                ON progress.playback_id = (
+                       SELECT latest.playback_id
+                         FROM playback_progress AS latest
+                        WHERE latest.file_id = file.file_id
+                        ORDER BY latest.watched_at DESC,
+                                 latest.playback_id DESC
+                        LIMIT 1
+                   )
              WHERE relation.series_id = ?
              ORDER BY relation.season_number,
                       relation.episode_number,
@@ -160,15 +154,6 @@ def get_series_episode_rows(db: Connection, series_id: str) -> list[dict]:
 def get_playable_file(db: Connection, file_id: int) -> dict | None:
     row = db.execute(
         """
-        WITH latest_progress AS (
-            SELECT progress.*,
-                   ROW_NUMBER() OVER (
-                       PARTITION BY progress.file_id
-                           ORDER BY progress.watched_at DESC,
-                                    progress.playback_id DESC
-                   ) AS progress_rank
-              FROM playback_progress AS progress
-        )
         SELECT file.*,
                title.title_type,
                title.display_title,
@@ -177,9 +162,15 @@ def get_playable_file(db: Connection, file_id: int) -> dict | None:
           FROM media_file AS file
           JOIN title_basic AS title
             ON title.title_id = file.title_id
-          LEFT JOIN latest_progress AS progress
-            ON progress.file_id = file.file_id
-           AND progress.progress_rank = 1
+          LEFT JOIN playback_progress AS progress
+            ON progress.playback_id = (
+                   SELECT latest.playback_id
+                     FROM playback_progress AS latest
+                    WHERE latest.file_id = file.file_id
+                    ORDER BY latest.watched_at DESC,
+                             latest.playback_id DESC
+                    LIMIT 1
+               )
          WHERE file.file_id = ?
         """,
         (file_id,),
@@ -215,9 +206,6 @@ def query_title(
     relevant_title_ids = [root["title_id"]]
     if root["title_type"] == "series":
         episode_rows = get_series_episode_rows(db, root["title_id"])
-        relevant_title_ids.extend(
-            dict.fromkeys(row["episode_id"] for row in episode_rows)
-        )
     else:
         files = get_title_files(db, root["title_id"])
 

@@ -18,6 +18,10 @@ def build_manager_viewmodel(
     items = []
     for title in raw["titles"]:
         images = artwork_by_title[title["title_id"]]
+        primary = {
+            artwork_type: entries[0]["local_path"] if entries else None
+            for artwork_type, entries in images.items()
+        }
         items.append(
             {
                 "media_id": title["title_id"],
@@ -32,9 +36,9 @@ def build_manager_viewmodel(
                 "title_id": title["title_id"],
                 "tmdb_id": title.get("tmdb_id"),
                 "year": format_year(title),
-                "poster_path": title.get("poster_path"),
-                "backdrop_path": title.get("backdrop_path"),
-                "logo_path": title.get("logo_path"),
+                "poster_path": primary.get("poster"),
+                "backdrop_path": primary.get("landscape_poster"),
+                "logo_path": primary.get("logo"),
                 "detail_url": url_for(
                     "title_detail", title_id=title["title_id"]
                 ),

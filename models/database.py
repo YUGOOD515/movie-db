@@ -1,7 +1,9 @@
 import sqlite3
 from pathlib import Path
 
-from flask import current_app, g
+from flask import current_app, g, has_app_context
+
+from models.profiling import ProfiledConnection, init_profiler, is_profiling_enabled
 
 
 def _connect(
@@ -11,10 +13,17 @@ def _connect(
     timeout: int = 10,
 ) -> sqlite3.Connection:
     database = Path(database_path).resolve()
+    profile_app = current_app if has_app_context() else None
+    factory = (
+        ProfiledConnection
+        if is_profiling_enabled(profile_app)
+        else sqlite3.Connection
+    )
     connection = sqlite3.connect(
         f"file:{database.as_posix()}?mode={mode}",
         uri=True,
         timeout=timeout,
+        factory=factory,
     )
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
@@ -47,4 +56,4 @@ def close_db(_error=None) -> None:
 
 def init_app(app) -> None:
     app.teardown_appcontext(close_db)
-
+    init_profiler(app)

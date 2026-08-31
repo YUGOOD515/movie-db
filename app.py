@@ -3,7 +3,7 @@ import os
 import secrets
 from pathlib import Path
 
-from flask import abort, Flask, flash, jsonify, redirect, render_template, request, url_for
+from flask import abort, Flask, flash, g, jsonify, redirect, render_template, request, url_for
 from flask_session import Session
 
 from connectors import alist, player
@@ -36,6 +36,7 @@ from services.media_import import (
 )
 from services.playback import is_effectively_completed
 from services.rating_sync import get_rating_refresh_status, start_rating_refresh
+from services.thumbnails import get_card_image_path
 from viewmodels.catalog import (
     build_catalog_viewmodel,
     build_library_viewmodel,
@@ -66,6 +67,16 @@ app.config.update(
 Session(app)
 init_database(app)
 start_configured_alist()
+
+@app.template_filter("card_image")
+def card_image(path: str | None) -> str | None:
+    cache = g.setdefault("card_image_paths", {})
+    if path not in cache:
+        cache[path] = get_card_image_path(
+            path,
+            static_root=app.static_folder or BASE_DIR / "static",
+        )
+    return cache[path]
 
 
 @app.get("/")
@@ -285,26 +296,21 @@ def import_media_batch():
         flash(str(error), "danger")
         return redirect(url_for("media", tab="associate"))
 
-    successes = result["successes"]
     failures = result["failures"]
-    if not failures:
-        category = "success"
-    elif successes:
-        category = "warning"
-    else:
-        category = "danger"
-    flash(
-        f"批量处理完成：成功 {len(successes)} 条，失败 {len(failures)} 条。",
-        category,
-    )
-    for failure in failures[:10]:
+    if failures:
+        failure = failures[0]
         title_id = failure["title_id"] or "未填写 Title ID"
+        location = (
+            f"第 {failure['index']} 条（{title_id}）"
+            if failure["index"]
+            else "写入阶段"
+        )
         flash(
-            f"第 {failure['index']} 条（{title_id}）：{failure['message']}",
+            f"批量录入失败，全部内容均未写入。{location}：{failure['message']}",
             "danger",
         )
-    if len(failures) > 10:
-        flash(f"另有 {len(failures) - 10} 条失败信息未展开。", "danger")
+    else:
+        flash(f"批量录入完成：成功 {len(result['successes'])} 条。", "success")
     return redirect(url_for("media", tab="associate"))
 
 

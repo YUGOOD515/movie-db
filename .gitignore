@@ -14,6 +14,7 @@ wheels/
 
 static/images/
 static/icons/
+static/thumbnails/
 movie.db
 backups/
 

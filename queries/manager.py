@@ -46,6 +46,7 @@ def query_manager(
         where_sql=" AND ".join(conditions),
         parameters=tuple(parameters),
         order_sql="title.display_title COLLATE NOCASE",
+        include_artwork=False,
     )
     title_ids = [title["title_id"] for title in titles]
     artwork = []
