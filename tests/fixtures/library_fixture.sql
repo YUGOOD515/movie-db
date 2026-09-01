@@ -62,6 +62,17 @@ VALUES
     ('tt11591954', 'still', 1, 'imdb.png'),
     ('tt11599999', 'still', 1, 'imdb.png');
 
+INSERT INTO title_cast (
+    title_id, tmdb_person_id, name, character_name, cast_order,
+    remote_path, local_path
+) VALUES
+    ('tt0816692', 10297, '马修·麦康纳', 'Cooper', 0,
+     'https://image.tmdb.org/t/p/w342/matthew.jpg', 'imdb.png'),
+    ('tt0816692', 1813, '安妮·海瑟薇', 'Brand', 1,
+     NULL, NULL),
+    ('tt6226232', 12345, '伊恩·阿米蒂奇', 'Sheldon Cooper', 0,
+     'https://image.tmdb.org/t/p/w342/iain.jpg', 'imdb.png');
+
 INSERT INTO media_file (
     file_id, title_id, alist_path, duration_ms, file_size_bytes, bit_rate,
     container_format, video_codec, video_width, video_height,

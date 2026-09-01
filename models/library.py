@@ -140,6 +140,45 @@ def set_library_primary_artworks(
             _set_primary_artwork(db, title_id, artwork_type, position)
 
 
+def replace_library_cast(
+    database_path: str | Path,
+    title_id: str,
+    cast: list[dict],
+) -> None:
+    with closing(connect_writable(database_path)) as db, db:
+        _replace_title_cast(db, title_id, cast)
+
+
+def _replace_title_cast(
+    db: sqlite3.Connection,
+    title_id: str,
+    cast: list[dict],
+) -> None:
+    db.execute("DELETE FROM title_cast WHERE title_id = ?", (title_id,))
+    db.executemany(
+        """
+        INSERT INTO title_cast (
+            title_id,
+            tmdb_person_id,
+            name,
+            character_name,
+            cast_order,
+            remote_path,
+            local_path
+        ) VALUES (
+            :title_id,
+            :tmdb_person_id,
+            :name,
+            :character_name,
+            :cast_order,
+            :remote_path,
+            :local_path
+        )
+        """,
+        cast,
+    )
+
+
 def _set_primary_artwork(
     db: sqlite3.Connection,
     title_id: str,
@@ -239,6 +278,7 @@ def import_media_bundle(
     target_title_id: str,
     alist_path: str,
     probe: dict,
+    cast: list[dict] | None = None,
     ratings_by_title: dict[str, dict] | None = None,
     db: sqlite3.Connection | None = None,
 ) -> int:
@@ -360,6 +400,10 @@ def import_media_bundle(
                 """,
                 image,
             )
+
+        if cast is not None and titles:
+            cast_title_id = titles[0]["title_id"]
+            _replace_title_cast(connection, cast_title_id, cast)
 
         values = {
             "title_id": target_title_id,

@@ -114,14 +114,15 @@ def _library_title(imdb_title: dict, supplement: dict | None = None) -> dict:
     }
 
 
-def _build_bundle(imdb_db, root: dict, metadata: dict) -> tuple[list, list, list, list]:
+def _build_bundle(imdb_db, root: dict, metadata: dict) -> tuple[list, list, list, list, list]:
     titles = [_library_title(root, metadata.get("title_basic"))]
     relations = []
     artwork = list(metadata.get("title_artwork") or [])
+    cast = list(metadata.get("title_cast") or [])
     episodes_list = []
 
     if root["title_type"] != "series":
-        return titles, relations, artwork, episodes_list
+        return titles, relations, artwork, cast, episodes_list
 
     metadata_by_position = {
         (item.get("season_number"), item.get("episode_number")): item
@@ -143,7 +144,7 @@ def _build_bundle(imdb_db, root: dict, metadata: dict) -> tuple[list, list, list
         for image in episode_metadata.get("title_artwork") or []:
             if image.get("title_id") == episode["title_id"]:
                 artwork.append(image)
-    return titles, relations, artwork, episodes_list
+    return titles, relations, artwork, cast, episodes_list
 
 
 def _new_artwork(db: sqlite3.Connection, artwork: list[dict]) -> list[dict]:
@@ -216,6 +217,25 @@ def _stage_new_artwork(
     return successful, staged_files
 
 
+def _stage_cast_images(
+    cast: list[dict],
+    image_root: Path,
+    staging_root: Path,
+) -> tuple[list[dict], list[tuple[Path, Path]]]:
+    images, staged_files = _stage_new_artwork(
+        [person for person in cast if person.get("local_path")],
+        image_root,
+        staging_root,
+    )
+    available = {person["tmdb_person_id"] for person in images}
+    return [
+        person
+        if not person.get("local_path") or person["tmdb_person_id"] in available
+        else {**person, "local_path": None}
+        for person in cast
+    ], staged_files
+
+
 def _publish_staged_files(
     staged_files: list[tuple[Path, Path]],
     published_files: list[Path],
@@ -241,6 +261,7 @@ class ImportBundle:
     titles: list[dict]
     relations: list[dict]
     artwork: list[dict]
+    cast: list[dict]
     rating_result: dict
     staged_files: list[tuple[Path, Path]]
 
@@ -249,7 +270,7 @@ class ImportBundle:
 class SeriesImportContext(ImportBundle):
     episodes_by_position: dict[tuple[int, int], dict]
     episodes_by_id: dict[str, dict]
-    artwork_prepared: bool = False
+    images_prepared: bool = False
 
 
 @dataclass
@@ -274,7 +295,7 @@ def _build_series_context(imdb_db, root_title: dict) -> SeriesImportContext:
     with ThreadPoolExecutor(max_workers=1) as executor:
         rating_future = executor.submit(fetch_title_rating, root_title_id)
         metadata = tmdb.build_media_metadata(root_title_id)
-        titles, relations, artwork, episodes_list = _build_bundle(
+        titles, relations, artwork, cast, episodes_list = _build_bundle(
             imdb_db, root_title, metadata
         )
         rating_result = rating_future.result()
@@ -291,6 +312,7 @@ def _build_series_context(imdb_db, root_title: dict) -> SeriesImportContext:
         titles=titles,
         relations=relations,
         artwork=artwork,
+        cast=cast,
         rating_result=rating_result,
         staged_files=[],
         episodes_by_position=episodes_by_position,
@@ -356,21 +378,27 @@ def _prepare_file(
     return alist_path, media_probe.probe_video(video_url)
 
 
-def _prepare_series_artwork(
+def _prepare_series_images(
     context: SeriesImportContext,
     library_db: sqlite3.Connection,
     image_root: Path,
     staging_root: Path,
 ) -> None:
-    if context.artwork_prepared:
+    if context.images_prepared:
         return
     artwork = _new_artwork(library_db, context.artwork)
-    context.artwork, context.staged_files = _stage_new_artwork(
+    context.artwork, artwork_files = _stage_new_artwork(
         artwork,
         image_root,
         staging_root,
     )
-    context.artwork_prepared = True
+    context.cast, cast_files = _stage_cast_images(
+        context.cast,
+        image_root,
+        staging_root,
+    )
+    context.staged_files = artwork_files + cast_files
+    context.images_prepared = True
 
 
 def _prepare_import(
@@ -394,7 +422,7 @@ def _prepare_import(
     )
 
     if series_context is not None:
-        _prepare_series_artwork(
+        _prepare_series_images(
             series_context,
             library_db,
             image_root,
@@ -413,7 +441,7 @@ def _prepare_import(
     with ThreadPoolExecutor(max_workers=1) as executor:
         rating_future = executor.submit(fetch_title_rating, root_title_id)
         metadata = tmdb.build_media_metadata(root_title_id)
-        titles, relations, artwork, _ = _build_bundle(
+        titles, relations, artwork, cast, _ = _build_bundle(
             imdb_db,
             resolved["root"],
             metadata,
@@ -423,6 +451,11 @@ def _prepare_import(
     artwork = _new_artwork(library_db, artwork)
     artwork, staged_files = _stage_new_artwork(
         artwork,
+        image_root,
+        staging_root,
+    )
+    cast, cast_files = _stage_cast_images(
+        cast,
         image_root,
         staging_root,
     )
@@ -437,8 +470,9 @@ def _prepare_import(
             titles=titles,
             relations=relations,
             artwork=artwork,
+            cast=cast,
             rating_result=rating_result,
-            staged_files=staged_files,
+            staged_files=staged_files + cast_files,
         ),
     )
 
@@ -462,6 +496,7 @@ def _write_prepared_import(
         titles=bundle.titles if write_bundle else [],
         relations=bundle.relations if write_bundle else [],
         artwork=bundle.artwork if write_bundle else [],
+        cast=bundle.cast if write_bundle else None,
         target_title_id=prepared.target["title_id"],
         alist_path=prepared.alist_path,
         probe=prepared.probe,

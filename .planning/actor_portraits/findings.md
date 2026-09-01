@@ -1,0 +1,37 @@
+# 调研发现
+
+- 项目当前为 SQLite 双库：`imdb.db` 只读主数据，`library.db` 为七表业务库。
+- 详情页约定由查询层取数、ViewModel 整形、Jinja 展示，路由不承载业务判断。
+- 本轮需要现场核对演员关系、人物基础数据和图片来源后再确定表结构。
+- 当前 `library.db` 实际仍只有七张业务表；`title_artwork` 的外键与类型约束都明确指向影视标题，不能表达人物头像。
+- 当前 `imdb.db` 有 `name_basics` 和 `title_crew`，但没有 IMDb `title_principals`；因此它只能解析导演/编剧姓名，无法提供完整演员表，更不含人物图片。
+- 演员及头像需要由 TMDB credits/profile 数据补充，并持久化到 `library.db`，避免详情页每次请求依赖远程 API。
+- 现有详情链路是 `app.title_detail -> queries.title.query_title -> viewmodels.title.build_title_viewmodel -> templates/detail.html`，适合局部扩展。
+- 最小数据库设计是一张 `title_cast`：以 `(title_id, tmdb_person_id)` 为主键，保存演员名、角色、TMDB 顺序、远程图片路径和本地图片路径；主键前缀已满足按标题查询，不必另加索引。
+- 演员图片建议保存为 `static/images/people/{tmdb_person_id}.jpg`，同一演员跨影片可复用同一文件。
+- 现有 TMDB `fetch_detail` 已支持 `append_to_response`，可在导入阶段一并获取 `credits`，无需详情页实时联网。
+- 路由层无需新增 URL；`query_title` 增加演员查询，ViewModel 输出 `media.cast`，现有详情路由自然携带数据。
+- 前端复用 Bootstrap 与已有横向 `media-rail` 结构，在作品信息前展示头像、演员名和角色；无数据时整段不渲染，不增加 JavaScript。
+- 导入链路以 `ImportBundle` 在图片暂存完成后统一调用 `import_media_bundle()`；演员图片应加入同一暂存/发布列表，演员行应在同一数据库事务内替换。
+- `build_media_metadata()` 对电影和剧集已有单次 detail `append_to_response`，将 `images` 改为 `images,credits` 不增加 detail 请求次数。
+- 现有测试库直接从 `migrations/library_schema.sql` 和 fixture 创建，适合验证新表而无需触碰生产 `library.db`。
+- 详情页在选集区之后、作品信息之前有统一插入点，电影和剧集可共用同一演员区块。
+- 现有 `.media-rail` 已覆盖横向滚动、焦点与响应式轨道；演员区只需定义卡片宽度和 2:3 图片比例。
+- `download_metadata_images()` 只依赖 `remote_path/local_path`，可直接接收演员图片行；无需再造下载器。
+- Edge 桌面端语义快照确认演员区位于 Hero 与作品信息之间，演员名、角色名和无图占位均可访问；首屏截图显示区块宽度与现有暗色详情页一致。
+- 生产回填发现剧集 `tt31806037` 的 `/tv/{id}/credits` 演员为空，而同一详情的 `aggregate_credits` 有 38 人；剧集应统一使用 `aggregate_credits`，电影继续使用 `credits`。
+- 当前演员标题与滚动轨道共处一个 `container-xl`，轨道因此止于内容容器；详情页单集剧照使用全宽滚动外层和带 `container-xl` 的轨道，实现首项对齐且向页面右缘延伸。
+- 最小修正只需调整 `templates/detail.html` 的容器层级并复用现有 `media-rail`，无需新增 CSS 或 JavaScript。
+- 1440px 桌面验收中，演员标题与首张卡片左边缘均为 72px；轨道可视宽度为 1440px、滚动宽度为 2004px，符合共享左边缘并向右延伸的要求。
+- 390px 移动端验收中，演员标题与首张卡片左边缘均为 12px；轨道可视宽度为 390px、滚动宽度为 1656px，保持相同网格规则。
+- 移动端将演员轨道滚动至 480px 后位置保持，最大可滚动距离为 1266px，横向滚动行为有效。
+- 滚动后截图保持卡片间距、文字基线与裁切连续；浏览器控制台无错误，仅有 Edge 的懒加载提示。
+- 用户明确详情页网格关系：收藏和选季按钮各占一列，播放按钮和选集卡片各占两列；演员卡片应占一列。当前演员使用固定 `7.5rem / 8.5rem`，需改为详情页现有列宽公式。
+- 详情页桌面列宽已经定义为 `(100cqi - 11 * 1rem) / 12`，两列宽度通过 `2 * 单列 + 1rem` 精确等于选集卡片宽度。
+- 详情页既有响应式公式分别形成手机 3/6 列、平板 3/6 与 4/8 列、桌面 6/12 列关系；演员复用单列变量后，各断点都能以完整列对齐左右边缘。
+- 演员轨道原有 `gap-lg-4` 为 1.5rem，与详情页公式使用的 1rem 不一致；改为统一 `gap-3` 后，卡片宽度与间距关系闭合。
+- 1440px 实测：演员卡片、收藏按钮、选季按钮宽度均为 93.328px；播放按钮与选集卡片均为 202.664px；演员间距为 16px，`2 × 93.328 + 16 = 202.656px`，仅存在子像素取整差。
+- 12 张演员卡片从内容左边缘 72px 排至右边缘 1367.938px，与 `container-xl` 内容右边缘 1368px 对齐。
+- 390px 实测发现详情页基础断点沿用近似 `--card-width: 65%`，使三张单列卡片右边缘比内容对齐线少 1.164px；应将共享基础公式改为精确的 `(200cqi - 1rem) / 3`。
+- 修正后 390px 实测：演员卡片与选季按钮均为 111.328px，选集卡片为 238.664px，间距 16px；三张演员卡片右边缘为 377.984px，对齐目标 378px，仅余 0.016px 浏览器子像素取整。
+- 最终桌面复验保持单列 93.328px、双列 202.664px、间距 16px，左右边缘为 72px / 1367.938px；控制台无错误。

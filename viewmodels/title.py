@@ -740,6 +740,15 @@ def build_title_viewmodel(
         "age_rating": None,
         "creators": [],
         "networks": [],
+        "cast": [
+            {
+                "person_id": person["tmdb_person_id"],
+                "name": person["name"],
+                "character": person.get("character_name"),
+                "image": person.get("local_path"),
+            }
+            for person in raw["cast"]
+        ],
         "sources": source_state["sources"],
         "featured_source": featured_source_view,
         "play_url": (

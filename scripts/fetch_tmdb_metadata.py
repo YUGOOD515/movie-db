@@ -65,9 +65,11 @@ LANGUAGE = "zh-CN"
 IMAGE_LANGUAGE = "zh,null"
 REQUEST_TIMEOUT = 20
 ARTWORK_LIMIT = 5
+CAST_LIMIT = 24
 DOWNLOAD_ATTEMPTS = 3
 # 与 library.db 现存数据约定一致：poster 存 w500，backdrop/logo 存 original
 POSTER_SIZE = "w500"
+PROFILE_SIZE = "w342"
 # local_path 形如 images/tt0816692/posters/1.jpg，去掉该前缀即相对 image_root
 LOCAL_PATH_PREFIX = "images"
 DEFAULT_IMAGE_ROOT = PROJECT_ROOT / "static" / "images"
@@ -234,6 +236,72 @@ def build_title_artwork(imdb_id: str, images: dict) -> list[dict]:
     )
 
 
+def build_title_cast(title_id: str, cast: list[dict]) -> list[dict]:
+    """组装详情页使用的前 24 位演员和单张人物图。"""
+    rows = []
+    seen = set()
+    for person in cast:
+        person_id = person.get("id")
+        name = (person.get("name") or "").strip()
+        if not person_id or not name or person_id in seen:
+            continue
+        seen.add(person_id)
+        profile_path = person.get("profile_path")
+        characters = list(
+            dict.fromkeys(
+                role["character"].strip()
+                for role in person.get("roles") or []
+                if role.get("character") and role["character"].strip()
+            )
+        )
+        rows.append(
+            {
+                "title_id": title_id,
+                "tmdb_person_id": int(person_id),
+                "name": name,
+                "character_name": (
+                    " / ".join(characters)
+                    or (person.get("character") or "").strip()
+                    or None
+                ),
+                "cast_order": int(person.get("order", len(rows))),
+                "remote_path": (
+                    f"{TMDB_IMAGE}/{PROFILE_SIZE}/{profile_path.lstrip('/')}"
+                    if profile_path
+                    else None
+                ),
+                "local_path": (
+                    f"{LOCAL_PATH_PREFIX}/people/{person_id}{_suffix(profile_path)}"
+                    if profile_path
+                    else None
+                ),
+            }
+        )
+        if len(rows) == CAST_LIMIT:
+            break
+    return rows
+
+
+def fetch_title_cast(
+    title_id: str,
+    media_type: str,
+    tmdb_id: int,
+    session: requests.Session | None = None,
+) -> list[dict]:
+    own_session = session is None
+    session = session or _session()
+    try:
+        credits_key = "aggregate_credits" if media_type == "tv" else "credits"
+        detail = fetch_detail(session, media_type, tmdb_id, append=credits_key)
+        return build_title_cast(
+            title_id,
+            (detail.get(credits_key) or {}).get("cast") or [],
+        )
+    finally:
+        if own_session:
+            session.close()
+
+
 
 def build_episode(
     episode: dict,
@@ -349,6 +417,7 @@ def build_episode_metadata(
     return {
         "title_basic": item["title_basic"],
         "title_artwork": item["title_artwork"],
+        "title_cast": [],
         "episodes": [],
     }
 
@@ -371,12 +440,22 @@ def build_media_metadata(imdb_id: str, session: requests.Session | None = None) 
             return build_episode_metadata(session, imdb_id, found)
 
         tmdb_id = int(found["id"])
-        detail = fetch_detail(session, media_type, tmdb_id, append="images")
+        credits_key = "aggregate_credits" if media_type == "tv" else "credits"
+        detail = fetch_detail(
+            session,
+            media_type,
+            tmdb_id,
+            append=f"images,{credits_key}",
+        )
         images = detail.get("images") or {}
 
         metadata = {
             "title_basic": build_title_supplement(detail),
             "title_artwork": build_title_artwork(imdb_id, images),
+            "title_cast": build_title_cast(
+                imdb_id,
+                (detail.get(credits_key) or {}).get("cast") or [],
+            ),
             "episodes": [],
         }
 
@@ -451,7 +530,7 @@ def download_metadata_images(
     image_root: str | Path = DEFAULT_IMAGE_ROOT,
     session: requests.Session | None = None,
 ) -> dict:
-    """批量下载 metadata 中全部图片（title_artwork + episodes 的 still）。
+    """批量下载 metadata 中全部图片（title_artwork、演员图与单集 still）。
 
     默认不启用；由调用方或 CLI --download 显式触发。
     已存在的文件跳过，单张失败重试后跳过，不中断整体。
@@ -459,6 +538,11 @@ def download_metadata_images(
     """
     image_root = Path(image_root)
     rows = list(metadata.get("title_artwork") or [])
+    rows.extend(
+        person
+        for person in metadata.get("title_cast") or []
+        if person.get("remote_path") and person.get("local_path")
+    )
     for episode in metadata.get("episodes") or []:
         rows.extend(episode.get("title_artwork") or [])
 

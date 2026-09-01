@@ -59,6 +59,23 @@ def get_artwork(db: Connection, title_id: str) -> list[dict]:
     )
 
 
+def get_cast(db: Connection, title_id: str) -> list[dict]:
+    return dictionaries(
+        db.execute(
+            """
+            SELECT tmdb_person_id,
+                   name,
+                   character_name,
+                   local_path
+              FROM title_cast
+             WHERE title_id = ?
+             ORDER BY cast_order, tmdb_person_id
+            """,
+            (title_id,),
+        )
+    )
+
+
 def get_title_files(db: Connection, title_id: str) -> list[dict]:
     return dictionaries(
         db.execute(
@@ -215,6 +232,7 @@ def query_title(
         "root": root,
         "requested_relation": requested_relation,
         "artwork": get_artwork(db, root["title_id"]),
+        "cast": get_cast(db, root["title_id"]),
         "files": files,
         "episode_rows": episode_rows,
         "season_number": season_number,

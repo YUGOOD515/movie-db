@@ -4,11 +4,11 @@
 
 当前项目是一个本地影视资源管理网页，遵循 MVC 架构原则，即Model、Connector、View原则。
 
-当前以本地 IMDb 数据库作为影视主数据，TMDB 仅补充简介、标语、原始语言和图片；AList 保存本地媒体来源。电影和剧集的共用查询、图片及数据库写入流程已经合并整理。图片目录以 Title ID（IMDb ID）命名：`static/images/{title_id}/{posters|backdrops|logos}/{N}.{jpg|png}`，单集剧照为 `static/images/{series_title_id}/{episode_title_id}-still.jpg`，路径记录在 `title_artwork.local_path`。
+当前以本地 IMDb 数据库作为影视主数据，TMDB 补充简介、标语、原始语言、演员和图片；AList 保存本地媒体来源。电影和剧集的共用查询、图片及数据库写入流程已经合并整理。标题图片目录以 Title ID（IMDb ID）命名：`static/images/{title_id}/{posters|backdrops|logos}/{N}.{jpg|png}`，单集剧照为 `static/images/{series_title_id}/{episode_title_id}-still.jpg`，演员头像为 `static/images/people/{tmdb_person_id}.{ext}`。
 
 ## Model
 
-使用 SQLite 双库结构：`imdb.db` 是只读主数据，`library.db` 是七表业务库（`title_basic` / `title_relation` / `title_artwork` / `media_file` / `playback_progress` / `collection` / `collection_item`）。`title_basic` 保存 TMDB 补充字段（`tmdb_id`、`overview`、`tagline`、`original_language`）及 IMDb 评分字段（`average_rating`、`num_votes`）。单集直接保存季号与集号，不设置 season 和 collection 实体。读操作集中在 @queries/，写操作集中在 @models/library.py；@connectors/ 对接 TMDB、AList、ffprobe 与 MPC-HC，@services/ 编排录入和播放业务。
+使用 SQLite 双库结构：`imdb.db` 是只读主数据，`library.db` 是八表业务库（`title_basic` / `title_relation` / `title_artwork` / `title_cast` / `media_file` / `playback_progress` / `collection` / `collection_item`）。`title_basic` 保存 TMDB 补充字段（`tmdb_id`、`overview`、`tagline`、`original_language`）及 IMDb 评分字段（`average_rating`、`num_votes`），`title_cast` 保存电影和剧集的主要演员。单集直接保存季号与集号，不设置 season 和 collection 实体。读操作集中在 @queries/，写操作集中在 @models/library.py；@connectors/ 对接 TMDB、AList、ffprobe 与 MPC-HC，@services/ 编排录入和播放业务。
 
 SQL 代码书写准则：https://www.sqlstyle.guide/zh/
 
@@ -24,7 +24,7 @@ SQL 代码书写准则：https://www.sqlstyle.guide/zh/
 
 ## 进度存储区
 
-当前阶段：`library.db` 数据迁移全部完成——521 个 title（9 电影 / 22 剧集 / 490 单集）、854 图片、728 媒体文件、15 观看记录与收藏夹已全部录入。媒体管理页已接入 Title ID 录入链路：Movie 与 Episode ID 可直接录入，Series ID 通过季集号定位单集；IMDb 主数据、TMDB 补充数据、图片、AList 路径和 ffprobe 参数统一写入七表业务库。根目录仅保留 `app.py` 一个 Python 入口文件。
+当前阶段：`library.db` 八表迁移完成——574 个 title（15 电影 / 23 剧集 / 536 单集）、990 张标题图片、860 条演员关联、771 个媒体文件和 23 条观看记录已录入。电影与剧集详情页显示主要演员头像；媒体管理页支持 Movie、Episode ID 直接录入，以及 Series ID 配合季集号定位单集。根目录仅保留 `app.py` 一个 Python 入口文件。
 
 ## Tips
 

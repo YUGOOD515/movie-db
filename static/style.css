@@ -213,7 +213,7 @@ select {
     align-items: center;
     justify-content: center;
     color: var(--bs-body-color);
-    opacity: 0.85;
+    opacity: 0.35;
     font-size: 1.65rem;
     line-height: 1;
     cursor: pointer;
@@ -229,6 +229,9 @@ select {
 
 .detail-info-toggle {
     right: 1.25rem;
+    width: 2.25rem;
+    height: 2.25rem;
+    font-size: 1.485rem;
 }
 
 .site-menu-toggle:hover,
@@ -237,7 +240,7 @@ select {
 .detail-info-toggle:hover,
 .detail-info-toggle:focus-visible,
 .detail-info-toggle:active {
-    opacity: 0.95;
+    opacity: 1;
     transform: scale(1.08);
     color: var(--bs-body-color);
     background: transparent;
@@ -864,7 +867,8 @@ select {
 
 .detail-hero .detail-content,
 .detail-sources .episode-toolbar,
-.detail-sources .episode-rail-track {
+.detail-sources .episode-rail-track,
+.detail-cast .media-rail-track {
     container-type: inline-size;
 }
 
@@ -1111,9 +1115,10 @@ body.detail-overview-open [data-episode-target] {
     font-weight: 500;
 }
 
-.detail-sources {
+.detail-sources,
+.detail-cast {
     --sources-gap: 1rem;
-    --card-width: 65%;
+    --card-width: calc((200cqi - var(--sources-gap)) / 3);
     --season-btn-width: calc((var(--card-width) - var(--sources-gap)) / 2);
 }
 
@@ -1268,6 +1273,29 @@ body.detail-overview-open [data-episode-target] {
     transform: translateY(-2px);
 }
 
+.cast-rail {
+    --rail-item-basis: var(--season-btn-width);
+}
+
+.cast-name,
+.cast-character {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    overflow: hidden;
+}
+
+.cast-name {
+    font-size: 0.85rem;
+    line-height: 1.3;
+}
+
+.cast-character {
+    font-size: 0.78rem;
+    line-height: 1.35;
+}
+
 @media (min-width: 576px) {
     .media-rail--span-6 {
         --rail-item-basis: 65%;
@@ -1281,14 +1309,16 @@ body.detail-overview-open [data-episode-target] {
         --rail-item-basis: calc(21.6667% - 0.6667rem);
     }
 
-    .detail-sources {
+    .detail-sources,
+    .detail-cast {
         --card-width: calc((100cqi - 2 * 1rem) / 3);
         --season-btn-width: calc((var(--card-width) - 1rem) / 2);
     }
 }
 
 @media (min-width: 768px) {
-    .detail-sources {
+    .detail-sources,
+    .detail-cast {
         --card-width: calc((100cqi - 3 * 1rem) / 4);
         --season-btn-width: calc((var(--card-width) - 1rem) / 2);
     }
@@ -1307,14 +1337,16 @@ body.detail-overview-open [data-episode-target] {
         --rail-item-basis: calc(11.6667% - 1rem);
     }
 
-    .detail-sources {
+    .detail-sources,
+    .detail-cast {
         --card-width: calc((100cqi - 5 * 1rem) / 6);
         --season-btn-width: calc((100cqi - 11 * 1rem) / 12);
     }
 }
 
 @media (min-width: 1200px) {
-    .detail-sources {
+    .detail-sources,
+    .detail-cast {
         --card-width: calc((100cqi - 5 * 1rem) / 6);
         --season-btn-width: calc((100cqi - 11 * 1rem) / 12);
     }

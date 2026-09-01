@@ -154,6 +154,7 @@ class LibraryIntegrationTest(unittest.TestCase):
                     "title_basic",
                     "title_relation",
                     "title_artwork",
+                    "title_cast",
                     "media_file",
                     "playback_progress",
                     "collection",
@@ -163,6 +164,10 @@ class LibraryIntegrationTest(unittest.TestCase):
             self.assertEqual(
                 database.execute("SELECT COUNT(*) FROM title_basic").fetchone()[0],
                 8,
+            )
+            self.assertEqual(
+                database.execute("SELECT COUNT(*) FROM title_cast").fetchone()[0],
+                3,
             )
             self.assertEqual(database.execute("PRAGMA integrity_check").fetchone()[0], "ok")
             self.assertEqual(database.execute("PRAGMA foreign_key_check").fetchall(), [])
@@ -196,6 +201,56 @@ class LibraryIntegrationTest(unittest.TestCase):
 
         self.assertEqual(self.client.get("/movies/157336").status_code, 308)
         self.assertEqual(self.client.get("/series/71728").status_code, 308)
+
+    def test_title_cast_query_and_render(self):
+        movie = self.build_title("tt0816692")
+        self.assertEqual(
+            [person["name"] for person in movie["cast"]],
+            ["马修·麦康纳", "安妮·海瑟薇"],
+        )
+        self.assertIsNone(movie["cast"][1]["image"])
+
+        movie_html = self.client.get("/title/tt0816692").get_data(as_text=True)
+        episode_html = self.client.get("/title/tt11555014").get_data(as_text=True)
+        self.assertIn("演员阵容", movie_html)
+        self.assertIn("马修·麦康纳", movie_html)
+        self.assertIn("安妮·海瑟薇", movie_html)
+        self.assertIn("伊恩·阿米蒂奇", episode_html)
+
+    def test_cast_replacement_is_atomic(self):
+        replacement = [
+            {
+                "title_id": "tt0816692",
+                "tmdb_person_id": 999,
+                "name": "新演员",
+                "character_name": "新角色",
+                "cast_order": 0,
+                "remote_path": None,
+                "local_path": None,
+            },
+            {
+                "title_id": "tt0816692",
+                "tmdb_person_id": 1000,
+                "name": "无效演员",
+                "character_name": None,
+                "cast_order": -1,
+                "remote_path": None,
+                "local_path": None,
+            },
+        ]
+
+        with self.assertRaises(sqlite3.IntegrityError):
+            models.replace_library_cast(self.database_path, "tt0816692", replacement)
+
+        with closing(self.connect()) as database:
+            rows = database.execute(
+                "SELECT name FROM title_cast WHERE title_id = ? ORDER BY cast_order",
+                ("tt0816692",),
+            ).fetchall()
+        self.assertEqual(
+            [row["name"] for row in rows],
+            ["马修·麦康纳", "安妮·海瑟薇"],
+        )
 
     def test_home_catalog_and_title_viewmodels_render_expected_data(self):
         home = self.client.get("/").get_data(as_text=True)
@@ -681,6 +736,17 @@ class LibraryIntegrationTest(unittest.TestCase):
                 "original_language": "en",
             },
             "title_artwork": [],
+            "title_cast": [
+                {
+                    "title_id": "tt9000001",
+                    "tmdb_person_id": 90001,
+                    "name": "导入演员",
+                    "character_name": "主角",
+                    "cast_order": 0,
+                    "remote_path": None,
+                    "local_path": None,
+                }
+            ],
             "episodes": [],
         }
         series_metadata = {
@@ -691,6 +757,7 @@ class LibraryIntegrationTest(unittest.TestCase):
                 "original_language": "en",
             },
             "title_artwork": [],
+            "title_cast": [],
             "episodes": [
                 {
                     "season_number": 1,
@@ -817,6 +884,10 @@ class LibraryIntegrationTest(unittest.TestCase):
                  ORDER BY episode_number
                 """
             ).fetchall()
+            imported_cast = database.execute(
+                "SELECT name, character_name FROM title_cast WHERE title_id = ?",
+                ("tt9000001",),
+            ).fetchone()
 
         self.assertEqual(len(imported_titles), 4)
         self.assertEqual(imported_titles[0]["display_title"], "导入电影")
@@ -830,6 +901,7 @@ class LibraryIntegrationTest(unittest.TestCase):
         )
         self.assertTrue(all(row["duration_ms"] == 7_200_000 for row in imported_files))
         self.assertEqual(len(relations), 2)
+        self.assertEqual(tuple(imported_cast), ("导入演员", "主角"))
 
     def test_series_title_id_requires_position_before_external_calls(self):
         with patch.object(
@@ -1343,6 +1415,63 @@ class ConnectorUnitTest(unittest.TestCase):
             {record["position"] for record in records},
             {1, 2, 3, 4, 5},
         )
+
+    def test_cast_is_ordered_deduplicated_and_capped(self):
+        cast = [
+            {
+                "id": index,
+                "name": f"演员 {index}",
+                "character": f"角色 {index}",
+                "order": index,
+                "profile_path": f"/{index}.jpg",
+            }
+            for index in range(1, 30)
+        ]
+        cast.insert(1, {**cast[0], "character": "重复角色"})
+
+        records = tmdb_connector.build_title_cast("tt1234567", cast)
+
+        self.assertEqual(len(records), 24)
+        self.assertEqual(records[0]["tmdb_person_id"], 1)
+        self.assertEqual(records[-1]["tmdb_person_id"], 24)
+        self.assertEqual(records[0]["local_path"], "images/people/1.jpg")
+
+    def test_tv_cast_uses_aggregate_credits_and_roles(self):
+        payload = {
+            "aggregate_credits": {
+                "cast": [
+                    {
+                        "id": 1,
+                        "name": "演员",
+                        "order": 0,
+                        "profile_path": None,
+                        "roles": [
+                            {"character": "角色 A"},
+                            {"character": "角色 B"},
+                        ],
+                    }
+                ]
+            }
+        }
+        with patch.object(
+            tmdb_connector,
+            "fetch_detail",
+            return_value=payload,
+        ) as fetch_detail:
+            records = tmdb_connector.fetch_title_cast(
+                "tt1234567",
+                "tv",
+                42,
+                session=Mock(),
+            )
+
+        fetch_detail.assert_called_once_with(
+            unittest.mock.ANY,
+            "tv",
+            42,
+            append="aggregate_credits",
+        )
+        self.assertEqual(records[0]["character_name"], "角色 A / 角色 B")
 
     def test_obsolete_omdb_connector_is_absent(self):
         for name in (

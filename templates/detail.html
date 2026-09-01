@@ -283,6 +283,28 @@
             </section>
         {% endif %}
 
+        {% if media.cast %}
+            <section class="detail-cast py-5" aria-labelledby="cast-heading">
+                <div class="container-xl">
+                    <h2 class="h4 mb-4" id="cast-heading">演员阵容</h2>
+                </div>
+                <div class="cast-rail media-rail overflow-x-auto" tabindex="0">
+                    <div class="media-rail-track container-xl d-flex flex-nowrap gap-3">
+                        {% for person in media.cast %}
+                            <article class="cast-card media-rail-item min-w-0">
+                                <div class="cast-photo ratio ratio-poster squircle-card overflow-hidden bg-body-tertiary shadow-sm">
+                                    {% if person.image %}<img class="w-100 h-100 object-fit-cover" src="{{ url_for('static', filename=person.image) }}" alt="" width="342" height="513" loading="lazy">{% endif %}
+                                    <span class="image-fallback position-absolute top-0 start-0 w-100 h-100 align-items-center justify-content-center fs-2 text-body-secondary{% if person.image %} d-none{% else %} d-flex{% endif %}" aria-hidden="true"><i class="bi bi-person"></i></span>
+                                </div>
+                                <h3 class="cast-name mt-3 mb-1 fw-semibold">{{ person.name }}</h3>
+                                {% if person.character %}<p class="cast-character text-body-secondary mb-0">{{ person.character }}</p>{% endif %}
+                            </article>
+                        {% endfor %}
+                    </div>
+                </div>
+            </section>
+        {% endif %}
+
         <section class="detail-information container-xl py-5" aria-labelledby="information-heading">
             <div class="d-flex flex-column gap-5">
                 <section aria-labelledby="information-heading">
