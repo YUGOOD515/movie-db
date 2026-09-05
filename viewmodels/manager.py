@@ -44,45 +44,20 @@ def build_manager_viewmodel(
                 ),
                 "return_to": return_to,
                 "image_options": {
-                    "posters": [
+                    option: [
                         {
                             **image,
                             "image_position": image["position"],
                             "is_current": image["position"] == 1,
-                            "status_label": (
-                                "当前使用"
-                                if image["position"] == 1
-                                else "点击试用"
-                            ),
+                            "status_label": "当前使用" if image["position"] == 1 else "点击试用",
                         }
-                        for image in images["poster"]
-                    ],
-                    "backdrops": [
-                        {
-                            **image,
-                            "image_position": image["position"],
-                            "is_current": image["position"] == 1,
-                            "status_label": (
-                                "当前使用"
-                                if image["position"] == 1
-                                else "点击试用"
-                            ),
-                        }
-                        for image in images["landscape_poster"]
-                    ],
-                    "logos": [
-                        {
-                            **image,
-                            "image_position": image["position"],
-                            "is_current": image["position"] == 1,
-                            "status_label": (
-                                "当前使用"
-                                if image["position"] == 1
-                                else "点击试用"
-                            ),
-                        }
-                        for image in images["logo"]
-                    ],
+                        for image in images[artwork_type]
+                    ]
+                    for option, artwork_type in (
+                        ("posters", "poster"),
+                        ("backdrops", "landscape_poster"),
+                        ("logos", "logo"),
+                    )
                 },
             }
         )

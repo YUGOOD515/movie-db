@@ -45,6 +45,13 @@ def _parse_position(season_value: str, episode_value: str) -> tuple[int, int]:
     return season_number, episode_number
 
 
+def _validate_episode_position(season_value: str, episode_value: str, episode: dict) -> None:
+    if season_value.strip() or episode_value.strip():
+        expected = (episode["season_number"], episode["episode_number"])
+        if _parse_position(season_value, episode_value) != expected:
+            raise MediaImportError("填写的季集号与 Episode Title ID 不一致。")
+
+
 def _resolve_target(
     imdb_db,
     title_id: str,
@@ -58,7 +65,7 @@ def _resolve_target(
     if title["title_type"] == "movie":
         if season_value.strip() or episode_value.strip():
             raise MediaImportError("Movie Title ID 不需要填写季号和集号。")
-        return {"root": title, "target": title, "relation": None}
+        return {"root": title, "target": title}
 
     if title["title_type"] == "series":
         season_number, episode_number = _parse_position(
@@ -73,21 +80,17 @@ def _resolve_target(
         if relation is None:
             raise MediaImportError("本地 IMDb 数据库中不存在指定的剧集单集。")
         target = get_imdb_title(imdb_db, relation["episode_id"])
-        return {"root": title, "target": target, "relation": relation}
+        return {"root": title, "target": target}
 
     if title["title_type"] == "episode":
         relation = get_episode_relation(imdb_db, title_id)
         if relation is None:
             raise MediaImportError("本地 IMDb 数据库中缺少该单集的父剧集关系。")
-        if season_value.strip() or episode_value.strip():
-            expected = (relation["season_number"], relation["episode_number"])
-            actual = _parse_position(season_value, episode_value)
-            if actual != expected:
-                raise MediaImportError("填写的季集号与 Episode Title ID 不一致。")
+        _validate_episode_position(season_value, episode_value, relation)
         root = get_imdb_title(imdb_db, relation["series_id"])
         if root is None or root["title_type"] != "series":
             raise MediaImportError("本地 IMDb 数据库中缺少该单集的父剧集。")
-        return {"root": root, "target": title, "relation": relation}
+        return {"root": root, "target": title}
 
     raise MediaImportError("仅支持 movie、series 和 episode 类型的 Title ID。")
 
@@ -331,16 +334,12 @@ def _resolve_target_from_context(
         target = context.episodes_by_position.get((season_number, episode_number))
         if target is None:
             raise MediaImportError("本地 IMDb 数据库中不存在指定的剧集单集。")
-        return {"root": context.root, "target": target, "relation": None}
+        return {"root": context.root, "target": target}
 
     if title_id in context.episodes_by_id:
         target = context.episodes_by_id[title_id]
-        if season_value.strip() or episode_value.strip():
-            expected = (target["season_number"], target["episode_number"])
-            actual = _parse_position(season_value, episode_value)
-            if actual != expected:
-                raise MediaImportError("填写的季集号与 Episode Title ID 不一致。")
-        return {"root": context.root, "target": target, "relation": None}
+        _validate_episode_position(season_value, episode_value, target)
+        return {"root": context.root, "target": target}
 
     raise MediaImportError("指定的 Title ID 不属于当前剧集上下文。")
 
@@ -754,17 +753,6 @@ def import_media_batch(
                 {
                     "index": error.index,
                     "title_id": error.title_id,
-                    "message": str(error),
-                }
-            ],
-        }
-    except MediaImportError as error:
-        return {
-            "successes": [],
-            "failures": [
-                {
-                    "index": current_index,
-                    "title_id": current_title_id,
                     "message": str(error),
                 }
             ],

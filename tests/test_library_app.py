@@ -25,7 +25,7 @@ from queries.title import query_title
 from services import media_import as media_import_service
 from services import rating_sync
 from services.playback import is_effectively_completed
-from scripts import fetch_tmdb_metadata as tmdb_connector
+from connectors import tmdb as tmdb_connector
 from viewmodels.title import build_title_viewmodel
 
 
@@ -134,6 +134,28 @@ class LibraryIntegrationTest(unittest.TestCase):
         with movie_app.app.test_request_context("/"):
             raw = query_title(database_module.get_db(), title_id, **parameters)
             return build_title_viewmodel(raw, select_resume=select_resume)
+
+    def test_episode_fragment_uses_selected_episode_and_escapes_content(self):
+        with closing(self.connect()) as database, database:
+            database.execute("DELETE FROM media_file WHERE title_id = ?", ("tt11599999",))
+            database.execute(
+                "UPDATE title_basic SET overview = ? WHERE title_id = ?",
+                ('<script>alert("episode")</script>', "tt11555014"),
+            )
+        response = self.client.get("/title/tt11555014/episode-panel")
+        self.assertEqual(response.status_code, 200)
+        html = response.get_data(as_text=True)
+        for attribute in ("data-episode-hero", "data-episode-hero-control", "data-episode-facts"):
+            self.assertEqual(html.count(f'{attribute}="tt11555014"'), 1)
+        self.assertIn("&lt;script&gt;", html)
+        self.assertNotIn('<script>', html)
+        self.assertIn('/TV/Young Sheldon/S03E12.mkv', html)
+        self.assertNotIn('/TV/Young Sheldon/S03E13.mkv', html)
+        self.assertNotIn('<html', html)
+        unavailable = self.client.get("/title/tt11599999/episode-panel").get_data(as_text=True)
+        self.assertIn("暂无可播放资源", unavailable)
+        for title_id in ("tt0816692", "tt6226232", "tt0000000"):
+            self.assertEqual(self.client.get(f"/title/{title_id}/episode-panel").status_code, 404)
 
     def test_schema_data_and_integrity(self):
         with closing(self.connect()) as database:
@@ -298,7 +320,7 @@ class LibraryIntegrationTest(unittest.TestCase):
         self.assertNotIn('class="col-12 col-lg-7"', selected_series)
         self.assertNotIn('class="col-12 col-lg-5"', selected_series)
 
-        # 懒渲染：服务端只输出精选单集的面板，其余单集走 JSON 数据岛
+        # 懒渲染：服务端只输出精选单集的面板，其余单集按需获取共享模板片段
         self.assertEqual(selected_series.count('data-episode-hero="'), 1)
         self.assertEqual(selected_series.count('data-episode-hero-control="'), 1)
         self.assertEqual(selected_series.count('data-episode-facts="'), 1)
@@ -309,7 +331,7 @@ class LibraryIntegrationTest(unittest.TestCase):
         self.assertIn('series-hero-panel hero-pane-hidden', selected_series)
         self.assertIn("全剧 · 共", selected_series)
         self.assertNotIn("data-series-toggle", self.client.get("/title/tt0816692").get_data(as_text=True))
-        self.assertIn('data-episode-data', selected_series)
+        self.assertIn('data-panel-url="/title/tt11555014/episode-panel"', selected_series)
         self.assertGreater(
             selected_series.count('data-episode-target="'),
             selected_series.count('data-episode-hero="'),

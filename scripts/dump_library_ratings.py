@@ -10,7 +10,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from scripts.fetch_multi_platform_ratings import fetch_mdblist_ratings
+from connectors.mdblist import fetch_mdblist_ratings
 from models.library import update_title_ratings
 from services.rating_sync import extract_rating_fields
 

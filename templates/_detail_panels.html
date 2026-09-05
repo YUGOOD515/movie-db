@@ -1,0 +1,111 @@
+{% macro play_control(sources, current_source, label, button_class, wrapper_class="", show_label=true) %}
+    {% if current_source %}
+        <div class="{{ wrapper_class }}{% if sources|length > 1 %} dropdown{% endif %}">
+            {% if sources|length > 1 %}
+                <button class="{{ button_class }} dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="{{ label }}，选择版本">
+                    <i class="bi bi-play-fill" aria-hidden="true"></i>
+                    {% if show_label %}<span class="text-truncate">{{ label }}</span>{% else %}<span class="visually-hidden">{{ label }}</span>{% endif %}
+                </button>
+            {% else %}
+                <form class="d-contents" action="{{ current_source.play_url }}" method="post">
+                    <button class="{{ button_class }}" type="submit" aria-label="{{ label }}">
+                        <i class="bi bi-play-fill" aria-hidden="true"></i>
+                        {% if show_label %}<span class="text-truncate">{{ label }}</span>{% else %}<span class="visually-hidden">{{ label }}</span>{% endif %}
+                    </button>
+                </form>
+            {% endif %}
+            {% if sources|length > 1 %}
+            <ul class="dropdown-menu detail-version-menu">
+                {% for source in sources %}
+                    <li>
+                        <form action="{{ source.play_url }}" method="post">
+                            <button class="dropdown-item d-flex align-items-center gap-2{% if current_source and source.source_id == current_source.source_id %} active{% endif %}" type="submit" title="{{ source.alist_path }}">
+                                <i class="bi bi-play-fill flex-shrink-0" aria-hidden="true"></i>
+                                <span class="text-truncate">{{ source.source_label }}</span>
+                            </button>
+                        </form>
+                    </li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+        </div>
+    {% endif %}
+{% endmacro %}
+
+{% macro media_badges(badges) %}
+    {% for badge in badges %}
+        {% if badge.kind == "dolby_vision" %}
+            <span class="dolby-vision-badge" title="杜比视界 (Dolby Vision)" aria-label="杜比视界">
+                <img class="dolby-vision-logo dolby-vision-logo--dark" src="{{ url_for('static', filename='DolbyVision_white.png') }}" alt="Dolby Vision" height="15">
+                <img class="dolby-vision-logo dolby-vision-logo--light" src="{{ url_for('static', filename='DolbyVision.png') }}" alt="Dolby Vision" height="15">
+            </span>
+        {% else %}
+            <span>{{ badge.label }}</span>
+        {% endif %}
+    {% endfor %}
+{% endmacro %}
+
+{% macro overview_block(text) %}
+    <div class="detail-overview-wrapper mb-0" data-detail-overview-wrap>
+        <p class="detail-overview lh-lg mb-0" data-detail-overview><span data-detail-overview-text data-full-text="{{ text or '' }}">{{ text or "暂无简介。" }}</span>{% if text %}<button type="button" class="btn btn-link p-0 text-decoration-none small text-body-secondary fw-semibold detail-overview-more d-none" data-detail-overview-toggle aria-expanded="false">...更多</button>{% endif %}</p>
+        {% if text %}
+            <div class="detail-overview-expanded squircle-card" data-detail-overview-expanded hidden>
+                <p class="lh-lg mb-2">{{ text }}</p>
+                <div class="d-flex justify-content-end">
+                    <button type="button" class="btn btn-link p-0 text-decoration-none small text-body-secondary fw-semibold detail-overview-more" data-detail-overview-collapse>收起</button>
+                </div>
+            </div>
+        {% endif %}
+    </div>
+{% endmacro %}
+
+
+{% macro episode_panel(episode, genres) %}
+<section class="episode-hero-panel" data-episode-hero="{{ episode.episode_id }}" data-season-number="{{ episode.season_number }}" data-episode-number="{{ episode.episode_number }}" data-hero-backdrop-url="{% if episode.image %}{{ url_for('static', filename=episode.image) }}{% endif %}">
+    <span class="detail-episode-index d-block small fw-bold mb-2">S{{ episode.season_number }} · E{{ episode.episode_number }}</span>
+    <h2 class="h3 fw-bold mb-3">{{ episode.episode_name or "未命名单集" }}</h2>
+
+    <div class="detail-meta d-flex flex-wrap align-items-center column-gap-3 row-gap-2 small text-body-secondary fw-semibold mb-3">
+        {% if episode.runtime_label %}<span>{{ episode.runtime_label }}</span>{% endif %}
+        {% if episode.air_date %}<span>{{ episode.air_date }}</span>{% endif %}
+        {{ media_badges(episode.badges) }}
+        {% if genres %}<span>{{ genres|join(" / ") }}</span>{% endif %}
+    </div>
+
+    {{ overview_block(episode.overview or "暂无本集简介。") }}
+
+    <div class="detail-ratings-row mt-3 pt-2">
+         {% if episode.imdb_rating is not none and episode.imdb_rating != "" %}
+             <span class="detail-rating-item" title="本集 IMDb 评分">
+                 <img class="detail-rating-logo detail-rating-logo--imdb" src="{{ url_for('static', filename='imdb.png') }}" alt="IMDb">
+                 <span class="detail-rating-score detail-rating-score--imdb">{{ "%.1f"|format(episode.imdb_rating) }}</span>
+             </span>
+         {% endif %}
+    </div>
+</section>
+{% endmacro %}
+
+{% macro episode_control(episode, playback_episode) %}
+<div class="episode-hero-control" data-episode-hero-control="{{ episode.episode_id }}">
+    {% if playback_episode.play_url %}
+        {{ play_control(playback_episode.sources, playback_episode.featured_source, playback_episode.play_label, "btn media-primary-action detail-play w-100 d-inline-flex align-items-center justify-content-center gap-2", "w-100") }}
+    {% else %}
+        <span class="btn btn-secondary disabled detail-play w-100 d-inline-flex align-items-center justify-content-center" aria-disabled="true">暂无可播放资源</span>
+    {% endif %}
+</div>
+{% endmacro %}
+
+{% macro episode_facts(episode) %}
+<div class="episode-facts-panel" data-episode-facts="{{ episode.episode_id }}">
+    {% if episode.media_facts %}
+        <dl class="row gy-3 mb-0 detail-facts">
+            {% for fact in episode.media_facts %}
+                <dt class="col-sm-3 text-body-secondary fw-normal">{{ fact.label }}</dt>
+                <dd class="col-sm-9 mb-0 text-break">{{ fact.value }}</dd>
+            {% endfor %}
+        </dl>
+    {% else %}
+        <p class="small text-body-secondary mb-0">暂无本地媒体参数。</p>
+    {% endif %}
+</div>
+{% endmacro %}

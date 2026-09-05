@@ -4,7 +4,6 @@ import secrets
 from pathlib import Path
 
 from flask import abort, Flask, flash, g, jsonify, redirect, render_template, request, url_for
-from flask_session import Session
 
 from connectors import alist, player
 from models.database import get_db, init_app as init_database
@@ -60,11 +59,7 @@ app.config.update(
     IMDB_DATABASE=IMDB_DATABASE_PATH,
     IMAGE_ROOT=IMAGE_ROOT,
     SECRET_KEY=os.environ.get("FLASK_SECRET_KEY") or secrets.token_hex(32),
-    SESSION_PERMANENT=False,
-    SESSION_TYPE="filesystem",
-    SESSION_FILE_DIR=str(BASE_DIR / ".flask_session"),
 )
-Session(app)
 init_database(app)
 start_configured_alist()
 
@@ -190,6 +185,19 @@ def title_detail(title_id: str):
         select_resume=request.args.get("resume") == "1",
     )
     return render_template("detail.html", media=media)
+
+
+@app.get("/title/<title_id>/episode-panel")
+def episode_panel(title_id: str):
+    raw = query_title(get_db(), title_id)
+    if raw is None or raw["requested"]["title_type"] != "episode":
+        abort(404)
+    media = build_title_viewmodel(raw)
+    return render_template(
+        "episode_panel.html",
+        episode=media["selected_episode"],
+        genres=media["genres"],
+    )
 
 
 @app.post("/title/<title_id>/resume")

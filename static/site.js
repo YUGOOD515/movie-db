@@ -397,106 +397,6 @@
 
     document.querySelectorAll("[data-detail-overview-wrap]").forEach(initOverviewClamp);
 
-    // Lazy episode panels: only the featured episode ships rendered HTML; the
-    // rest live in a JSON data island and are built on first selection.
-    function episodeHeroControlHTML(episodeId, info) {
-        const key = escapeHtml(episodeId);
-        if (!info.play_url) {
-            return `<div class="episode-hero-control" data-episode-hero-control="${key}" hidden>
-                <span class="btn btn-secondary disabled detail-play w-100 d-inline-flex align-items-center justify-content-center" aria-disabled="true">暂无可播放资源</span>
-            </div>`;
-        }
-        const buttonClass = "btn media-primary-action detail-play w-100 d-inline-flex align-items-center justify-content-center gap-2";
-        const icon = '<i class="bi bi-play-fill" aria-hidden="true"></i>';
-        if (info.sources.length > 1) {
-            const items = info.sources.map((source) => `
-                <li>
-                    <form action="${escapeHtml(source.url)}" method="post">
-                        <button class="dropdown-item d-flex align-items-center gap-2${source.active ? " active" : ""}" type="submit" title="${escapeHtml(source.path)}">
-                            <i class="bi bi-play-fill flex-shrink-0" aria-hidden="true"></i>
-                            <span class="text-truncate">${escapeHtml(source.label)}</span>
-                        </button>
-                    </form>
-                </li>`).join("");
-            return `<div class="episode-hero-control" data-episode-hero-control="${key}" hidden>
-                <div class="w-100 dropdown">
-                    <button class="${buttonClass} dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="${escapeHtml(info.play_label)}，选择版本">
-                        ${icon}<span class="text-truncate">${escapeHtml(info.play_label)}</span>
-                    </button>
-                    <ul class="dropdown-menu detail-version-menu">${items}</ul>
-                </div>
-            </div>`;
-        }
-        return `<div class="episode-hero-control" data-episode-hero-control="${key}" hidden>
-            <form class="d-contents" action="${escapeHtml(info.play_url)}" method="post">
-                <button class="${buttonClass}" type="submit" aria-label="${escapeHtml(info.play_label)}">
-                    ${icon}<span class="text-truncate">${escapeHtml(info.play_label)}</span>
-                </button>
-            </form>
-        </div>`;
-    }
-
-    function episodeHeroPanelHTML(episodeId, info, context) {
-        const key = escapeHtml(episodeId);
-        const badges = [];
-        if (info.runtime) {
-            badges.push(`<span>${escapeHtml(info.runtime)}</span>`);
-        }
-        if (info.air_date) {
-            badges.push(`<span>${escapeHtml(info.air_date)}</span>`);
-        }
-        (info.badges || []).forEach((badge) => {
-            if (badge.kind === "dolby_vision") {
-                badges.push(`<span class="dolby-vision-badge" title="杜比视界 (Dolby Vision)" aria-label="杜比视界">
-                    <img class="dolby-vision-logo dolby-vision-logo--dark" src="${escapeHtml(context.assets.dolby_dark)}" alt="Dolby Vision" height="15">
-                    <img class="dolby-vision-logo dolby-vision-logo--light" src="${escapeHtml(context.assets.dolby_light)}" alt="Dolby Vision" height="15">
-                </span>`);
-            } else if (badge.label) {
-                badges.push(`<span>${escapeHtml(badge.label)}</span>`);
-            }
-        });
-        if (context.genres) {
-            badges.push(`<span>${escapeHtml(context.genres)}</span>`);
-        }
-
-        const overviewText = info.overview || "暂无本集简介。";
-        const rating = info.rating !== null && info.rating !== "" && info.rating !== undefined
-            ? `<span class="detail-rating-item" title="本集 IMDb 评分">
-                  <img class="detail-rating-logo detail-rating-logo--imdb" src="${escapeHtml(context.assets.imdb)}" alt="IMDb">
-                  <span class="detail-rating-score detail-rating-score--imdb">${Number(info.rating).toFixed(1)}</span>
-              </span>`
-            : "";
-
-        return `<section class="episode-hero-panel d-none" data-episode-hero="${key}" data-season-number="${info.season}" data-episode-number="${info.number}" data-hero-backdrop-url="${escapeHtml(info.backdrop || "")}" hidden>
-            <span class="detail-episode-index d-block small fw-bold mb-2">S${info.season} · E${info.number}</span>
-            <h2 class="h3 fw-bold mb-3">${escapeHtml(info.name)}</h2>
-            <div class="detail-meta d-flex flex-wrap align-items-center column-gap-3 row-gap-2 small text-body-secondary fw-semibold mb-3">${badges.join("")}</div>
-            <div class="detail-overview-wrapper mb-0" data-detail-overview-wrap>
-                <p class="detail-overview lh-lg mb-0" data-detail-overview><span data-detail-overview-text data-full-text="${escapeHtml(overviewText)}">${escapeHtml(overviewText)}</span><button type="button" class="btn btn-link p-0 text-decoration-none small text-body-secondary fw-semibold detail-overview-more d-none" data-detail-overview-toggle aria-expanded="false">...更多</button></p>
-                <div class="detail-overview-expanded squircle-card" data-detail-overview-expanded hidden>
-                    <p class="lh-lg mb-2">${escapeHtml(overviewText)}</p>
-                    <div class="d-flex justify-content-end"><button type="button" class="btn btn-link p-0 text-decoration-none small text-body-secondary fw-semibold detail-overview-more" data-detail-overview-collapse>收起</button></div>
-                </div>
-            </div>
-            <div class="detail-ratings-row mt-3 pt-2">${rating}</div>
-        </section>`;
-    }
-
-    function episodeFactsHTML(episodeId, info) {
-        const key = escapeHtml(episodeId);
-        if (!info.facts || !info.facts.length) {
-            return `<div class="episode-facts-panel d-none" data-episode-facts="${key}" hidden>
-                <p class="small text-body-secondary mb-0">暂无本地媒体参数。</p>
-            </div>`;
-        }
-        const rows = info.facts.map((fact) => `
-            <dt class="col-sm-4 text-body-secondary fw-normal">${escapeHtml(fact.label)}</dt>
-            <dd class="col-sm-8 mb-0 text-break">${escapeHtml(fact.value)}</dd>`).join("");
-        return `<div class="episode-facts-panel d-none" data-episode-facts="${key}" hidden>
-            <dl class="row gy-3 mb-0 detail-facts">${rows}</dl>
-        </div>`;
-    }
-
     // Episode cards drive the Hero; playback remains an explicit action.
     document.querySelectorAll("[data-episode-browser]").forEach((browser) => {
         const selectors = browser.querySelectorAll("[data-episode-target]");
@@ -507,15 +407,6 @@
         const backdropStage = browser.querySelector("[data-backdrop-stage]");
         const backdropFallback = browser.querySelector(".detail-backdrop-fallback");
 
-        let episodeData = null;
-        const episodeDataScript = browser.querySelector("script[data-episode-data]");
-        if (episodeDataScript) {
-            try {
-                episodeData = JSON.parse(episodeDataScript.textContent);
-            } catch (error) {
-                episodeData = null;
-            }
-        }
         const heroPanelsContainer = browser.querySelector("[data-episode-hero-panels]");
         const heroControlsContainer = browser.querySelector(".detail-episode-controls");
         const factsPanelsContainer = browser.querySelector("[data-episode-facts-panels]");
@@ -557,40 +448,37 @@
             applySeriesMode();
         });
 
-        function ensureEpisodePanels(episodeId) {
-            if (!episodeData || !episodeData.episodes) {
+        async function ensureEpisodePanels(episodeId, url) {
+            if (browser.querySelector(`[data-episode-hero="${CSS.escape(episodeId)}"]`)) {
                 return;
             }
-            const safeKey = CSS.escape(episodeId);
-            if (browser.querySelector(`[data-episode-hero="${safeKey}"]`)) {
+            const response = await fetch(url);
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            const fragment = document.createElement("template");
+            fragment.innerHTML = await response.text();
+            const parts = [
+                ["[data-episode-hero]", heroPanelsContainer],
+                ["[data-episode-hero-control]", heroControlsContainer],
+                ["[data-episode-facts]", factsPanelsContainer],
+            ].map(([selector, container]) => [fragment.content.querySelector(selector), container]);
+            if (parts.some(([panel, container]) => !panel || !container)
+                || parts[0][0].dataset.episodeHero !== episodeId) {
+                throw new Error("Invalid episode fragment");
+            }
+            // A second click can finish fetching the same episode first.
+            if (browser.querySelector(`[data-episode-hero="${CSS.escape(episodeId)}"]`)) {
                 return;
             }
-            const info = episodeData.episodes[episodeId];
-            if (!info) {
-                return;
+            for (const [panel, container] of parts) {
+                panel.hidden = true;
+                panel.classList.add("d-none");
+                container.appendChild(panel);
             }
-            if (heroPanelsContainer) {
-                heroPanelsContainer.insertAdjacentHTML(
-                    "beforeend",
-                    episodeHeroPanelHTML(episodeId, info, episodeData),
-                );
-                const panel = heroPanelsContainer.lastElementChild;
-                const overviewWrap = panel?.querySelector("[data-detail-overview-wrap]");
-                if (overviewWrap) {
-                    initOverviewClamp(overviewWrap);
-                }
-            }
-            if (heroControlsContainer) {
-                heroControlsContainer.insertAdjacentHTML(
-                    "beforeend",
-                    episodeHeroControlHTML(episodeId, info),
-                );
-            }
-            if (factsPanelsContainer) {
-                factsPanelsContainer.insertAdjacentHTML(
-                    "beforeend",
-                    episodeFactsHTML(episodeId, info),
-                );
+            const overview = parts[0][0].querySelector("[data-detail-overview-wrap]");
+            if (overview) {
+                initOverviewClamp(overview);
             }
         }
 
@@ -609,17 +497,6 @@
 
         function switchBackdrop(backdropUrl, direction) {
             if (!backdropStage) {
-                const legacyBackdrop = browser.querySelector("[data-detail-backdrop]");
-                if (legacyBackdrop && backdropUrl) {
-                    legacyBackdrop.src = backdropUrl;
-                    legacyBackdrop.classList.remove("d-none");
-                    backdropFallback?.classList.add("d-none");
-                    backdropFallback?.classList.remove("d-flex");
-                } else if (legacyBackdrop) {
-                    legacyBackdrop.classList.add("d-none");
-                    backdropFallback?.classList.remove("d-none");
-                    backdropFallback?.classList.add("d-flex");
-                }
                 return;
             }
 
@@ -678,9 +555,24 @@
             }, 550);
         }
 
-        function selectEpisode(selector) {
+        let selectionVersion = 0;
+        async function selectEpisode(selector) {
+            const version = ++selectionVersion;
             const targetKey = selector.dataset.episodeTarget;
-            ensureEpisodePanels(targetKey);
+            selector.setAttribute("aria-busy", "true");
+            try {
+                await ensureEpisodePanels(targetKey, selector.dataset.panelUrl);
+            } catch {
+                if (version === selectionVersion) {
+                    showAppToast("单集信息加载失败，请重试。", "danger");
+                }
+                return;
+            } finally {
+                selector.removeAttribute("aria-busy");
+            }
+            if (version !== selectionVersion) {
+                return;
+            }
 
             const target = browser.querySelector(
                 `[data-episode-hero="${CSS.escape(targetKey)}"]`,
