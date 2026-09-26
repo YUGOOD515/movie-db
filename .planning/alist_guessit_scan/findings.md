@@ -1,0 +1,30 @@
+# Findings
+
+- Memory indicates AList access must use configured `ALIST_DIR`/`ALIST_ORIGIN`; live configuration and current connector still need inspection.
+- Existing user changes are present and must remain untouched.
+- `guessit` 4.4.0 is already installed through the user's pending `pyproject.toml`/`uv.lock` changes.
+- No AList environment variables are present in this shell, so live directory scanning cannot be verified in this turn.
+- Current AList source defines `POST /api/fs/list`, returns `data.content` entries with `virtual_path`, `name`, and `is_dir`, and accepts `per_page = -1` to return all entries.
+- GuessIt correctly uses parent directories to recover a series title from paths such as `/TV/The Last of Us/Season 01/S01E02...`.
+- The local AList service responds at `127.0.0.1:5244`; guest listing returns application code 401, so configured credentials are required for an actual scan.
+- A shared AList response decoder now turns application-level errors into readable `RuntimeError`s instead of failing on missing `data`.
+- Live browser inspection confirmed `/Quark/来自：分享` is accessible and includes representative half-width, full-width, and descriptive bracket names.
+- Representative media samples: `西部世界 (2016)/第 1 季 .../Westworld S01E01 ...mkv`, `暗黑 (全系列)/Dark.S01.2017.../`, `群星（2024）.../Constellation.S01E01...mkv`, and `盗梦空间 (2010)/Inception (2010) ...mkv`.
+- The current script passes the entire AList path to GuessIt. On the Westworld sample, GuessIt takes the parent directory title/year instead of the file title; this is the root cause of bracketed parent text contaminating or replacing recognition.
+- AList browser navigation itself preserves the bracketed parent path, so the bug is in GuessIt input construction, not AList directory traversal.
+- Authenticated live `POST /api/fs/list` checks returned code 200 for all four representative directories, and `virtual_path` preserved every parent component and bracket character.
+- The observed file basenames themselves identify `Westworld`, `Dark`, `Constellation`, and `Inception`; parsing the basename prevents parent-title/year contamination.
+- Basename-only parsing needs one narrow fallback for files beginning with `SxxExx`/`1x02`: use the nearest parent that is not a generic season directory as the series title.
+- Current output has 882 videos. All 771 `media_file` paths match exactly; the remaining 111 are absent from the library database.
+- GuessIt disagrees with the authoritative database type for 328 of 771 catalogued files; 138 season values and 218 episode values also disagree.
+- The main failure family is abbreviated filenames such as `S01.01.mkv`: 238 outputs have a season without an episode, 118 have an episode without a season, 299 have numeric-only titles, and 443 guessed movies lack a year.
+- All 111 paths absent from the database are non-catalog groups: 72 city footage clips, 37 variety-show files, one Adobe tutorial, and one hardware-review video. None has a complete season/episode pair; only one has a misleading date parsed as a movie year.
+- Because the database covers every catalogued path exactly, the smallest reliable contract is database-first by exact `alist_path`; GuessIt remains a fallback and weak fallback results must be labeled unknown rather than movie.
+- Optimized dry run produces 771 `source=library` rows (752 episodes, 19 movie files) and 111 `source=unknown` rows. Every library row exactly matches database `file_id`, `title_id`, type, season, and episode.
+- Database-backed output now includes canonical and localized title fields plus `file_id`, `title_id`, and `series_id`; standard filenames use canonical primary titles.
+- All 771 catalog filenames are non-empty and contain no Windows-invalid characters; the longest is 124 characters. Duplicate standard names reflect multiple source files for the same title and remain distinguishable by path and `file_id`.
+- User clarified the intended direction: AList files are unclassified input, while `library.db` is the eventual import target. The prior database-first normalization therefore answers the wrong question and must be removed.
+- The batch-import endpoint accepts only `title_id`, `season_number`, `episode_number`, and signed local `alist_url`; a generated candidate file should preserve this exact shape when a match is confident.
+- `imdb.db` supplies indexed `primaryTitle`, indexed aliases, title type/year, and `title_episode(parentTconst, seasonNumber, episodeNumber)`. This is sufficient to map a GuessIt movie/series title to an IMDb title and then resolve a series episode by coordinates.
+- Import accepts a movie ID directly, a series ID plus season/episode, or an episode ID directly. Series ID plus coordinates is the smallest stable output because GuessIt already extracts those coordinates.
+- `library.db` should only identify already-imported `alist_path` values; it must never replace the inferred identity of a new AList file.

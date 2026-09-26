@@ -328,7 +328,7 @@ class LibraryIntegrationTest(unittest.TestCase):
         # 全剧/本集信息切换：按钮 + 全剧面板（默认隐藏）
         self.assertIn('data-series-toggle', selected_series)
         self.assertIn('data-series-hero-panel', selected_series)
-        self.assertIn('series-hero-panel hero-pane-hidden', selected_series)
+        self.assertIn('episode-hero-panels hero-pane-hidden', selected_series)
         self.assertIn("全剧 · 共", selected_series)
         self.assertNotIn("data-series-toggle", self.client.get("/title/tt0816692").get_data(as_text=True))
         self.assertIn('data-panel-url="/title/tt11555014/episode-panel"', selected_series)

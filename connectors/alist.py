@@ -7,6 +7,14 @@ import requests
 REQUEST_TIMEOUT = 20
 
 
+def _response_data(response: requests.Response) -> dict:
+    response.raise_for_status()
+    payload = response.json()
+    if payload.get("code") not in (None, 200) or payload.get("data") is None:
+        raise RuntimeError(payload.get("message") or "AList 请求失败。")
+    return payload["data"]
+
+
 def get_origin() -> str:
     return os.environ.get("ALIST_ORIGIN", "http://127.0.0.1:5244").rstrip("/")
 
@@ -17,8 +25,28 @@ def get_token(alist_username: str, alist_password: str) -> str:
         json={"username": alist_username, "password": alist_password},
         timeout=REQUEST_TIMEOUT,
     )
-    response.raise_for_status()
-    return response.json()["data"]["token"]
+    return _response_data(response)["token"]
+
+
+def list_directory(
+    path: str,
+    token: str,
+    *,
+    path_password: str = "",
+) -> list[dict]:
+    response = requests.post(
+        get_origin() + "/api/fs/list",
+        headers={"Authorization": token},
+        json={
+            "path": path,
+            "password": path_password,
+            "page": 1,
+            "per_page": -1,
+            "refresh": False,
+        },
+        timeout=REQUEST_TIMEOUT,
+    )
+    return _response_data(response)["content"] or []
 
 
 def get_video_link(
@@ -46,8 +74,7 @@ def get_video_link(
         },
         timeout=REQUEST_TIMEOUT,
     )
-    response.raise_for_status()
-    return response.json()["data"]["raw_url"]
+    return _response_data(response)["raw_url"]
 
 
 def parse_alist_url(value: str) -> str:
@@ -100,4 +127,3 @@ def validate_alist_video_url(value: str) -> None:
             or content_type.startswith("application/octet-stream")
         ):
             raise ValueError("AList 直链返回的资源不是视频。")
-

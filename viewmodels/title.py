@@ -595,12 +595,12 @@ def build_title_viewmodel(
         "logo_path": _primary_artwork(artwork, "logo"),
         "poster_path": _primary_artwork(artwork, "poster"),
         "backdrop_path": backdrop_path,
-        "hero_image": (
+        "hero_image": backdrop_path
+        or (
             episode_state["selected"]["still_path"]
             if episode_state["selected"]
             else None
-        )
-        or backdrop_path,
+        ),
         "tagline": title.get("tagline"),
         "overview": title.get("overview") or "暂无简介。",
         "genres": genres,

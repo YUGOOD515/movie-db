@@ -414,7 +414,7 @@
         // Series/episode info toggle in the hero area.
         const seriesToggle = browser.querySelector("[data-series-toggle]");
         const seriesPanel = browser.querySelector("[data-series-hero-panel]");
-        let seriesMode = false;
+        let seriesMode = true;
 
         function applySeriesMode() {
             seriesPanel?.classList.toggle("hero-pane-hidden", !seriesMode);
@@ -629,7 +629,10 @@
             currentEpisodeNum = newEpisodeNum;
 
             const backdropUrl = target.dataset.heroBackdropUrl;
-            if (!seriesMode) {
+            if (seriesMode) {
+                seriesMode = false;
+                applySeriesMode();
+            } else {
                 switchBackdrop(backdropUrl, direction);
             }
 

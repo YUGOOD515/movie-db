@@ -1,0 +1,35 @@
+{
+  "source_bytes": 5224140800,
+  "source_mtime_ns": 1788008076303815200,
+  "library_sha256": "4c1414ac988495f3815ec1add2e84d42c5538cf5d9001409743f09c1e0b7429a",
+  "tables": {
+    "title_basics": {
+      "rows": 12748442,
+      "all_retained_values_equal": true
+    },
+    "title_akas": {
+      "rows": 148932,
+      "all_retained_values_equal": true
+    },
+    "title_episode": {
+      "rows": 9856134,
+      "all_retained_values_equal": true
+    },
+    "title_ratings": {
+      "rows": 1710605,
+      "all_retained_values_equal": true
+    }
+  },
+  "integrity_check": "ok",
+  "identical_title_queries": 575,
+  "identical_series_queries": 23,
+  "target_bytes": 1869119488,
+  "target_sha256": "be8a996cc9cbf2a463e29b61a70bb50b56bc349ec6752e9d99cf57180c2855ea",
+  "import_resolution_checks": "movie, series+position, episode",
+  "tmdb_database_helpers": "passed",
+  "installed": true,
+  "installed_at": "2026-09-26T11:46:05.110191+00:00",
+  "backup_path": "C:\\YUFiles\\DFiles\\Self-Knowledge\\Design\\2026-08-26-movieDB\\backups\\imdb-before-compaction-20260926.db",
+  "reduction_percent": 64.22,
+  "post_install_checks": "schema, index, 575 titles, 23 series, 3 import paths, 2 TMDB helpers, database hashes passed"
+}

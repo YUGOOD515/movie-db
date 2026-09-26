@@ -274,6 +274,7 @@ select {
 }
 
 .media-rail {
+    --rail-gap: 1rem;
     --rail-edge-space: calc(var(--bs-gutter-x, 1.5rem) * 0.5);
     -ms-overflow-style: none;
     scrollbar-width: none;
@@ -302,6 +303,7 @@ select {
 .media-rail-track::after {
     content: "";
     flex: 0 0 var(--rail-edge-space);
+    margin-left: calc(-1 * var(--rail-gap));
 }
 
 .media-rail--span-3 {
@@ -1171,6 +1173,7 @@ body.detail-overview-open [data-episode-target] {
 
 .episode-rail {
     --rail-item-basis: var(--card-width);
+    --rail-gap: 1rem;
 }
 
 .episode-card {
@@ -1275,6 +1278,7 @@ body.detail-overview-open [data-episode-target] {
 
 .cast-rail {
     --rail-item-basis: var(--season-btn-width);
+    --rail-gap: 1rem;
 }
 
 .cast-name,
@@ -1325,6 +1329,10 @@ body.detail-overview-open [data-episode-target] {
 }
 
 @media (min-width: 992px) {
+    .media-rail {
+        --rail-gap: 1.5rem;
+    }
+
     .media-rail--span-6 {
         --rail-item-basis: 35%;
     }
@@ -1345,10 +1353,20 @@ body.detail-overview-open [data-episode-target] {
 }
 
 @media (min-width: 1200px) {
+    .media-rail {
+        --rail-edge-space: calc((100vw - 1140px) / 2 + var(--bs-gutter-x, 1.5rem) * 0.5);
+    }
+
     .detail-sources,
     .detail-cast {
         --card-width: calc((100cqi - 5 * 1rem) / 6);
         --season-btn-width: calc((100cqi - 11 * 1rem) / 12);
+    }
+}
+
+@media (min-width: 1400px) {
+    .media-rail {
+        --rail-edge-space: calc((100vw - 1320px) / 2 + var(--bs-gutter-x, 1.5rem) * 0.5);
     }
 }
 

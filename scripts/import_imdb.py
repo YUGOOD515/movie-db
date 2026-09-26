@@ -3,14 +3,13 @@
 
 Streams each TSV under imdb/, converts the ``\\N`` marker to NULL, and
 bulk-loads rows into WITHOUT ROWID tables keyed by the datasets' natural
-identifiers. ``title_akas`` keeps only Chinese/English rows (language starts
-with zh/en, or region belongs to a Chinese/English-speaking market);
-``title.principals`` is skipped for now. Secondary indexes are built after
-each table's data load.
+identifiers. Only title_basics, title_akas, title_episode and title_ratings
+are imported. Aliases retain the five columns and Chinese candidates used
+by queries/imdb.py. The episode-position index is built after loading.
 
 Usage:
     uv run python scripts/import_imdb.py
-    uv run python scripts/import_imdb.py --tables title_ratings name_basics
+    uv run python scripts/import_imdb.py --tables title_ratings
 """
 import argparse
 import logging
@@ -25,7 +24,7 @@ DATABASE_PATH = PROJECT_ROOT / "imdb.db"
 BATCH_SIZE = 100_000
 PROGRESS_EVERY = 1_000_000
 NULL_MARKER = "\\N"
-ZH_EN_REGIONS = {"CN", "TW", "HK", "MO", "US", "GB", "AU", "CA", "NZ", "IE"}
+ZH_REGIONS = {"CN", "TW", "HK"}
 
 logging.basicConfig(
     level=logging.INFO,
@@ -36,23 +35,6 @@ logger = logging.getLogger("import_imdb")
 
 # 每张表：源文件、列定义（名称 + 类型）、自然主键、二级索引、行过滤器。
 TABLES = [
-    {
-        "name": "name_basics",
-        "file": "name.basics.tsv",
-        "columns": [
-            ("nconst", "text"),
-            ("primaryName", "text"),
-            ("birthYear", "int"),
-            ("deathYear", "int"),
-            ("primaryProfession", "text"),
-            ("knownForTitles", "text"),
-        ],
-        "primary_key": ["nconst"],
-        "indexes": {
-            "idx_name_basics_primary_name": ["primaryName"],
-        },
-        "filter": None,
-    },
     {
         "name": "title_basics",
         "file": "title.basics.tsv",
@@ -68,10 +50,7 @@ TABLES = [
             ("genres", "text"),
         ],
         "primary_key": ["tconst"],
-        "indexes": {
-            "idx_title_basics_primary_title": ["primaryTitle"],
-            "idx_title_basics_title_type": ["titleType"],
-        },
+        "indexes": {},
         "filter": None,
     },
     {
@@ -83,29 +62,11 @@ TABLES = [
             ("title", "text"),
             ("region", "text"),
             ("language", "text"),
-            ("types", "text"),
-            ("attributes", "text"),
-            ("isOriginalTitle", "int"),
         ],
         "primary_key": ["titleId", "ordering"],
-        "indexes": {
-            "idx_title_akas_title": ["title"],
-        },
-        # 方案B：语言以 zh/en 开头，或地区属于中文区/英语区；不单独保留原始标题行。
-        "filter": lambda row: row[4].startswith(("zh", "en"))
-        or row[3] in ZH_EN_REGIONS,
-    },
-    {
-        "name": "title_crew",
-        "file": "title.crew.tsv",
-        "columns": [
-            ("tconst", "text"),
-            ("directors", "text"),
-            ("writers", "text"),
-        ],
-        "primary_key": ["tconst"],
         "indexes": {},
-        "filter": None,
+        # 与 queries/imdb.py 的中文名称筛选条件保持一致。
+        "filter": lambda row: row[4] == "zh" or row[3] in ZH_REGIONS,
     },
     {
         "name": "title_episode",
@@ -188,29 +149,30 @@ def configure_connection(conn):
 def import_table(conn, table):
     path = IMDB_DIR / table["file"]
     columns = table["columns"]
-    column_count = len(columns)
     converters = [make_converter(kind) for _, kind in columns]
     filter_fn = table["filter"]
     insert_sql = (
         f"INSERT OR REPLACE INTO {table['name']} "
-        f"VALUES ({', '.join('?' * column_count)})"
+        f"VALUES ({', '.join('?' * len(columns))})"
     )
-
-    conn.execute(f"DROP TABLE IF EXISTS {table['name']}")
-    conn.execute(build_create_sql(table))
-    conn.commit()
 
     scanned = kept = bad = 0
     batch = []
     started = time.monotonic()
     with open(path, "r", encoding="utf-8", errors="replace", newline="") as fh:
-        fh.readline()  # 表头
+        header = fh.readline().rstrip("\r\n").split("\t")
+        # TSV 保留完整官方字段；按列名投影到精简表，避免误判八列别名为坏行。
+        positions = [header.index(name) for name, _ in columns]
+        conn.execute(f"DROP TABLE IF EXISTS {table['name']}")
+        conn.execute(build_create_sql(table))
+        conn.commit()
         for line in fh:
             scanned += 1
             row = line.rstrip("\r\n").split("\t")
-            if len(row) != column_count:
+            if len(row) != len(header):
                 bad += 1
                 continue
+            row = [row[position] for position in positions]
             if filter_fn is not None and not filter_fn(row):
                 continue
             batch.append(
@@ -284,16 +246,6 @@ def verify(conn, selected):
             "title_ratings 抽查",
         ),
         (
-            "SELECT nconst, primaryName, birthYear, deathYear "
-            "FROM name_basics WHERE nconst = 'nm0000001'",
-            "name_basics 抽查（nm0000001）",
-        ),
-        (
-            "SELECT tconst, directors, writers "
-            "FROM title_crew WHERE tconst = 'tt0111161'",
-            "title_crew 抽查",
-        ),
-        (
             "SELECT COUNT(*) FROM title_akas WHERE titleId = 'tt0111161'",
             "title_akas 肖申克别名单数",
         ),
@@ -318,6 +270,7 @@ def main():
     parser.add_argument(
         "--tables",
         nargs="+",
+        choices=[table["name"] for table in TABLES],
         default=None,
         help="只导入指定表名（空格分隔），默认全部",
     )

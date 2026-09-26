@@ -51,13 +51,13 @@
 
                     <div class="detail-feature flex-grow-1 min-w-0 position-relative"{% if media.media_type == "tv" %} aria-live="polite"{% endif %}>
                         {% if media.media_type == "tv" %}
-                            <button type="button" class="detail-info-toggle btn border-0 bg-transparent d-flex align-items-center justify-content-center p-0" data-series-toggle aria-pressed="false" title="查看全剧信息">
-                                <i class="bi bi-tv" aria-hidden="true" data-series-toggle-icon-tv></i>
-                                <i class="bi bi-play-btn d-none" aria-hidden="true" data-series-toggle-icon-episode></i>
+                            <button type="button" class="detail-info-toggle btn border-0 bg-transparent d-flex align-items-center justify-content-center p-0" data-series-toggle aria-pressed="true" title="查看本集信息">
+                                <i class="bi bi-tv d-none" aria-hidden="true" data-series-toggle-icon-tv></i>
+                                <i class="bi bi-play-btn" aria-hidden="true" data-series-toggle-icon-episode></i>
                                 <span class="visually-hidden">切换本集与全剧信息</span>
                             </button>
                             <div class="hero-info-stack">
-                            <section class="series-hero-panel hero-pane-hidden" aria-hidden="true" data-series-hero-panel data-hero-backdrop-url="{% if media.backdrop_path %}{{ url_for('static', filename=media.backdrop_path) }}{% endif %}">
+                            <section class="series-hero-panel" aria-hidden="false" data-series-hero-panel data-hero-backdrop-url="{% if media.backdrop_path %}{{ url_for('static', filename=media.backdrop_path) }}{% endif %}">
                                 <span class="detail-episode-index d-block small fw-bold mb-2">全剧 · 共 {{ media.seasons|length }} 季</span>
                                 <h2 class="h3 fw-bold mb-3">{{ media.name }}</h2>
 
@@ -84,7 +84,7 @@
                                     {% endif %}
                                 </div>
                             </section>
-                            <div class="episode-hero-panels" data-episode-hero-panels aria-hidden="false">
+                            <div class="episode-hero-panels hero-pane-hidden" data-episode-hero-panels aria-hidden="true">
                             {% if media.selected_episode %}
                                 {% set episode = media.selected_episode %}
                                 {{ episode_panel(episode, media.genres) }}
