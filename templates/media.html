@@ -115,7 +115,7 @@
 
                 <!-- 搜索与筛选结果列表 -->
                 <div class="overview-header d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
-                    <h3 class="h6 text-body-secondary text-uppercase fw-semibold mb-0" style="letter-spacing: 0.05em;">媒体列表</h3>
+                    <h2 class="h5 mb-1" id="associate-heading">媒体列表</h2>
                     <div class="d-flex align-items-center gap-3">
                         <span class="small text-body-secondary" id="overview-count-label">共 {{ overview.media_items|length }} 部作品</span>
                         <button
@@ -145,13 +145,17 @@
 
         {% else %}
             <!-- ================= 关联板块 (Association) ================= -->
-            <section class="association-section" aria-labelledby="associate-heading">
+            {% include "_association_flow.html" %}
+            <details class="association-section" aria-labelledby="associate-heading">
+                <summary class="small text-body-secondary mb-3" id="associate-heading">手动录入 / JSON 导入</summary>
                 <div class="d-flex flex-wrap align-items-end justify-content-between gap-3 mb-4">
                     <div>
-                        <h2 class="h5 mb-1" id="associate-heading">录入与关联</h2>
-                        <p class="text-body-secondary small mb-0">以 IMDb 本地数据建立媒体身份，补充 TMDB 简介与图片，并关联 AList 视频文件。</p>
+                        <h2 class="h6 mb-1">录入与关联</h2>
                     </div>
                     <div class="d-flex flex-wrap align-items-center gap-2">
+                        <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="modal" data-bs-target="#title-picker">
+                            <i class="bi bi-search me-1" aria-hidden="true"></i>通过 TMDB 搜索添加
+                        </button>
                         <label class="btn btn-sm btn-outline-secondary mb-0" for="batch-json-file">
                             <i class="bi bi-upload me-1" aria-hidden="true"></i>上传 JSON
                         </label>
@@ -163,7 +167,6 @@
 
                 <form action="{{ url_for('import_media_batch') }}" method="post" enctype="multipart/form-data" class="mb-5" data-batch-import-form>
                     <input class="visually-hidden" id="batch-json-file" name="json_file" type="file" accept=".json,application/json" data-batch-json-file>
-                    <p class="small text-body-secondary mb-3" data-batch-file-status>可逐条添加，也可上传 JSON 后检查并编辑。</p>
 
                     <div class="d-flex flex-column gap-2" data-batch-import-rows>
                         {{ batch_import_row() }}
@@ -184,12 +187,94 @@
                 <template data-batch-import-template>
                     {{ batch_import_row() }}
                 </template>
-            </section>
+
+            </details>
+                <div class="modal fade" id="title-picker" tabindex="-1" aria-labelledby="title-picker-heading" aria-hidden="true"
+                     data-search-url="{{ url_for('search_import_titles') }}" data-select-url="{{ url_for('select_import_title') }}">
+                    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                        <div class="modal-content squircle-card">
+                            <div class="modal-header">
+                                <h2 class="modal-title fs-5" id="title-picker-heading">通过 TMDB 搜索添加</h2>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+                            </div>
+                            <div class="modal-body">
+                                <div data-title-search-step>
+                                    <form class="d-flex flex-wrap align-items-center gap-2 mb-3" data-title-search-form>
+                                        <div class="min-w-0" style="width: 18rem; max-width: 100%;">
+                                            <input class="form-control form-control-sm bg-body-tertiary" id="associate-search-input"
+                                                   type="search" placeholder="按影片或剧集名称搜索..." aria-label="影片或剧集名称"
+                                                   autocomplete="off" maxlength="100" required data-title-search-query>
+                                        </div>
+                                        <div class="btn-group btn-group-sm segmented-control text-nowrap flex-shrink-0" role="group" aria-label="搜索作品类型">
+                                            <input class="btn-check" type="radio" name="search_type" id="search-type-movie" value="movie" checked>
+                                            <label class="btn btn-outline-secondary" for="search-type-movie">电影</label>
+                                            <input class="btn-check" type="radio" name="search_type" id="search-type-tv" value="tv">
+                                            <label class="btn btn-outline-secondary" for="search-type-tv">剧集</label>
+                                        </div>
+                                        <button class="btn btn-sm btn-outline-secondary" type="submit">搜索</button>
+                                    </form>
+                                <p class="small text-body-secondary" role="status" aria-live="polite" data-title-search-status>输入名称后点击搜索。</p>
+                                <div class="d-flex flex-column gap-2" data-title-search-results></div>
+                                <button class="btn btn-sm btn-outline-secondary mt-3 d-none" type="button" data-title-search-more>加载更多</button>
+                                </div>
+                                <form class="d-none" data-title-record-form>
+                                    <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
+                                        <div>
+                                            <h3 class="h6 mb-1" data-title-record-name></h3>
+                                            <p class="small text-body-secondary mb-0" data-title-record-id></p>
+                                        </div>
+                                        <button class="btn btn-sm btn-outline-secondary text-nowrap" type="button" data-title-back>重新选择</button>
+                                    </div>
+                                    <div class="d-none mb-3" data-title-episode-fields>
+                                        <div class="d-flex flex-column gap-2" data-title-episode-rows></div>
+                                        <div class="d-flex align-items-center gap-2 mt-3">
+                                            <button class="btn btn-sm btn-outline-secondary" type="button" data-title-episode-add>添加单集</button>
+                                            <span class="small text-body-secondary" data-title-episode-count></span>
+                                        </div>
+                                    </div>
+                                    <template data-title-episode-template>
+                                        <div class="d-flex align-items-center gap-2" data-title-episode-row>
+                                            <span class="batch-row-index small text-body-secondary" data-title-episode-index></span>
+                                            <div class="row g-2 flex-grow-1 min-w-0">
+                                                <div class="col-3">
+                                                    <input class="form-control form-control-sm bg-body-tertiary" type="number" min="0" step="1" placeholder="季号" aria-label="季号 (Series 必填)" title="季号 (Series 必填)" required data-title-season>
+                                                </div>
+                                                <div class="col-3">
+                                                    <input class="form-control form-control-sm bg-body-tertiary" type="number" min="1" step="1" placeholder="集号" aria-label="集号 (Series 必填)" title="集号 (Series 必填)" required data-title-episode>
+                                                </div>
+                                                <div class="col-6">
+                                                    <input class="form-control form-control-sm bg-body-tertiary" type="url" aria-label="AList 视频直链"
+                                                           placeholder="{{ alist_origin }}/d/..." required data-title-alist-url>
+                                                </div>
+                                            </div>
+                                            <button class="btn btn-sm batch-remove-btn flex-shrink-0" type="button" aria-label="删除此单集" data-title-episode-remove>
+                                                <i class="bi bi-trash3" aria-hidden="true"></i>
+                                            </button>
+                                        </div>
+                                    </template>
+                                    <div data-title-movie-fields>
+                                        <label class="form-label small" for="search-alist-url">AList 视频直链</label>
+                                        <input class="form-control form-control-sm bg-body-tertiary mb-3" id="search-alist-url" type="url"
+                                               placeholder="{{ alist_origin }}/d/..." required data-title-movie-url>
+                                    </div>
+                                    <div class="d-flex justify-content-end">
+                                        <button class="btn btn-sm media-primary-action px-4" type="submit" data-title-record-add>添加到待导入列表</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    </div>
+                </div>
         {% endif %}
     </div>
 {% endblock %}
 
 {% block scripts %}
+    {% if active_tab == 'associate' %}
+    <script src="{{ url_for('static', filename='title-search.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='filename-rules.js') }}" defer></script>
+    <script src="{{ url_for('static', filename='media-association.js') }}" defer></script>
+    {% endif %}
     <script>
         (() => {
             // 类型筛选提交到服务端，避免概览数据在前端形成第二套筛选逻辑。

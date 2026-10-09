@@ -26,6 +26,11 @@ RATING_COLUMNS = {
 }
 
 
+def delete_library_titles(db: sqlite3.Connection, title_ids: list[str]) -> None:
+    """Delete an explicitly enumerated work; foreign keys remove its dependent rows."""
+    db.executemany("DELETE FROM title_basic WHERE title_id = ?", [(value,) for value in reversed(title_ids)])
+
+
 def save_library_playback_progress(
     database_path: str | Path,
     file_id: int,

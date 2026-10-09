@@ -125,4 +125,3 @@ def get_series_episodes(db: Connection, series_id: str) -> list[dict]:
         item.update(relation)
         episodes.append(item)
     return episodes
-

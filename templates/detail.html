@@ -265,14 +265,18 @@
                     {% endif %}
                 </section>
 
-                {% if media.external_links %}
-                    <nav class="detail-external-links d-flex flex-wrap gap-3 pt-4 border-top" aria-label="外部链接">
+                    <nav class="detail-external-links d-flex flex-wrap align-items-center gap-3 pt-4 border-top" aria-label="外部链接">
                         {% for link in media.external_links %}
                             <a class="small fw-semibold link-secondary link-offset-2 link-underline-opacity-0 link-underline-opacity-100-hover" href="{{ link.url }}" target="_blank" rel="noopener noreferrer">{{ link.label }}<i class="bi bi-arrow-up-right ms-1" aria-hidden="true"></i></a>
                         {% endfor %}
+                        <button type="button" class="btn btn-sm btn-outline-danger ms-auto" data-title-delete-open data-preview-url="{{ url_for('preview_title_removal', title_id=media.media_id) }}" data-delete-url="{{ url_for('remove_title', title_id=media.media_id) }}"><i class="bi bi-trash3 me-1" aria-hidden="true"></i>删除作品</button>
                     </nav>
-                {% endif %}
             </div>
         </section>
     </article>
+    {% include '_title_deletion.html' %}
+{% endblock %}
+
+{% block scripts %}
+    <script src="{{ url_for('static', filename='title-deletion.js') }}"></script>
 {% endblock %}

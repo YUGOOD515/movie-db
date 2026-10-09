@@ -443,7 +443,7 @@ def _build_episode_state(
     }
 
 
-def _format_ratings(title: dict) -> list[dict]:
+def format_ratings(title: dict) -> list[dict]:
     ratings = []
 
     def add(key, name, field, icon, score_format, tooltip, votes_field=None, votes_format="", *, number=int):
@@ -605,7 +605,7 @@ def build_title_viewmodel(
         "overview": title.get("overview") or "暂无简介。",
         "genres": genres,
         "imdb_rating": title.get("average_rating"),
-        "ratings": _format_ratings(title),
+        "ratings": format_ratings(title),
         "runtime_label": _runtime_label(title, selected_episode, featured_source),
         "date_label": format_year(title),
         "release_date": str(title.get("start_year") or ""),

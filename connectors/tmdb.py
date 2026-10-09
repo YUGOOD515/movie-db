@@ -3,7 +3,11 @@
 import logging
 import os
 import sqlite3
+from collections import OrderedDict
+from concurrent.futures import Future
 from pathlib import Path
+from threading import Lock
+from time import monotonic
 
 import requests
 
@@ -11,7 +15,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 IMDB_DB = PROJECT_ROOT / "imdb.db"
 
 TMDB_API = os.environ.get("TMDB_API_ORIGIN", "https://api.themoviedb.org/3").rstrip("/")
-TMDB_IMAGE = "https://image.tmdb.org/t/p"
+TMDB_IMAGE = os.environ.get("TMDB_IMAGE_ORIGIN", "https://image.tmdb.org/t/p").rstrip("/")
 LANGUAGE = "zh-CN"
 IMAGE_LANGUAGE = "zh,null"
 REQUEST_TIMEOUT = 20
@@ -26,6 +30,79 @@ LOCAL_PATH_PREFIX = "images"
 DEFAULT_IMAGE_ROOT = PROJECT_ROOT / "static" / "images"
 
 logger = logging.getLogger(__name__)
+
+# 短时、有界缓存；同一键的并发请求共用一个 Future，失败不缓存。
+CACHE_TTL = 600
+CACHE_LIMIT = 128
+_cache = OrderedDict()
+_pending = {}
+_cache_lock = Lock()
+
+
+def _remember(key, value):
+    with _cache_lock:
+        _cache[key] = (monotonic() + CACHE_TTL, value)
+        _cache.move_to_end(key)
+        while len(_cache) > CACHE_LIMIT:
+            _cache.popitem(last=False)
+
+
+def _cached(key, fetch):
+    with _cache_lock:
+        entry = _cache.get(key)
+        if entry and entry[0] > monotonic():
+            _cache.move_to_end(key)
+            return entry[1]
+        future = _pending.get(key)
+        owner = future is None
+        if owner:
+            future = _pending[key] = Future()
+    if not owner:
+        return future.result()
+    try:
+        value = fetch()
+        _remember(key, value)
+        future.set_result(value)
+        return value
+    except Exception as error:
+        future.set_exception(error)
+        raise
+    finally:
+        with _cache_lock:
+            _pending.pop(key, None)
+
+
+def search_media(query: str, media_type: str, page: int = 1) -> dict:
+    def fetch():
+        with _session() as session:
+            return _get(session, f"/search/{media_type}", {
+                "query": query, "page": page, "language": LANGUAGE,
+                "include_adult": "false",
+            })
+    return _cached(("search", media_type, query, LANGUAGE, page), fetch)
+
+
+def resolve_imdb_id(media_type: str, tmdb_id: int) -> str:
+    def fetch():
+        with _session() as session:
+            return _get(session, f"/{media_type}/{tmdb_id}/external_ids", {})
+    payload = _cached(("external_ids", media_type, tmdb_id), fetch)
+    return payload.get("imdb_id") or ""
+
+
+def chinese_search_poster(media_type: str, tmdb_id: int) -> str | None:
+    def fetch():
+        with _session() as session:
+            payload = _get(session, f"/{media_type}/{tmdb_id}/images", {"include_image_language": "zh,null,en"})
+        posters = payload.get("posters") or []
+        posters.sort(key=lambda image: (image.get("iso_639_1") != "zh", -(image.get("vote_average") or 0)))
+        return posters[0]["file_path"] if posters else None
+    return _cached(("search_poster", media_type, tmdb_id), fetch)
+
+
+def remember_media_identity(imdb_id: str, media_type: str, tmdb_id: int):
+    """复用已与本地 IMDb 核对的 TMDB 映射，避免导入时重复 find。"""
+    _remember(("find", imdb_id, LANGUAGE), (media_type, {"id": tmdb_id}))
 
 
 def _token() -> str:
@@ -68,6 +145,10 @@ def _get(session: requests.Session, endpoint: str, params: dict) -> dict:
 
 def find_media(session: requests.Session, imdb_id: str) -> tuple[str, dict]:
     """用 IMDb ID 换取媒体类型（movie/tv/episode）与 find 结果首条。"""
+    return _cached(("find", imdb_id, LANGUAGE), lambda: _find_media(session, imdb_id))
+
+
+def _find_media(session: requests.Session, imdb_id: str) -> tuple[str, dict]:
     payload = _get(
         session,
         f"/find/{imdb_id}",

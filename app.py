@@ -1,11 +1,14 @@
 import json
 import os
 import secrets
+import sqlite3
 from pathlib import Path
+
+import requests
 
 from flask import abort, Flask, flash, g, jsonify, redirect, render_template, request, url_for
 
-from connectors import alist, player
+from connectors import alist, player, tmdb
 from models.database import get_db, init_app as init_database
 from models.library import (
     save_library_playback_progress,
@@ -36,6 +39,12 @@ from services.media_import import (
 from services.playback import is_effectively_completed
 from services.rating_sync import get_rating_refresh_status, start_rating_refresh
 from services.thumbnails import get_card_image_path
+from services.title_search import search_titles, select_title
+from services.media_discovery import start_scan, scan_status
+from services.media_association import title_metadata, check_association, complete_association
+from services.title_deletion import DeletionChanged, preview_title_deletion, execute_title_deletion
+from viewmodels.title_search import build_search_viewmodel, build_selection_viewmodel
+from viewmodels.deletion import build_deletion_viewmodel
 from viewmodels.catalog import (
     build_catalog_viewmodel,
     build_library_viewmodel,
@@ -261,6 +270,96 @@ def media():
     )
 
 
+@app.get("/manager/titles/search")
+def search_import_titles():
+    media_type = request.args.get("type", "movie")
+    try:
+        payload = search_titles(
+            request.args.get("q", ""), media_type, request.args.get("page", "1")
+        )
+    except requests.RequestException:
+        return jsonify(error="TMDB 暂时无法访问，请稍后重试或手动填写 IMDb ID。"), 502
+    except RuntimeError:
+        return jsonify(error="TMDB 尚未配置，请手动填写 IMDb ID。"), 503
+    except ValueError as error:
+        return jsonify(error=str(error)), 400
+    return jsonify(build_search_viewmodel(payload, media_type))
+
+
+@app.get("/manager/titles/select")
+def select_import_title():
+    try:
+        title = select_title(
+            app.config["IMDB_DATABASE"],
+            request.args.get("type", "movie"),
+            request.args.get("tmdb_id", ""),
+        )
+    except requests.RequestException:
+        return jsonify(error="无法获取 IMDb 映射，请稍后重试。"), 502
+    except RuntimeError:
+        return jsonify(error="TMDB 尚未配置，请手动填写 IMDb ID。"), 503
+    except sqlite3.Error:
+        return jsonify(error="本地 IMDb 数据库暂时不可用。"), 503
+    except ValueError as error:
+        return jsonify(error=str(error)), 400
+    return jsonify(build_selection_viewmodel(title))
+
+
+@app.get("/manager/titles/poster")
+def import_title_poster():
+    media_type = request.args.get("type", "")
+    tmdb_id = request.args.get("tmdb_id", "")
+    if media_type not in ("movie", "tv") or not tmdb_id.isdigit() or not 1 <= len(tmdb_id) <= 10:
+        abort(400)
+    try:
+        path = tmdb.chinese_search_poster(media_type, int(tmdb_id))
+    except (requests.RequestException, RuntimeError, ValueError):
+        abort(502)
+    if not path:
+        abort(404)
+    response = redirect(f"{tmdb.TMDB_IMAGE}/w185{path}")
+    response.cache_control.max_age = 600
+    return response
+
+
+@app.route("/manager/discovery", methods=["GET", "POST"])
+def discover_import_media():
+    if request.method == "POST":
+        start_scan(app.config["DATABASE"], refresh=request.args.get("refresh") == "1")
+    return jsonify(scan_status(app.config["DATABASE"]))
+
+
+@app.get("/manager/titles/episodes")
+def import_title_metadata():
+    try:
+        return jsonify(title_metadata(app.config["IMDB_DATABASE"], request.args.get("title_id", "")))
+    except ValueError as error:
+        return jsonify(error=str(error)), 400
+    except sqlite3.Error:
+        return jsonify(error="本地 IMDb 数据库暂时不可用。"), 503
+
+
+@app.post("/manager/association/<action>")
+def associate_discovered_media(action):
+    if action not in ("check", "complete"):
+        abort(404)
+    if request.content_length and request.content_length > MAX_BATCH_JSON_BYTES:
+        return jsonify(error="关联数据过大。"), 413
+    payload = request.get_json(silent=True)
+    try:
+        arguments = dict(library_database=app.config["DATABASE"],
+                         imdb_database=app.config["IMDB_DATABASE"], payload=payload)
+        if action == "complete":
+            result = complete_association(**arguments, image_root=app.config["IMAGE_ROOT"])
+        else:
+            result = check_association(**arguments)
+    except ValueError as error:
+        return jsonify(error=str(error)), 400
+    except (OSError, RuntimeError, requests.RequestException, sqlite3.Error):
+        return jsonify(error="关联服务暂时不可用，请检查 AList 和数据库后重试。"), 503
+    return jsonify(result), 200 if result["valid"] else 422
+
+
 @app.post("/manager/import")
 def import_media():
     try:
@@ -390,6 +489,49 @@ def select_media_artwork(title_id: str):
         abort(404)
     flash("主图片已更新。", "success")
     return redirect(_safe_return_url(default_endpoint="media"))
+
+
+@app.get("/title/<title_id>/deletion")
+def preview_title_removal(title_id: str):
+    try:
+        plan = preview_title_deletion(
+            app.config["DATABASE"], app.config["IMAGE_ROOT"], title_id, app.secret_key
+        )
+        preview = build_deletion_viewmodel(plan)
+        response = jsonify(title_id=preview["title_id"], name=preview["name"], token=preview["token"],
+                           confirm_label=preview["confirm_label"],
+                           html=render_template("_title_deletion_content.html", preview=preview))
+        response.headers["Cache-Control"] = "no-store"
+        return response
+    except ValueError as error:
+        return jsonify(error=str(error)), 404
+    except (OSError, sqlite3.Error):
+        app.logger.exception("Title deletion preview failed")
+        return jsonify(error="无法完成删除前检查，请稍后重试。"), 503
+
+
+@app.post("/title/<title_id>/deletion")
+def remove_title(title_id: str):
+    payload = request.get_json(silent=True) or {}
+    if not isinstance(payload, dict):
+        return jsonify(error="删除请求无效。"), 400
+    try:
+        plan, warnings = execute_title_deletion(
+            app.config["DATABASE"], app.config["IMAGE_ROOT"], title_id,
+            payload.get("token"), app.secret_key
+        )
+    except DeletionChanged as error:
+        return jsonify(error=str(error)), 409
+    except ValueError as error:
+        return jsonify(error=str(error)), 404
+    except (OSError, sqlite3.Error):
+        app.logger.exception("Title deletion failed")
+        return jsonify(error="删除未完成，请重新检查作品状态并重试。"), 503
+    message = f"已删除《{plan['title']['display_title']}》及相关记录。"
+    if warnings:
+        message += "部分图片暂存文件未能清理。"
+    flash(message, "warning" if warnings else "success")
+    return jsonify(redirect_url=url_for("media"))
 
 
 @app.post("/play/<int:file_id>")

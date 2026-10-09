@@ -1,10 +1,35 @@
 import os
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlencode, urlparse
 
 import requests
 
 
 REQUEST_TIMEOUT = 20
+VIDEO_EXTENSIONS = frozenset({
+    ".3gp", ".avi", ".flv", ".m2ts", ".m4v", ".mkv", ".mov", ".mp4",
+    ".mpeg", ".mpg", ".mts", ".ts", ".webm", ".wmv",
+})
+
+
+def configured_token() -> str:
+    username = os.environ.get("ALIST_USERNAME", "").strip()
+    password = os.environ.get("ALIST_PASSWORD", "")
+    if not username or not password:
+        raise RuntimeError("未配置 ALIST_USERNAME 或 ALIST_PASSWORD。")
+    return get_token(username, password)
+
+
+def get_signed_url(path: str, token: str) -> str:
+    response = requests.post(
+        get_origin() + "/api/fs/get",
+        headers={"Authorization": token},
+        json={"path": path, "password": os.environ.get("ALIST_PATH_PASSWORD", "")},
+        timeout=REQUEST_TIMEOUT,
+    )
+    data = _response_data(response)
+    if data.get("is_dir") or not data.get("sign"):
+        raise ValueError("无法获取视频签名直链，请检查 AList 文件权限及签名设置。")
+    return get_origin() + "/d" + quote(path, safe="/") + "?" + urlencode({"sign": data["sign"]})
 
 
 def _response_data(response: requests.Response) -> dict:
@@ -33,6 +58,7 @@ def list_directory(
     token: str,
     *,
     path_password: str = "",
+    refresh: bool = False,
 ) -> list[dict]:
     response = requests.post(
         get_origin() + "/api/fs/list",
@@ -42,7 +68,7 @@ def list_directory(
             "password": path_password,
             "page": 1,
             "per_page": -1,
-            "refresh": False,
+            "refresh": refresh,
         },
         timeout=REQUEST_TIMEOUT,
     )

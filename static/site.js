@@ -131,6 +131,16 @@
         }
 
         addButton.addEventListener("click", () => addRow());
+        form.addEventListener("batch:add-records", (event) => {
+            const currentRows = Array.from(rows.querySelectorAll("[data-batch-import-row]"));
+            // 初始全空行只是占位；保留所有已填写及用户额外添加的行。
+            const placeholder = currentRows.length === 1 &&
+                Array.from(currentRows[0].querySelectorAll("input")).every((input) => !input.value.trim());
+            if (currentRows.length - Number(placeholder) + event.detail.length > 100) return;
+            if (placeholder) currentRows[0].remove();
+            event.detail.forEach(addRow);
+            event.preventDefault(); // 确认记录已被接收。
+        });
         rows.addEventListener("click", (event) => {
             const remove = event.target.closest("[data-batch-remove]");
             if (!remove || remove.disabled) {
@@ -691,6 +701,44 @@
     // actions share the same queue so notifications never overlap.
     const appToastQueue = [];
     let appToastActive = false;
+    let appToastStatus = null;
+
+    function renderAppToast(notification, persistent = false) {
+        let toast = document.querySelector(".save-toast");
+        if (!toast) {
+            toast = document.createElement("div");
+            toast.className = "save-toast";
+            document.body.appendChild(toast);
+        }
+        if (!notification) {
+            toast.classList.remove("save-toast--show");
+            return;
+        }
+        const isError = ["danger", "error"].includes(notification.category);
+        toast.replaceChildren(document.createTextNode(notification.message));
+        if (notification.action) {
+            const action = document.createElement("button");
+            action.type = "button";
+            action.className = "btn btn-link p-0 ms-3 save-toast-action";
+            action.textContent = notification.action.label;
+            action.addEventListener("click", notification.action.run);
+            toast.append(action);
+        }
+        toast.setAttribute("role", isError ? "alert" : "status");
+        toast.setAttribute("aria-live", isError ? "assertive" : "polite");
+        toast.classList.toggle("save-toast--error", isError);
+        toast.classList.toggle("save-toast--warning", notification.category === "warning");
+        toast.classList.toggle("save-toast--success", notification.category === "success");
+        toast.classList.toggle("save-toast--persistent", persistent);
+        toast.classList.add("save-toast--show");
+    }
+
+    // A current task status returns when the transient notification queue clears.
+    window.setAppToastStatus = (message = "", category = "warning", action = null) => {
+        if (appToastStatus?.message === message && appToastStatus?.category === category) return;
+        appToastStatus = message ? { message, category, action } : null;
+        if (!appToastActive) renderAppToast(appToastStatus, true);
+    };
 
     function showAppToast(message, category = "success") {
         if (!message) {
@@ -707,23 +755,15 @@
         const notification = appToastQueue.shift();
         if (!notification) {
             appToastActive = false;
+            renderAppToast(appToastStatus, true);
             return;
         }
         appToastActive = true;
-        let toast = document.querySelector(".save-toast");
-        if (!toast) {
-            toast = document.createElement("div");
-            toast.className = "save-toast";
-            document.body.appendChild(toast);
-        }
+        renderAppToast(notification);
+        const toast = document.querySelector(".save-toast");
         const isError = notification.category === "danger"
             || notification.category === "error";
         const isWarning = notification.category === "warning";
-        toast.textContent = notification.message;
-        toast.setAttribute("role", isError ? "alert" : "status");
-        toast.setAttribute("aria-live", isError ? "assertive" : "polite");
-        toast.classList.toggle("save-toast--error", isError);
-        toast.classList.toggle("save-toast--warning", isWarning);
         toast.classList.remove("save-toast--show");
         void toast.offsetWidth;
         toast.classList.add("save-toast--show");

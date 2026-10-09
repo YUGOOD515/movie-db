@@ -21,6 +21,7 @@ ENV_PATH: Final[Path] = PROJECT_ROOT / ".env"
 class Config:
     mdblist_apikey: str
     timeout_seconds: float = 8.0
+    api_url: str = "https://mdblist.com/api/"
 
 @dataclass(frozen=True)
 class PlatformRating:
@@ -69,6 +70,7 @@ def create_config(overrides: Optional[Mapping[str, Any]] = None) -> Config:
     return Config(
         mdblist_apikey=env.get("MDBLIST_APIKEY", ""),
         timeout_seconds=float(env.get("HTTP_TIMEOUT", "8.0")),
+        api_url=env.get("MDBLIST_API_URL", "https://mdblist.com/api/"),
     )
 
 # ==============================================================================
@@ -214,10 +216,9 @@ def fetch_mdblist_ratings(
             error_message="MDBLIST_APIKEY is not configured in environment or .env",
         )
 
-    url = f"https://mdblist.com/api/?apikey={cfg.mdblist_apikey}&i={imdb_id}"
     t0 = time.perf_counter()
     try:
-        resp = requests.get(url, timeout=cfg.timeout_seconds)
+        resp = requests.get(cfg.api_url, params={"apikey": cfg.mdblist_apikey, "i": imdb_id}, timeout=cfg.timeout_seconds)
         elapsed_ms = (time.perf_counter() - t0) * 1000
         if resp.status_code != 200:
             return TitleRatingsSummary(

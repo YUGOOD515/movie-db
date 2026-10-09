@@ -1,0 +1,112 @@
+{% macro shared_photo_badge(person) %}
+<div class="deletion-photo-status position-absolute top-0 end-0 p-2 w-auto h-auto">
+    <span class="badge rounded-pill bg-dark text-light text-wrap text-break d-inline-flex align-items-start gap-1 lh-sm" data-delete-shared-uses>
+        <i class="bi bi-link-45deg flex-shrink-0" aria-hidden="true"></i>
+        <span class="min-w-0">{% for work in person.uses %}{{ work.name }}{% if not loop.last %}、{% endif %}{% else %}保留{% endfor %}</span>
+    </span>
+</div>
+{% endmacro %}
+
+{% macro retained_uses(image, label=false) %}
+{% if image.uses %}<p class="small text-body-secondary d-flex align-items-start gap-1 mt-2 mb-0" data-delete-shared-uses><i class="bi bi-link-45deg flex-shrink-0" aria-hidden="true"></i><span class="min-w-0 text-break">{% if label %}保留 · {% endif %}{% for work in image.uses %}《{{ work.name }}》{% if not loop.last %}、{% endif %}{% endfor %}</span></p>
+{% elif image.status != 'delete' %}<p class="small text-body-secondary mt-2 mb-0">保留</p>{% endif %}
+{% endmacro %}
+
+<div class="deletion-content d-flex flex-column gap-4">
+    <section aria-label="待删除的作品" data-delete-work>
+        <div class="d-flex align-items-start gap-3">
+            {% if preview.poster %}<img class="deletion-poster squircle-card flex-shrink-0" src="{{ url_for('static', filename=preview.poster) }}" alt="{{ preview.name }}海报">{% endif %}
+            <div class="min-w-0 flex-grow-1">
+                <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                    <h3 class="h4 mb-0 text-break">{{ preview.name }}</h3>
+                </div>
+                <div class="d-flex flex-wrap align-items-center gap-3 small text-body-secondary mb-2">
+                    {% if preview.year %}<span>{{ preview.year }}</span>{% endif %}
+                    {% if preview.genres %}<span>{{ preview.genres }}</span>{% endif %}
+                </div>
+                {% if preview.ratings %}<div class="d-flex flex-wrap align-items-center gap-3 mb-2">
+                    {% for rating in preview.ratings %}<span class="detail-rating-item" title="{{ rating.title }}"><img class="detail-rating-logo detail-rating-logo--{{ rating.key }}" src="{{ url_for('static', filename=rating.icon) }}" alt="{{ rating.name }}"><span class="detail-rating-score detail-rating-score--{{ rating.key }}">{{ rating.score }}</span></span>{% endfor %}
+                </div>{% endif %}
+                {% if preview.overview %}<p class="deletion-overview small lh-lg mb-0">{{ preview.overview }}</p>{% endif %}
+            </div>
+        </div>
+        {% if preview.seasons %}
+        <div class="d-flex gap-4 overflow-x-auto mt-4 pb-2" tabindex="0" aria-label="全部季集" data-delete-seasons>
+            {% for season in preview.seasons %}
+            <section class="available-season flex-shrink-0">
+                <h4 class="h6 mb-2">{{ season.name }}</h4>
+                <div class="available-episode-window">
+                <ul class="available-episode-list list-unstyled small mb-0" tabindex="0" aria-label="{{ season.name }}单集">
+                    {% for episode in season.episodes %}
+                    <li class="mb-3" data-delete-episode title="{{ episode.overview or episode.name }}">
+                        <div class="d-flex align-items-center justify-content-between gap-2 text-body-secondary mb-1">
+                            <span>{{ episode.position }}</span>
+                            {% if episode.rating is not none %}<span><i class="bi bi-star-fill small me-1" aria-hidden="true"></i>{{ '%.1f'|format(episode.rating) }}</span>{% endif %}
+                        </div>
+                        <span>{{ episode.name }}</span>
+                    </li>
+                    {% endfor %}
+                </ul>
+                </div>
+            </section>
+            {% endfor %}
+        </div>
+        {% endif %}
+    </section>
+
+    {% for group in preview.image_groups %}
+    <section class="pt-2" aria-labelledby="deletion-{{ group.key }}-heading" data-delete-image-group="{{ group.key }}">
+        <h3 class="h6 mb-3" id="deletion-{{ group.key }}-heading"><i class="bi {{ group.icon }} me-2" aria-hidden="true"></i>{{ group.name }}</h3>
+        <div class="d-flex gap-3 overflow-x-auto pb-2" tabindex="0" aria-label="{{ group.name }}" data-delete-gallery>
+            {% for image in group.images %}
+            {% if group.is_cast %}
+            <article class="cast-card deletion-cast-card min-w-0">
+                <div class="cast-photo ratio ratio-poster squircle-card overflow-hidden bg-body-tertiary shadow-sm position-relative">
+                    <img class="w-100 h-100 object-fit-cover" src="{{ url_for('static', filename=image.image) }}" alt="{{ image.name }}" width="342" height="513" loading="lazy">
+                    {% if group.retained %}{{ shared_photo_badge(image) }}{% endif %}
+                </div>
+                <h5 class="cast-name mt-3 mb-1 fw-semibold">{{ image.name }}</h5>
+                {% if image.character %}<p class="cast-character text-body-secondary mb-0">{{ image.character }}</p>{% endif %}
+            </article>
+            {% else %}
+            <figure class="deletion-gallery-card{% if image.is_wide %} deletion-gallery-card--wide{% endif %} mb-0">
+                <div class="squircle-card overflow-hidden bg-body-tertiary">
+                    <img class="deletion-gallery-image" src="{{ url_for('static', filename=image.image) }}" alt="{{ image.position }} {{ image.name }}" loading="lazy">
+                </div>
+                <figcaption class="small text-body-secondary mt-2">{{ image.position }} {{ image.name }}{{ retained_uses(image, true) }}</figcaption>
+            </figure>
+            {% endif %}
+            {% endfor %}
+        </div>
+    </section>
+    {% endfor %}
+
+    {% if preview.history %}
+    <section class="pt-2" aria-labelledby="deletion-history-heading" data-delete-history>
+        <h3 class="h6 mb-3" id="deletion-history-heading"><i class="bi bi-clock-history me-2" aria-hidden="true"></i>观看记录</h3>
+        <div class="d-flex flex-wrap align-items-start gap-2">
+            {% for watch in preview.history %}
+            <article class="deletion-watch d-inline-flex align-items-center gap-3 rounded-pill bg-body-tertiary px-3 py-1" data-delete-watch title="{{ watch.file_name }}">
+                <div class="d-flex align-items-baseline gap-2 small min-w-0">
+                    {% if watch.position %}<span class="text-body-secondary text-nowrap">{{ watch.position }}</span>{% endif %}
+                    <span class="deletion-watch-name{% if watch.name_fades %} deletion-watch-name--fade{% endif %} fw-semibold min-w-0" title="{{ watch.name }}">{{ watch.name_preview }}</span>
+                </div>
+                <div class="d-flex flex-column align-items-end gap-1 flex-shrink-0">
+                    <time class="small text-body-secondary text-nowrap" data-delete-watched="{{ watch.watched_at }}">{{ watch.watched_at[:10] }}</time>
+                    <div class="progress deletion-watch-progress" role="progressbar" aria-label="{{ watch.position }} {{ watch.name }}观看进度" aria-valuemin="0" aria-valuemax="100" {% if watch.progress.duration_ms %}aria-valuenow="{{ watch.progress.percent }}" title="观看进度 {{ watch.progress.percent }}%"{% else %}aria-valuetext="文件总时长未知" title="文件总时长未知"{% endif %}>
+                        <div class="progress-bar" style="width: {{ watch.progress.percent }}%"></div>
+                    </div>
+                </div>
+            </article>
+            {% endfor %}
+        </div>
+    </section>
+    {% endif %}
+
+    {% if preview.collections %}
+    <section class="d-flex flex-wrap align-items-center gap-2" aria-label="删除收藏关系" data-delete-collections>
+        {% for collection in preview.collections %}<span class="badge rounded-pill bg-danger-subtle text-danger-emphasis px-3 py-2"><i class="bi bi-trash3 me-2" aria-hidden="true"></i>{{ collection.name }}</span>{% endfor %}
+    </section>
+    {% endif %}
+    <p class="small text-body-secondary pt-2 mb-0"><i class="bi bi-cloud-check me-2" aria-hidden="true"></i>位于夸克网盘中的文件不会被删除。</p>
+</div>

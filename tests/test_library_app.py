@@ -124,6 +124,83 @@ class LibraryIntegrationTest(unittest.TestCase):
         connection.execute("PRAGMA foreign_keys = ON")
         return connection
 
+    def test_title_search_and_selection_reuse_identity_without_writes(self):
+        before = self.database_path.read_bytes(), self.imdb_path.read_bytes()
+        with patch.object(tmdb, "_session"), patch.object(tmdb, "_get") as fetch:
+            tmdb._cache.clear()
+            self.addCleanup(tmdb._cache.clear)
+            fetch.side_effect = [
+                {"page": 1, "total_pages": 2, "results": [{
+                    "id": 9001, "title": "导入电影", "original_title": "Import Movie",
+                    "release_date": "2026-01-01", "poster_path": "/poster.jpg",
+                    "overview": "用于区分同名电影的简介",
+                }]},
+                {"imdb_id": "tt9000001"},
+            ]
+            url = "/manager/titles/search?q=导入电影&type=movie"
+            data = self.client.get(url).get_json()
+            self.assertEqual(data["items"][0]["year"], "2026")
+            self.assertTrue(data["has_more"])
+            self.assertEqual(self.client.get(url).get_json(), data)
+            selected = self.client.get("/manager/titles/select?type=movie&tmdb_id=9001")
+            self.assertEqual(selected.status_code, 200)
+            self.assertEqual(selected.json["title_id"], "tt9000001")
+            self.assertEqual(tmdb.find_media(Mock(), "tt9000001"), ("movie", {"id": 9001}))
+            self.assertEqual(fetch.call_count, 2)
+        self.assertEqual(before, (self.database_path.read_bytes(), self.imdb_path.read_bytes()))
+
+    def test_title_selection_rejects_missing_and_mismatched_identities(self):
+        for title_id, message in [("", "没有 IMDb 映射"), ("tt123456789", "尚未收录"), ("tt9000002", "类型不一致")]:
+            with self.subTest(title_id=title_id), patch.object(tmdb, "resolve_imdb_id", return_value=title_id), patch.object(tmdb, "remember_media_identity") as remember:
+                response = self.client.get("/manager/titles/select?type=movie&tmdb_id=9001")
+                self.assertEqual(response.status_code, 400)
+                self.assertIn(message, response.json["error"])
+                remember.assert_not_called()
+
+    def test_selected_series_returns_identity_for_manual_episode_entry(self):
+        with patch.object(tmdb, "resolve_imdb_id", return_value="tt9000002"), \
+             patch.object(tmdb, "remember_media_identity"):
+            response = self.client.get("/manager/titles/select?type=tv&tmdb_id=9002")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json["media_type"], "tv")
+        self.assertEqual(response.json["title_id"], "tt9000002")
+
+    def test_selected_movie_is_written_by_existing_batch_import(self):
+        tmdb._cache.clear()
+        self.addCleanup(tmdb._cache.clear)
+        with patch.object(tmdb, "_session"), patch.object(tmdb, "_get") as get, \
+             patch.object(alist, "validate_alist_video_url"), \
+             patch.object(alist, "get_video_link", return_value="https://media.test/movie.mkv"), \
+             patch.object(media_probe, "probe_video", return_value={"duration_ms": 7200000}), \
+             patch.object(media_import_service, "fetch_title_rating", return_value={"status": "unavailable"}):
+            get.side_effect = [{"imdb_id": "tt9000001"}, {"id": 9001, "overview": "搜索后导入"}]
+            selected = self.client.get("/manager/titles/select?type=movie&tmdb_id=9001").json
+            response = self.client.post("/manager/import/batch", data={
+                "title_id": selected["title_id"], "season_number": "", "episode_number": "",
+                "alist_url": "http://127.0.0.1:5244/d/Movies/Search.mkv?sign=test",
+            }, follow_redirects=True)
+            self.assertIn("批量录入完成：成功 1 条", response.get_data(as_text=True))
+            self.assertEqual([call.args[1] for call in get.call_args_list], ["/movie/9001/external_ids", "/movie/9001"])
+        with closing(self.connect()) as db:
+            title = db.execute("SELECT tmdb_id, overview FROM title_basic WHERE title_id = 'tt9000001'").fetchone()
+            media = db.execute("SELECT title_id FROM media_file WHERE alist_path = '/Movies/Search.mkv'").fetchone()
+        self.assertEqual(tuple(title), (9001, "搜索后导入"))
+        self.assertEqual(media["title_id"], selected["title_id"])
+
+    def test_title_search_validates_inputs_and_handles_upstream_errors(self):
+        with patch.object(tmdb, "search_media") as search:
+            for query in ["q=&type=movie", "q=test&type=person", "q=test&page=0", "q=test&page=abc", "q=test&page=501"]:
+                self.assertEqual(self.client.get("/manager/titles/search?" + query).status_code, 400)
+            search.assert_not_called()
+            search.side_effect = requests.Timeout("private upstream details")
+            response = self.client.get("/manager/titles/search?q=test")
+            self.assertEqual(response.status_code, 502)
+            self.assertNotIn("private", response.json["error"])
+        with patch.object(tmdb, "resolve_imdb_id") as resolve:
+            for value in ["0", "-1", "../movie", "abc"]:
+                self.assertEqual(self.client.get("/manager/titles/select", query_string={"tmdb_id": value}).status_code, 400)
+            resolve.assert_not_called()
+
     def build_title(
         self,
         title_id: str,
@@ -683,7 +760,6 @@ class LibraryIntegrationTest(unittest.TestCase):
         self.assertIn("第 2 条（tt9000002）：模拟失败", html)
         self.assertIn('data-category="danger"', html)
         self.assertNotIn('data-category="warning"', html)
-        self.assertNotIn("alert-warning", html)
         items = import_batch.call_args.kwargs["items"]
         self.assertEqual(items[0]["title_id"], "tt9000001")
         self.assertEqual(items[1]["season_number"], "1")

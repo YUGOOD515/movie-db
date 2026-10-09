@@ -1,0 +1,17 @@
+const assert = require("node:assert/strict");
+const { parse, presets } = require("../static/filename-rules.js");
+assert.equal(parse("Show.S02E013.1080p.mkv", presets[0].blocks).episode, 13);
+assert.equal(parse("Show.S00E01.mkv", presets[0].blocks).season, 0);
+assert.equal(parse("Show.2x03.mkv", presets[1].blocks).episode, 3);
+assert.equal(parse("标题第2季第03集.mkv", presets[2].blocks).season, 2);
+assert.equal(parse("标题 [03].mkv", presets[4].blocks).episode, 3);
+assert.equal(parse("标题 - 03.mkv", presets[5].blocks).episode, 3);
+assert.equal(parse("Movie.2026.1080p.mkv", presets[0].blocks), null);
+const custom = [{ type: "literal", value: "[Group] " }, { type: "letters" }, { type: "separator" }, { type: "episode" }, { type: "literal", value: ".mkv" }];
+const match = parse("[Group] 标题 - 12.mkv", custom);
+assert.equal(match.episode, 12);
+assert.equal(match.spans.find(x => x.type === "episode").text, "12");
+assert.equal(parse("[Group] 标题 - 12.mkv", [custom[1], custom[0], ...custom.slice(2)]), null);
+assert.equal(parse("01.mkv", [{ type: "episode" }, { type: "episode" }, { type: "any" }]), null);
+assert.equal(parse("A".repeat(512), [...Array(14)].map(() => ({ type: "any" })).concat({ type: "episode" })), null);
+console.log("Filename rules: presets, custom order, literal escaping, highlights and bounded failure passed.");

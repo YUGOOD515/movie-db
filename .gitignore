@@ -30,4 +30,5 @@ library.db
 
 # Scratch & agent workdir
 scratch/
+local-test-data/
 .workbuddy/

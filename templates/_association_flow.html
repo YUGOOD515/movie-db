@@ -1,0 +1,98 @@
+<section id="media-association" class="mb-4"
+         data-discovery-url="{{ url_for('discover_import_media') }}"
+         data-metadata-url="{{ url_for('import_title_metadata') }}"
+         data-check-url="{{ url_for('associate_discovered_media', action='check') }}"
+         data-complete-url="{{ url_for('associate_discovered_media', action='complete') }}">
+    <div data-discovery-panel>
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
+            <div>
+                <h2 class="h5 mb-1">待关联内容 <span class="small text-body-secondary" data-discovery-count></span></h2>
+                <span class="small text-body-secondary" data-discovery-root>来自：分享</span>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-secondary" data-discovery-refresh><i class="bi bi-arrow-clockwise me-1" aria-hidden="true"></i><span data-discovery-refresh-label>刷新</span></button>
+        </div>
+        <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+            <input class="form-control form-control-sm discovery-filter" type="search" placeholder="筛选文件或文件夹" aria-label="筛选待关联内容" data-discovery-filter>
+        </div>
+        <div class="table-responsive squircle-card border">
+            <table class="table table-hover align-middle mb-0 discovery-table">
+                <thead class="small text-body-secondary"><tr><th scope="col" class="ps-3">新增内容</th><th scope="col">视频</th><th scope="col">新增时间</th><th scope="col"><span class="visually-hidden">操作</span></th></tr></thead>
+                <tbody data-discovery-rows></tbody>
+            </table>
+            <p class="text-body-secondary text-center p-4 mb-0 d-none" data-discovery-empty>没有待关联的视频</p>
+        </div>
+    </div>
+
+    <section class="d-none" data-association-editor aria-labelledby="association-task-heading">
+        <div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-3">
+            <div class="min-w-0">
+                <div class="d-flex flex-wrap align-items-center gap-3 mb-1">
+                    <h2 class="h5 mb-0 text-break" id="association-task-heading" data-task-name></h2>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" data-task-pick><i class="bi bi-search me-1" aria-hidden="true"></i>重新搜索匹配</button>
+                </div>
+                <p class="small text-body-secondary mb-0" data-task-path></p>
+            </div>
+            <button class="btn btn-sm btn-outline-secondary" type="button" data-task-close>返回待关联</button>
+        </div>
+        <div class="squircle-card border p-3 mb-4">
+            <div class="d-flex align-items-start justify-content-between gap-3">
+                <div class="min-w-0"><h3 class="h6 mb-1" data-task-title>选择电影或剧集</h3><span class="small text-body-secondary" data-task-title-meta></span></div>
+                <img class="flex-shrink-0" src="{{ url_for('static', filename='imdb.png') }}" alt="IMDb" height="20">
+            </div>
+            <section class="d-none mt-3 pt-3 border-top" data-available-panel aria-label="IMDb 可用季集">
+                <div class="d-flex gap-4 overflow-x-auto align-items-start small" data-available-episodes tabindex="0" aria-label="各季全部集名"></div>
+            </section>
+        </div>
+        <section class="d-none mb-4" data-rule-panel aria-labelledby="rule-heading">
+            <h3 class="h6 mb-3" id="rule-heading">匹配季集</h3>
+            <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+                <span class="small" id="rule-preset-label">文件名规则</span>
+                <div class="dropdown">
+                    <button id="rule-preset" type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle rule-preset" data-bs-toggle="dropdown" aria-expanded="false" aria-labelledby="rule-preset-label rule-preset" data-rule-preset></button>
+                    <ul class="dropdown-menu squircle-card p-2" data-rule-presets aria-labelledby="rule-preset-label"></ul>
+                </div>
+                <label class="small ms-sm-2" for="default-season">默认季号</label>
+                <input id="default-season" class="form-control form-control-sm position-input" type="number" min="0" step="1" data-default-season>
+            </div>
+            <div class="d-flex flex-wrap align-items-center gap-2 mb-2" data-rule-blocks aria-label="文件名匹配块" aria-describedby="rule-drag-help"></div>
+            <span id="rule-drag-help" class="visually-hidden">按住匹配块拖动排序，也可聚焦匹配块后按 Alt 加方向键调整顺序。</span>
+            <div class="d-flex flex-wrap gap-1 mb-3" data-rule-palette aria-label="添加匹配块"></div>
+        </section>
+        <h3 class="h6 mb-3">文件与目标</h3>
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+            <div class="d-flex flex-wrap align-items-center gap-3">
+                <label class="small d-flex align-items-center gap-2"><input type="checkbox" class="form-check-input mt-0" data-files-all checked>全选</label>
+                <span class="small" data-files-count></span>
+                <label class="small d-flex align-items-center gap-2"><input type="checkbox" class="form-check-input mt-0" data-files-errors>只看需检查</label>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-secondary d-none" data-rule-reset>重置人工修正</button>
+        </div>
+        <div class="table-responsive squircle-card border mb-3">
+            <table class="table align-middle mb-0 association-files">
+                <thead class="small"><tr><th scope="col"><span class="visually-hidden">选择</span></th><th scope="col">文件</th><th scope="col" data-position-heading>季</th><th scope="col" data-position-heading>集</th><th scope="col">目标 / 状态</th></tr></thead>
+                <tbody data-task-files></tbody>
+            </table>
+        </div>
+        <div class="d-flex flex-wrap justify-content-end gap-2">
+            <button type="button" class="btn btn-sm btn-outline-secondary d-none" data-task-edit>返回修改</button>
+            <button type="button" class="btn btn-sm media-primary-action px-4" data-task-check disabled>检查结果</button>
+            <button type="button" class="btn btn-sm media-primary-action px-4 d-none" data-task-complete>完成关联</button>
+        </div>
+    </section>
+    <div class="modal fade" id="episode-correction" tabindex="-1" aria-labelledby="episode-correction-heading" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content squircle-card">
+                <div class="modal-header">
+                    <h2 class="modal-title fs-5" id="episode-correction-heading">修正目标季集</h2>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="small text-break mb-2" data-correction-name></p>
+                    <p class="small text-body-secondary mb-3" data-correction-reason></p>
+                    <label class="form-label small" for="correction-target">IMDb 目标季集</label>
+                    <div data-correction-target></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</section>
