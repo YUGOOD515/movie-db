@@ -374,6 +374,13 @@ class LibraryIntegrationTest(unittest.TestCase):
         self.assertNotIn("后室海报", catalog)
         self.assertIn("segmented-control", catalog)
         self.assertIn("genre-pills", catalog)
+        # 有图时占位图标默认隐藏，仅在图片加载失败后由前端显示。
+        self.assertRegex(
+            catalog,
+            r'data-media-image>\s*<span class="image-fallback[^"]*\bd-none"',
+        )
+        self.assertNotIn("onclick=", catalog)
+        self.assertIn('data-filter-set="sort"', catalog)
 
         default_series = self.client.get("/title/tt6226232").get_data(as_text=True)
         selected_series = self.client.get(
@@ -720,7 +727,7 @@ class LibraryIntegrationTest(unittest.TestCase):
 
     def test_manager_filtering_is_server_owned(self):
         html = self.client.get("/media?q=星际&type=movie").get_data(as_text=True)
-        self.assertIn("overviewForm.requestSubmit()", html)
+        self.assertIn('id="overview-search-form" role="search" data-auto-submit', html)
         self.assertNotIn("function applyFilter", html)
         self.assertNotIn("request.full_path", html)
 

@@ -1,6 +1,7 @@
 {% extends "layout.html" %}
 
 {% from "_detail_panels.html" import play_control, media_badges, overview_block, episode_panel, episode_control, episode_facts with context %}
+{% from "_ui.html" import empty_state, image_fallback, rating_items %}
 
 {% block title %} - {{ media.name }}{% endblock %}
 
@@ -51,7 +52,7 @@
 
                     <div class="detail-feature flex-grow-1 min-w-0 position-relative"{% if media.media_type == "tv" %} aria-live="polite"{% endif %}>
                         {% if media.media_type == "tv" %}
-                            <button type="button" class="detail-info-toggle btn border-0 bg-transparent d-flex align-items-center justify-content-center p-0" data-series-toggle aria-pressed="true" title="查看本集信息">
+                            <button type="button" class="detail-info-toggle" data-series-toggle aria-pressed="true" title="查看本集信息">
                                 <i class="bi bi-tv d-none" aria-hidden="true" data-series-toggle-icon-tv></i>
                                 <i class="bi bi-play-btn" aria-hidden="true" data-series-toggle-icon-episode></i>
                                 <span class="visually-hidden">切换本集与全剧信息</span>
@@ -68,21 +69,7 @@
 
                                 {{ overview_block(media.overview) }}
 
-                                <div class="detail-ratings-row mt-3 pt-2">
-                                    {% if media.ratings %}
-                                        {% for rating in media.ratings %}
-                                            <span class="detail-rating-item" title="{{ rating.title }}">
-                                                <img class="detail-rating-logo detail-rating-logo--{{ rating.key }}" src="{{ url_for('static', filename=rating.icon) }}" alt="{{ rating.name }}">
-                                                <span class="detail-rating-score detail-rating-score--{{ rating.key }}">{{ rating.score }}</span>
-                                            </span>
-                                        {% endfor %}
-                                    {% elif media.imdb_rating is not none and media.imdb_rating != "" %}
-                                        <span class="detail-rating-item" title="全剧 IMDb 评分">
-                                            <img class="detail-rating-logo detail-rating-logo--imdb" src="{{ url_for('static', filename='imdb.png') }}" alt="IMDb">
-                                            <span class="detail-rating-score detail-rating-score--imdb">{{ "%.1f"|format(media.imdb_rating) }}</span>
-                                        </span>
-                                    {% endif %}
-                                </div>
+                                <div class="detail-ratings-row mt-3 pt-2">{{ rating_items(media.ratings, media.imdb_rating, "全剧 IMDb 评分") }}</div>
                             </section>
                             <div class="episode-hero-panels hero-pane-hidden" data-episode-hero-panels aria-hidden="true">
                             {% if media.selected_episode %}
@@ -102,21 +89,7 @@
                                 {% if media.genres %}<span>{{ media.genres|join(" / ") }}</span>{% endif %}
                             </div>
                             {{ overview_block(media.overview) }}
-                            <div class="detail-ratings-row mt-3 pt-2">
-                                {% if media.ratings %}
-                                    {% for rating in media.ratings %}
-                                        <span class="detail-rating-item" title="{{ rating.title }}">
-                                            <img class="detail-rating-logo detail-rating-logo--{{ rating.key }}" src="{{ url_for('static', filename=rating.icon) }}" alt="{{ rating.name }}">
-                                            <span class="detail-rating-score detail-rating-score--{{ rating.key }}">{{ rating.score }}</span>
-                                        </span>
-                                    {% endfor %}
-                                {% elif media.imdb_rating is not none and media.imdb_rating != "" %}
-                                    <span class="detail-rating-item" title="IMDb 评分">
-                                        <img class="detail-rating-logo detail-rating-logo--imdb" src="{{ url_for('static', filename='imdb.png') }}" alt="IMDb">
-                                        <span class="detail-rating-score detail-rating-score--imdb">{{ "%.1f"|format(media.imdb_rating) }}</span>
-                                    </span>
-                                {% endif %}
-                            </div>
+                            <div class="detail-ratings-row mt-3 pt-2">{{ rating_items(media.ratings, media.imdb_rating) }}</div>
                         {% endif %}
                     </div>
                 </div>
@@ -127,15 +100,15 @@
             <section class="detail-sources py-3" aria-label="选集">
                 {% if media.seasons %}
                     <div class="episode-toolbar container-xl d-flex flex-wrap align-items-center justify-content-between gap-3 gap-lg-4 mb-4" data-season-picker>
-                        <nav class="season-nav d-flex flex-wrap align-items-center gap-3" aria-label="季度切换" role="tablist">
+                        <nav class="season-nav min-w-0 d-flex flex-wrap align-items-center gap-3" aria-label="季度切换" role="tablist">
                             {% for season in media.seasons %}
-                                <button class="btn btn-sm season-pill-btn{% if season.active %} active genre-dropdown-toggle--active{% endif %}" type="button" data-season-target="season-pane-{{ season.season_id }}" data-season-key="{{ season.season_id }}" data-season-name="{{ season.season_name }}" aria-pressed="{{ 'true' if season.active else 'false' }}" role="tab" aria-selected="{{ 'true' if season.active else 'false' }}">
+                                <button class="btn btn-sm chip-btn season-pill-btn{% if season.active %} active{% endif %}" type="button" data-season-target="season-pane-{{ season.season_id }}" data-season-key="{{ season.season_id }}" data-season-name="{{ season.season_name }}" aria-pressed="{{ 'true' if season.active else 'false' }}" role="tab" aria-selected="{{ 'true' if season.active else 'false' }}">
                                     <span>{{ season.season_name }}</span>
                                 </button>
                             {% endfor %}
                         </nav>
 
-                        <div class="season-summary small" aria-live="polite">
+                        <div class="season-summary min-w-0 small" aria-live="polite">
                             {% for season in media.seasons %}
                                 <div class="season-summary-panel d-flex flex-wrap align-items-center gap-3{% if not season.active %} d-none{% endif %}" data-season-summary="{{ season.season_id }}"{% if not season.active %} hidden{% endif %}>
                                     <span class="season-summary-year fw-semibold text-body">{{ season.air_date[:4] if season.air_date else "—" }}</span>
@@ -164,7 +137,7 @@
                                             <div class="episode-still-frame squircle-card ratio ratio-16x9 overflow-hidden bg-body-tertiary shadow-sm">
                                                 <div>
                                                     {% if episode.image %}<img class="media-cover" src="{{ url_for('static', filename=episode.image|card_image) }}" alt="{{ media.name }}第 {{ episode.season_number }} 季第 {{ episode.episode_number }} 集剧照" width="640" height="360" loading="lazy" data-media-image>{% endif %}
-                                                    <span class="image-fallback position-absolute top-0 start-0 w-100 h-100 align-items-center justify-content-center fs-2 text-body-secondary{% if episode.image %} d-none{% else %} d-flex{% endif %}" aria-hidden="true"><i class="bi bi-film"></i></span>
+                                                    {{ image_fallback(episode.image) }}
                                                     <span class="episode-card-scrim position-absolute top-0 start-0 w-100 h-100" aria-hidden="true"></span>
                                                     <span class="episode-selected-badge badge position-absolute">当前</span>
                                                     <span class="episode-card-copy position-absolute d-flex align-items-end justify-content-between gap-3">
@@ -182,13 +155,13 @@
                                             <button class="episode-selector position-absolute top-0 start-0 w-100 h-100 border-0 bg-transparent" type="button" data-episode-target="{{ episode.episode_id }}" data-panel-url="{{ url_for('episode_panel', title_id=episode.episode_id) }}" aria-label="选择 Season {{ episode.season_number }} Episode {{ episode.episode_number }} {{ episode.episode_name or '未命名单集' }}" aria-pressed="{{ 'true' if episode.active else 'false' }}"></button>
                                         </article></div>
                                     {% else %}
-                                        <div class="empty-state compact squircle-card border bg-body-tertiary p-4"><p class="text-body-secondary mb-0">本季暂无单集数据。</p></div>
+                                        {{ empty_state("本季暂无单集数据。") }}
                                     {% endfor %}
                                     </div>
                                 </div>
                             </section>
                         {% else %}
-                            <div class="container-xl"><div class="empty-state compact squircle-card border bg-body-tertiary p-4"><p class="text-body-secondary mb-0">暂无季与单集数据。</p></div></div>
+                            <div class="container-xl">{{ empty_state("暂无季与单集数据。") }}</div>
                         {% endfor %}
                 </div>
             </section>
@@ -204,8 +177,8 @@
                         {% for person in media.cast %}
                             <article class="cast-card media-rail-item min-w-0">
                                 <div class="cast-photo ratio ratio-poster squircle-card overflow-hidden bg-body-tertiary shadow-sm">
-                                    {% if person.image %}<img class="w-100 h-100 object-fit-cover" src="{{ url_for('static', filename=person.image) }}" alt="" width="342" height="513" loading="lazy">{% endif %}
-                                    <span class="image-fallback position-absolute top-0 start-0 w-100 h-100 align-items-center justify-content-center fs-2 text-body-secondary{% if person.image %} d-none{% else %} d-flex{% endif %}" aria-hidden="true"><i class="bi bi-person"></i></span>
+                                    {% if person.image %}<img class="w-100 h-100 object-fit-cover" src="{{ url_for('static', filename=person.image) }}" alt="" width="342" height="513" loading="lazy" data-media-image>{% endif %}
+                                    {{ image_fallback(person.image, "person") }}
                                 </div>
                                 <h3 class="cast-name mt-3 mb-1 fw-semibold">{{ person.name }}</h3>
                                 {% if person.character %}<p class="cast-character text-body-secondary mb-0">{{ person.character }}</p>{% endif %}
@@ -278,5 +251,6 @@
 {% endblock %}
 
 {% block scripts %}
+    <script src="{{ url_for('static', filename='detail.js') }}"></script>
     <script src="{{ url_for('static', filename='title-deletion.js') }}"></script>
 {% endblock %}

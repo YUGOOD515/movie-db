@@ -1,5 +1,6 @@
 {% extends "layout.html" %}
 {% from "_media_cards.html" import overview_card %}
+{% from "_ui.html" import empty_state %}
 
 {% macro batch_import_row() %}
     <div class="batch-import-row d-flex align-items-center gap-2" data-batch-import-row>
@@ -54,7 +55,7 @@
                 >
             </div>
         </div>
-        <button class="btn btn-sm batch-remove-btn flex-shrink-0" type="button" data-batch-remove aria-label="删除此条录入数据" title="删除此条">
+        <button class="btn btn-sm icon-btn batch-remove-btn flex-shrink-0" type="button" data-batch-remove aria-label="删除此条录入数据" title="删除此条">
             <i class="bi bi-trash3" aria-hidden="true"></i>
         </button>
     </div>
@@ -69,20 +70,20 @@
         <header class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-5">
             <div class="d-flex align-items-center gap-3">
                 <h1 class="h3 mb-0">媒体资源管理</h1>
-                <div class="btn-group btn-group-sm segmented-control text-nowrap" role="group" aria-label="管理页面板块切换">
-                    <a class="btn {{ 'active' if active_tab != 'associate' else '' }}" href="{{ url_for('media', tab='overview') }}">
+                <div class="segmented-control text-nowrap" role="group" aria-label="管理页面板块切换">
+                    <a class="btn btn-sm{{ ' active' if active_tab != 'associate' }}" href="{{ url_for('media', tab='overview') }}"{% if active_tab != 'associate' %} aria-current="page"{% endif %}>
                         概览
                     </a>
-                    <a class="btn {{ 'active' if active_tab == 'associate' else '' }}" href="{{ url_for('media', tab='associate') }}">
+                    <a class="btn btn-sm{{ ' active' if active_tab == 'associate' }}" href="{{ url_for('media', tab='associate') }}"{% if active_tab == 'associate' %} aria-current="page"{% endif %}>
                         关联
                     </a>
                 </div>
             </div>
 
             {% if active_tab != 'associate' %}
-            <form class="d-flex flex-wrap align-items-center gap-2 mb-0" action="{{ url_for('media') }}" method="get" id="overview-search-form">
+            <form class="d-flex flex-wrap align-items-center gap-2 mb-0" action="{{ url_for('media') }}" method="get" id="overview-search-form" role="search" data-auto-submit>
                 <input type="hidden" name="tab" value="overview">
-                <div class="min-w-0" style="width: 18rem; max-width: 100%;">
+                <div class="manager-search">
                     <input
                         class="form-control form-control-sm bg-body-tertiary"
                         id="overview-search-input"
@@ -94,15 +95,15 @@
                         autocomplete="off"
                     >
                 </div>
-                <div class="btn-group btn-group-sm segmented-control text-nowrap flex-shrink-0" role="group" aria-label="媒体类型筛选">
+                <div class="segmented-control text-nowrap flex-shrink-0" role="group" aria-label="媒体类型筛选">
                     <input class="btn-check" type="radio" name="type" id="filter-type-all" value="all"{% if overview.media_type == 'all' %} checked{% endif %}>
-                    <label class="btn btn-outline-secondary" for="filter-type-all">全部</label>
+                    <label class="btn btn-sm" for="filter-type-all">全部</label>
 
                     <input class="btn-check" type="radio" name="type" id="filter-type-movie" value="movie"{% if overview.media_type == 'movie' %} checked{% endif %}>
-                    <label class="btn btn-outline-secondary" for="filter-type-movie">电影</label>
+                    <label class="btn btn-sm" for="filter-type-movie">电影</label>
 
                     <input class="btn-check" type="radio" name="type" id="filter-type-tv" value="tv"{% if overview.media_type == 'tv' %} checked{% endif %}>
-                    <label class="btn btn-outline-secondary" for="filter-type-tv">剧集</label>
+                    <label class="btn btn-sm" for="filter-type-tv">剧集</label>
                 </div>
             </form>
             {% endif %}
@@ -110,12 +111,11 @@
 
         {% if active_tab != 'associate' %}
             <!-- ================= 概览板块 (Overview) ================= -->
-            <section class="overview-section" aria-labelledby="overview-heading">
-                <h2 class="visually-hidden" id="overview-heading">媒体库概览</h2>
+            <section class="overview-section" aria-labelledby="overview-list-heading">
 
                 <!-- 搜索与筛选结果列表 -->
                 <div class="overview-header d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
-                    <h2 class="h5 mb-1" id="associate-heading">媒体列表</h2>
+                    <h2 class="h5 mb-0" id="overview-list-heading">媒体列表</h2>
                     <div class="d-flex align-items-center gap-3">
                         <span class="small text-body-secondary" id="overview-count-label">共 {{ overview.media_items|length }} 部作品</span>
                         <button
@@ -138,9 +138,9 @@
                     {% endfor %}
                 </div>
 
-                <div class="empty-state compact squircle-card border bg-body-tertiary p-5 text-center my-4{% if overview.media_items %} d-none{% endif %}" id="overview-empty-state">
-                    <p class="text-body-secondary mb-0">没有找到匹配的媒体资源。可检查搜索关键词或前往“关联”板块录入新媒体。</p>
-                </div>
+                {% if not overview.media_items %}
+                    {{ empty_state("没有找到匹配的媒体资源。", "search", "可检查搜索关键词，或前往“关联”板块录入新媒体。", url_for('media', tab='associate'), "前往关联") }}
+                {% endif %}
             </section>
 
         {% else %}
@@ -173,7 +173,7 @@
                     </div>
 
                     <div class="d-flex align-items-center gap-2 mt-3">
-                        <button class="btn batch-add-btn flex-shrink-0" type="button" data-batch-add aria-label="新增一条" title="新增一条">
+                        <button class="btn icon-btn batch-add-btn flex-shrink-0" type="button" data-batch-add aria-label="新增一条" title="新增一条">
                             <i class="bi bi-plus-lg" aria-hidden="true"></i>
                         </button>
                         <span class="small text-body-secondary" data-batch-count>共 1 条</span>
@@ -200,16 +200,16 @@
                             <div class="modal-body">
                                 <div data-title-search-step>
                                     <form class="d-flex flex-wrap align-items-center gap-2 mb-3" data-title-search-form>
-                                        <div class="min-w-0" style="width: 18rem; max-width: 100%;">
+                                        <div class="manager-search">
                                             <input class="form-control form-control-sm bg-body-tertiary" id="associate-search-input"
                                                    type="search" placeholder="按影片或剧集名称搜索..." aria-label="影片或剧集名称"
                                                    autocomplete="off" maxlength="100" required data-title-search-query>
                                         </div>
-                                        <div class="btn-group btn-group-sm segmented-control text-nowrap flex-shrink-0" role="group" aria-label="搜索作品类型">
+                                        <div class="segmented-control text-nowrap flex-shrink-0" role="group" aria-label="搜索作品类型">
                                             <input class="btn-check" type="radio" name="search_type" id="search-type-movie" value="movie" checked>
-                                            <label class="btn btn-outline-secondary" for="search-type-movie">电影</label>
+                                            <label class="btn btn-sm" for="search-type-movie">电影</label>
                                             <input class="btn-check" type="radio" name="search_type" id="search-type-tv" value="tv">
-                                            <label class="btn btn-outline-secondary" for="search-type-tv">剧集</label>
+                                            <label class="btn btn-sm" for="search-type-tv">剧集</label>
                                         </div>
                                         <button class="btn btn-sm btn-outline-secondary" type="submit">搜索</button>
                                     </form>
@@ -247,7 +247,7 @@
                                                            placeholder="{{ alist_origin }}/d/..." required data-title-alist-url>
                                                 </div>
                                             </div>
-                                            <button class="btn btn-sm batch-remove-btn flex-shrink-0" type="button" aria-label="删除此单集" data-title-episode-remove>
+                                            <button class="btn btn-sm icon-btn batch-remove-btn flex-shrink-0" type="button" aria-label="删除此单集" data-title-episode-remove>
                                                 <i class="bi bi-trash3" aria-hidden="true"></i>
                                             </button>
                                         </div>
@@ -270,21 +270,10 @@
 {% endblock %}
 
 {% block scripts %}
+    <script src="{{ url_for('static', filename='manager.js') }}"></script>
     {% if active_tab == 'associate' %}
     <script src="{{ url_for('static', filename='title-search.js') }}" defer></script>
     <script src="{{ url_for('static', filename='filename-rules.js') }}" defer></script>
     <script src="{{ url_for('static', filename='media-association.js') }}" defer></script>
     {% endif %}
-    <script>
-        (() => {
-            // 类型筛选提交到服务端，避免概览数据在前端形成第二套筛选逻辑。
-            const overviewForm = document.getElementById("overview-search-form");
-            const filterRadios = document.querySelectorAll("input[name='type']");
-            if (overviewForm) {
-                filterRadios.forEach((radio) => {
-                    radio.addEventListener("change", () => overviewForm.requestSubmit());
-                });
-            }
-        })();
-    </script>
 {% endblock %}

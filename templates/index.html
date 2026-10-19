@@ -1,12 +1,13 @@
 {% extends "layout.html" %}
-{% from "_media_cards.html" import backdrop_card, genre_card, poster_card %}
+{% from "_media_cards.html" import backdrop_card, collection_card, genre_card, poster_card %}
+{% from "_ui.html" import empty_state as empty_card %}
 
 {% block title %} - 主页{% endblock %}
 
-{% macro section_header(title, href=none, label='查看全部') %}
+{% macro section_header(title, href=none, heading_id=none, label='查看全部') %}
     <header class="container-xl d-flex align-items-end justify-content-between gap-3 mb-3">
-        <h2 class="h4 mb-0">{{ title }}</h2>
-        {% if href %}<a class="small text-body-secondary text-decoration-none" href="{{ href }}">{{ label }} <i class="bi bi-arrow-right"></i></a>{% endif %}
+        <h2 class="h4 mb-0"{% if heading_id %} id="{{ heading_id }}"{% endif %}>{{ title }}</h2>
+        {% if href %}<a class="small link-secondary link-underline-opacity-0 link-underline-opacity-75-hover link-offset-2" href="{{ href }}">{{ label }} <i class="bi bi-arrow-right" aria-hidden="true"></i></a>{% endif %}
     </header>
 {% endmacro %}
 
@@ -22,10 +23,7 @@
                     {% elif kind == 'genre' %}
                         {{ genre_card(item) }}
                     {% elif kind == 'collection' %}
-                        <a class="collection-card squircle-card border bg-body-tertiary d-flex align-items-center justify-content-between gap-3 p-4 text-body text-decoration-none h-100" href="{{ item.detail_url }}">
-                            <span class="text-truncate"><i class="bi bi-{{ item.icon_name or 'collection' }} me-2"></i>{{ item.name }}</span>
-                            <span class="text-body-secondary text-nowrap">{{ item.item_count }} 部</span>
-                        </a>
+                        {{ collection_card(item) }}
                     {% endif %}
                 </div>
             {% endfor %}
@@ -34,12 +32,12 @@
 {% endmacro %}
 
 {% macro empty_state(message) %}
-    <div class="container-xl"><div class="empty-state compact squircle-card border bg-body-tertiary p-4"><p class="text-body-secondary mb-0">{{ message }}</p></div></div>
+    <div class="container-xl">{{ empty_card(message) }}</div>
 {% endmacro %}
 
 {% block main %}
     <section class="library-section library-section--first mb-5" aria-labelledby="recent-watch-heading">
-        <div id="recent-watch-heading">{{ section_header('最近观看') }}</div>
+        {{ section_header('最近观看', heading_id='recent-watch-heading') }}
         {% if page.recent_watch %}
             {{ media_rail(page.recent_watch, 6, '最近观看', 'backdrop') }}
         {% else %}
@@ -48,7 +46,7 @@
     </section>
 
     <section class="library-section mb-5" aria-labelledby="collections-heading">
-        <div id="collections-heading">{{ section_header('收藏夹') }}</div>
+        {{ section_header('收藏夹', heading_id='collections-heading') }}
         {% if page.collections %}
             {{ media_rail(page.collections, 3, '收藏夹', 'collection') }}
         {% else %}
@@ -57,7 +55,7 @@
     </section>
 
     <section class="library-section mb-5" aria-labelledby="recent-added-heading">
-        <div id="recent-added-heading">{{ section_header('最近添加', url_for('recent_added_library')) }}</div>
+        {{ section_header('最近添加', url_for('recent_added_library'), heading_id='recent-added-heading') }}
         {% if page.recent_added %}
             {{ media_rail(page.recent_added, 2, '最近添加', 'poster') }}
         {% else %}
@@ -77,7 +75,7 @@
     {% endfor %}
 
     <section class="library-section mb-5" aria-labelledby="unwatched-heading">
-        <div id="unwatched-heading">{{ section_header('未观看', url_for('unwatched_library')) }}</div>
+        {{ section_header('未观看', url_for('unwatched_library'), heading_id='unwatched-heading') }}
         {% if page.unwatched %}
             {{ media_rail(page.unwatched, 2, '未观看', 'poster') }}
         {% else %}
@@ -86,7 +84,7 @@
     </section>
 
     <section class="library-section" aria-labelledby="top-heading">
-        <div id="top-heading">{{ section_header('最受好评的电影', url_for('top_rated_library')) }}</div>
+        {{ section_header('最受好评的电影', url_for('top_rated_library'), heading_id='top-heading') }}
         {% if page.top_movies %}
             {{ media_rail(page.top_movies, 2, '最受好评的电影', 'poster') }}
         {% else %}

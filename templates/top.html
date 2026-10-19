@@ -1,12 +1,25 @@
 {% extends "layout.html" %}
 {% from "_media_cards.html" import backdrop_card, poster_card %}
+{% from "_ui.html" import empty_state, page_header %}
+
 {% block title %} - {{ page.title }}{% endblock %}
+
 {% block main %}
-<section class="container-xl">
-    <header class="mb-4"><h1 class="h3 mb-2">{{ page.title }}</h1><p class="text-body-secondary mb-0">{{ page.description }} · {{ page["items"]|length }} 部电影</p></header>
-    {% if page["items"] %}
-        <div class="row row-cols-1 row-cols-lg-3 g-4 align-items-end mb-5">{% for item in page["items"][:3] %}<div class="col">{{ backdrop_card(item, loop.index) }}</div>{% endfor %}</div>
-        <div class="row row-cols-2 row-cols-sm-3 row-cols-md-4 row-cols-lg-6 g-3 g-lg-4">{% for item in page["items"][3:] %}<div class="col">{{ poster_card(item) }}</div>{% endfor %}</div>
-    {% else %}<div class="empty-state compact squircle-card border bg-body-tertiary p-4"><p class="text-body-secondary mb-0">{{ page.empty_message }}</p></div>{% endif %}
-</section>
+    <section class="container-xl">
+        {{ page_header(page.title, page.description ~ " · " ~ page["items"]|length ~ " 部电影") }}
+        {% if page["items"] %}
+            <div class="row row-cols-1 row-cols-lg-3 g-4 align-items-end mt-1 mb-5">
+                {% for item in page["items"][:3] %}
+                    <div class="col">{{ backdrop_card(item, loop.index) }}</div>
+                {% endfor %}
+            </div>
+            <div class="row row-cols-2 row-cols-sm-3 row-cols-md-4 row-cols-lg-6 g-3 g-lg-4">
+                {% for item in page["items"][3:] %}
+                    <div class="col">{{ poster_card(item) }}</div>
+                {% endfor %}
+            </div>
+        {% else %}
+            {{ empty_state(page.empty_message) }}
+        {% endif %}
+    </section>
 {% endblock %}

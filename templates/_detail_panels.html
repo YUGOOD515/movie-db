@@ -1,3 +1,5 @@
+{% from "_ui.html" import rating_items %}
+
 {% macro play_control(sources, current_source, label, button_class, wrapper_class="", show_label=true) %}
     {% if current_source %}
         <div class="{{ wrapper_class }}{% if sources|length > 1 %} dropdown{% endif %}">
@@ -15,7 +17,7 @@
                 </form>
             {% endif %}
             {% if sources|length > 1 %}
-            <ul class="dropdown-menu detail-version-menu">
+            <ul class="dropdown-menu media-menu detail-version-menu">
                 {% for source in sources %}
                     <li>
                         <form action="{{ source.play_url }}" method="post">
@@ -74,14 +76,7 @@
 
     {{ overview_block(episode.overview or "暂无本集简介。") }}
 
-    <div class="detail-ratings-row mt-3 pt-2">
-         {% if episode.imdb_rating is not none and episode.imdb_rating != "" %}
-             <span class="detail-rating-item" title="本集 IMDb 评分">
-                 <img class="detail-rating-logo detail-rating-logo--imdb" src="{{ url_for('static', filename='imdb.png') }}" alt="IMDb">
-                 <span class="detail-rating-score detail-rating-score--imdb">{{ "%.1f"|format(episode.imdb_rating) }}</span>
-             </span>
-         {% endif %}
-    </div>
+    <div class="detail-ratings-row mt-3 pt-2">{{ rating_items(imdb_rating=episode.imdb_rating, imdb_title="本集 IMDb 评分") }}</div>
 </section>
 {% endmacro %}
 

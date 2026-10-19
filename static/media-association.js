@@ -325,7 +325,7 @@
         control.dataset.bsToggle = "dropdown";
         control.setAttribute("aria-expanded", "false");
         control.setAttribute("aria-label", `选择 ${file.name} 的目标季集`);
-        const menu = el("ul", "dropdown-menu squircle-card p-2 w-100");
+        const menu = el("ul", "dropdown-menu media-menu w-100");
         menu.dataset.correctionOptions = "";
         menu.setAttribute("aria-labelledby", control.id);
         let season = null;

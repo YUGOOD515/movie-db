@@ -13,53 +13,56 @@
         <link href="{{ url_for('static', filename='style.css') }}" rel="stylesheet">
         <script>
             (() => {
-                const savedTheme = localStorage.getItem("media-theme");
-                document.documentElement.dataset.bsTheme = savedTheme || "dark";
+                try {
+                    document.documentElement.dataset.bsTheme = localStorage.getItem("media-theme") || "dark";
+                } catch {}
             })();
         </script>
 
         <title>Media{% block title %}{% endblock %}</title>
     </head>
     <body>
-        <button class="site-menu-toggle btn border-0 bg-transparent d-flex align-items-center justify-content-center p-0" type="button" data-bs-toggle="offcanvas" data-bs-target="#site-sidebar" aria-controls="site-sidebar" aria-label="打开导航">
+        {# 导航分组：(标题, [(端点, 名称, 同样高亮该项的其他端点)]) #}
+        {% set nav_groups = [
+            ("浏览", [
+                ("index", "媒体库", ["title_detail"]),
+                ("recent_added_library", "最近添加", []),
+                ("unwatched_library", "未观看", []),
+                ("top_rated_library", "最受好评", []),
+            ]),
+            ("分类与收藏", [
+                ("catalog", "类别筛选", []),
+                ("favorites_library", "收藏", ["collection_detail"]),
+            ]),
+            ("管理", [
+                ("media", "媒体资源管理", []),
+            ]),
+        ] %}
+
+        <button class="site-menu-toggle" type="button" data-bs-toggle="offcanvas" data-bs-target="#site-sidebar" aria-controls="site-sidebar" aria-label="打开导航">
             <i class="bi bi-list" aria-hidden="true"></i>
         </button>
 
         <aside class="site-sidebar offcanvas offcanvas-start" tabindex="-1" id="site-sidebar" aria-label="主导航">
             <div class="offcanvas-header d-flex align-items-center justify-content-between">
-                <a class="sidebar-brand text-decoration-none text-body m-0" href="{{ url_for('index') }}">
-                    Media
-                </a>
+                <a class="sidebar-brand text-decoration-none text-body m-0" href="{{ url_for('index') }}">Media</a>
                 <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#site-sidebar" aria-label="关闭"></button>
             </div>
             <div class="offcanvas-body d-flex flex-column">
-                <div class="sidebar-nav-group">
-                    <div class="sidebar-section-label">浏览</div>
-                    <nav class="nav nav-pills flex-column" aria-label="浏览导航">
-                        <a class="nav-link" href="{{ url_for('index') }}">媒体库</a>
-                        <a class="nav-link" href="{{ url_for('recent_added_library') }}">最近添加</a>
-                        <a class="nav-link" href="{{ url_for('unwatched_library') }}">未观看</a>
-                        <a class="nav-link" href="{{ url_for('top_rated_library') }}">最受好评</a>
-                    </nav>
-                </div>
+                {% for group_label, links in nav_groups %}
+                    <div class="sidebar-nav-group">
+                        <div class="sidebar-section-label">{{ group_label }}</div>
+                        <nav class="nav nav-pills flex-column" aria-label="{{ group_label }}导航">
+                            {% for endpoint, label, related in links %}
+                                {% set is_current = request.endpoint == endpoint or request.endpoint in related %}
+                                <a class="nav-link{% if is_current %} active{% endif %}" href="{{ url_for(endpoint) }}"{% if is_current %} aria-current="page"{% endif %}>{{ label }}</a>
+                            {% endfor %}
+                        </nav>
+                    </div>
+                {% endfor %}
 
-                <div class="sidebar-nav-group">
-                    <div class="sidebar-section-label">分类与收藏</div>
-                    <nav class="nav nav-pills flex-column" aria-label="分类导航">
-                        <a class="nav-link" href="{{ url_for('catalog') }}">类别筛选</a>
-                        <a class="nav-link" href="{{ url_for('favorites_library') }}">收藏</a>
-                    </nav>
-                </div>
-
-                <div class="sidebar-nav-group">
-                    <div class="sidebar-section-label">管理</div>
-                    <nav class="nav nav-pills flex-column" aria-label="管理导航">
-                        <a class="nav-link" href="{{ url_for('media') }}">媒体资源管理</a>
-                    </nav>
-                </div>
-
-                <div class="sidebar-footer mt-auto d-flex align-items-center">
-                    <button class="sidebar-theme-toggle btn d-inline-flex align-items-center justify-content-center" id="theme-toggle" type="button" aria-label="切换明暗主题" title="切换外观主题">
+                <div class="mt-auto d-flex align-items-center">
+                    <button class="sidebar-theme-toggle icon-btn" id="theme-toggle" type="button" aria-label="切换明暗主题" title="切换外观主题">
                         <i class="bi bi-moon-stars-fill" aria-hidden="true"></i>
                     </button>
                 </div>

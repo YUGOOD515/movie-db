@@ -1,120 +1,72 @@
 {% extends "layout.html" %}
 {% from "_media_cards.html" import poster_card %}
+{% from "_ui.html" import empty_state, page_header %}
 
 {% block title %} - 类别{% endblock %}
 
+{# 下拉筛选：选项按钮写入同名隐藏字段后提交（site.js 的 data-filter-set）。 #}
+{% macro filter_menu(key, label, current, values, active, all_label=none, suffix="", labels={}, icon=none) %}
+    <div class="dropdown">
+        <button class="btn btn-sm chip-btn dropdown-toggle{% if active %} active{% endif %}" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+            {% if icon %}<i class="bi bi-{{ icon }} opacity-75" aria-hidden="true"></i>{% endif %}
+            <span>{{ label }}</span>
+        </button>
+        <div class="dropdown-menu dropdown-menu-end media-menu filter-menu">
+            {% if all_label %}
+                <button class="dropdown-item{% if current is none %} active{% endif %}" type="button" data-filter-set="{{ key }}" data-filter-value="">{{ all_label }}</button>
+                <div class="dropdown-divider my-1"></div>
+            {% endif %}
+            {% for value in values %}
+                <button class="dropdown-item{% if current == value %} active{% endif %}" type="button" data-filter-set="{{ key }}" data-filter-value="{{ value }}">{{ labels.get(value, value ~ suffix) }}</button>
+            {% endfor %}
+        </div>
+    </div>
+{% endmacro %}
+
 {% block main %}
+    {% set filters = page.filters %}
+    {% set sort_labels = {'added': '最近添加', 'rating': '评分最高', 'year': '年份最新', 'name': '名称 (A-Z)'} %}
+    {% set is_filtered = filters.type != 'all' or filters.genre or filters.language or filters.year or filters.rating or filters.sort != 'added' %}
+
     <section class="container-xl" aria-labelledby="genre-page-heading">
-        {% set sort_labels = {'added': '最近添加', 'rating': '评分最高', 'year': '年份最新', 'name': '名称 (A-Z)'} %}
-        {% set current_sort = page.filters.sort %}
+        {% call page_header("类别", "筛选结果：共 " ~ page["items"]|length ~ " 部作品", "genre-page-heading") %}
+            {% if is_filtered %}
+                <a class="link-secondary link-underline-opacity-0 link-underline-opacity-75-hover" href="{{ url_for('catalog') }}" title="清除所有筛选"><i class="bi bi-x-circle me-1" aria-hidden="true"></i>重置</a>
+            {% endif %}
+        {% endcall %}
 
-        <!-- 页面标题与结果统计 -->
-        <header class="d-flex align-items-baseline justify-content-between gap-3 mb-3">
-            <div>
-                <h1 class="h4 fw-bold mb-0" id="genre-page-heading">类别</h1>
-            </div>
-            <div class="d-flex align-items-center gap-2">
-                <span class="small text-body-secondary">筛选结果：共 {{ page["items"]|length }} 部作品</span>
-                {% if page.filters.type != 'all' or page.filters.genre or page.filters.language or page.filters.year or page.filters.rating or current_sort != 'added' %}
-                    <a class="btn btn-sm btn-link text-body-secondary text-decoration-none p-0 ms-2" href="{{ url_for('catalog') }}" title="清除所有筛选">
-                        <i class="bi bi-x-circle me-1" aria-hidden="true"></i>重置
-                    </a>
-                {% endif %}
-            </div>
-        </header>
+        <form class="page-divider mb-4 pb-3 border-bottom" action="{{ url_for('catalog') }}" method="get" data-auto-submit>
+            <input type="hidden" name="year" value="{{ filters.year or '' }}">
+            <input type="hidden" name="rating" value="{{ filters.rating if filters.rating is not none else '' }}">
+            <input type="hidden" name="language" value="{{ filters.language or '' }}">
+            <input type="hidden" name="sort" value="{{ filters.sort }}">
 
-        <!-- 轻量化筛选工具栏 -->
-        <form class="genre-toolbar mb-4 pb-3 border-bottom" action="{{ url_for('catalog') }}" method="get" id="genre-filter-form">
-            <!-- 隐藏字段记录当前筛选状态 -->
-            <input type="hidden" name="type" value="{{ page.filters.type }}" id="filter-type">
-            <input type="hidden" name="genre" value="{{ page.filters.genre or '' }}" id="filter-genre">
-            <input type="hidden" name="year" value="{{ page.filters.year or '' }}" id="filter-year">
-            <input type="hidden" name="rating" value="{{ page.filters.rating if page.filters.rating is not none else '' }}" id="filter-rating">
-            <input type="hidden" name="language" value="{{ page.filters.language or '' }}" id="filter-language">
-            <input type="hidden" name="sort" value="{{ current_sort }}" id="filter-sort">
-
-            <!-- 顶行：媒体类型 Segmented Control + Bootstrap 下拉筛选 (年份/评分/语言/排序) -->
             <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
-                <!-- 媒体类型分段切换 (全部 / 电影 / 剧集) -->
-                <div class="btn-group btn-group-sm segmented-control" role="group" aria-label="媒体类型筛选">
+                <div class="segmented-control" role="group" aria-label="媒体类型筛选">
                     {% for value, label in [('all', '全部'), ('movie', '电影'), ('series', '剧集')] %}
-                        <input class="btn-check" type="radio" name="_radio_type" value="{{ value }}" id="media-type-{{ value }}"{% if page.filters.type == value %} checked{% endif %} onchange="setGenreFilter('type', '{{ value }}')">
-                        <label class="btn btn-outline-secondary" for="media-type-{{ value }}">{{ label }}</label>
+                        <input class="btn-check" type="radio" name="type" value="{{ value }}" id="media-type-{{ value }}"{% if filters.type == value %} checked{% endif %}>
+                        <label class="btn btn-sm" for="media-type-{{ value }}">{{ label }}</label>
                     {% endfor %}
                 </div>
 
-                <!-- 右侧 Bootstrap 下拉控件组 -->
                 <div class="d-flex flex-wrap align-items-center gap-2">
-                    <!-- 年份 -->
-                    <div class="dropdown">
-                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle genre-dropdown-toggle{% if page.filters.year %} genre-dropdown-toggle--active{% endif %}" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                            <span>{{ page.filters.year ~ '年' if page.filters.year else '年份' }}</span>
-                        </button>
-                        <div class="dropdown-menu dropdown-menu-end genre-dropdown-menu p-1">
-                            <button class="dropdown-item{% if not page.filters.year %} active{% endif %}" type="button" onclick="setGenreFilter('year', '')">全部年份</button>
-                            <div class="dropdown-divider my-1"></div>
-                            {% for y in page.options.years %}
-                                <button class="dropdown-item{% if page.filters.year == y %} active{% endif %}" type="button" onclick="setGenreFilter('year', '{{ y }}')">{{ y }}年</button>
-                            {% endfor %}
-                        </div>
-                    </div>
-
-                    <!-- 评分 -->
-                    <div class="dropdown">
-                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle genre-dropdown-toggle{% if page.filters.rating %} genre-dropdown-toggle--active{% endif %}" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                            <span>{{ page.filters.rating|int ~ '分及以上' if page.filters.rating else '评分' }}</span>
-                        </button>
-                        <div class="dropdown-menu dropdown-menu-end genre-dropdown-menu p-1">
-                            <button class="dropdown-item{% if not page.filters.rating %} active{% endif %}" type="button" onclick="setGenreFilter('rating', '')">全部分数</button>
-                            <div class="dropdown-divider my-1"></div>
-                            {% for r in [9, 8, 7, 6] %}
-                                <button class="dropdown-item{% if page.filters.rating == r %} active{% endif %}" type="button" onclick="setGenreFilter('rating', '{{ r }}')">{{ r }}分及以上</button>
-                            {% endfor %}
-                        </div>
-                    </div>
-
-                    <!-- 语言 -->
-                    <div class="dropdown">
-                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle genre-dropdown-toggle{% if page.filters.language %} genre-dropdown-toggle--active{% endif %}" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                            <span>{{ page.filters.language or '语言' }}</span>
-                        </button>
-                        <div class="dropdown-menu dropdown-menu-end genre-dropdown-menu p-1">
-                            <button class="dropdown-item{% if not page.filters.language %} active{% endif %}" type="button" onclick="setGenreFilter('language', '')">全部语言</button>
-                            <div class="dropdown-divider my-1"></div>
-                            {% for language in page.options.languages %}
-                                <button class="dropdown-item{% if page.filters.language == language %} active{% endif %}" type="button" onclick="setGenreFilter('language', '{{ language }}')">{{ language }}</button>
-                            {% endfor %}
-                        </div>
-                    </div>
-
-                    <!-- 排序 (UI预留) -->
-                    <div class="dropdown">
-                        <button class="btn btn-sm btn-outline-secondary dropdown-toggle genre-dropdown-toggle{% if current_sort and current_sort != 'recent' %} genre-dropdown-toggle--active{% endif %}" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-                            <i class="bi bi-sort-down opacity-75 me-1" aria-hidden="true"></i>
-                            <span>{{ sort_labels.get(current_sort, '最近添加') }}</span>
-                        </button>
-                        <div class="dropdown-menu dropdown-menu-end genre-dropdown-menu p-1">
-                            {% for s_val, s_label in [('added', '最近添加'), ('rating', '评分最高'), ('year', '年份最新'), ('name', '名称 (A-Z)')] %}
-                                <button class="dropdown-item{% if current_sort == s_val %} active{% endif %}" type="button" onclick="setGenreFilter('sort', '{{ s_val }}')">{{ s_label }}</button>
-                            {% endfor %}
-                        </div>
-                    </div>
+                    {{ filter_menu("year", (filters.year ~ "年") if filters.year else "年份", filters.year, page.options.years, filters.year, "全部年份", "年") }}
+                    {{ filter_menu("rating", (filters.rating|int ~ "分及以上") if filters.rating else "评分", filters.rating, [9, 8, 7, 6], filters.rating, "全部分数", "分及以上") }}
+                    {{ filter_menu("language", filters.language or "语言", filters.language, page.options.languages, filters.language, "全部语言") }}
+                    {{ filter_menu("sort", sort_labels[filters.sort], filters.sort, sort_labels.keys()|list, filters.sort != "added", labels=sort_labels, icon="sort-down") }}
                 </div>
             </div>
 
-            <!-- 底行：Genre G2 曲线药丸型切换 -->
-            <div class="genre-pills d-flex flex-wrap align-items-center gap-1">
-                <input class="btn-check" type="radio" name="_radio_genre" value="" id="genre-all"{% if not page.filters.genre %} checked{% endif %} onchange="setGenreFilter('genre', '')">
+            <div class="genre-pills d-flex flex-wrap align-items-center gap-1" role="group" aria-label="类别">
+                <input class="btn-check" type="radio" name="genre" value="" id="genre-all"{% if not filters.genre %} checked{% endif %}>
                 <label class="btn btn-sm genre-pill-btn" for="genre-all">全部</label>
-
                 {% for genre in page.options.genres %}
-                    <input class="btn-check" type="radio" name="_radio_genre" value="{{ genre }}" id="genre-{{ loop.index }}"{% if page.filters.genre == genre %} checked{% endif %} onchange="setGenreFilter('genre', '{{ genre }}')">
+                    <input class="btn-check" type="radio" name="genre" value="{{ genre }}" id="genre-{{ loop.index }}"{% if filters.genre == genre %} checked{% endif %}>
                     <label class="btn btn-sm genre-pill-btn" for="genre-{{ loop.index }}">{{ genre }}</label>
                 {% endfor %}
             </div>
         </form>
 
-        <!-- 海报网格展示区域 -->
         {% if page["items"] %}
             <div class="row row-cols-2 row-cols-sm-3 row-cols-md-4 row-cols-lg-6 g-3 g-lg-4">
                 {% for item in page["items"] %}
@@ -122,23 +74,7 @@
                 {% endfor %}
             </div>
         {% else %}
-            <div class="empty-state compact squircle-card border bg-body-tertiary p-5 text-center my-4">
-                <p class="text-body-secondary mb-2 fs-5"><i class="bi bi-film me-2"></i>没有符合当前条件的媒体。</p>
-                <p class="small text-body-secondary mb-3">尝试调整或清空筛选条件查看更多作品</p>
-                <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('catalog') }}">重置全部筛选</a>
-            </div>
+            {{ empty_state("没有符合当前条件的媒体。", "film", "尝试调整或清空筛选条件查看更多作品", url_for('catalog'), "重置全部筛选") }}
         {% endif %}
     </section>
-{% endblock %}
-
-{% block scripts %}
-    <script>
-        function setGenreFilter(key, value) {
-            const input = document.getElementById('filter-' + key.replace('_', '-'));
-            if (input) {
-                input.value = value;
-            }
-            document.getElementById('genre-filter-form').submit();
-        }
-    </script>
 {% endblock %}

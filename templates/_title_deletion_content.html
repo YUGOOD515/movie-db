@@ -1,3 +1,5 @@
+{% from "_ui.html" import rating_items %}
+
 {% macro shared_photo_badge(person) %}
 <div class="deletion-photo-status position-absolute top-0 end-0 p-2 w-auto h-auto">
     <span class="badge rounded-pill bg-dark text-light text-wrap text-break d-inline-flex align-items-start gap-1 lh-sm" data-delete-shared-uses>
@@ -25,7 +27,7 @@
                     {% if preview.genres %}<span>{{ preview.genres }}</span>{% endif %}
                 </div>
                 {% if preview.ratings %}<div class="d-flex flex-wrap align-items-center gap-3 mb-2">
-                    {% for rating in preview.ratings %}<span class="detail-rating-item" title="{{ rating.title }}"><img class="detail-rating-logo detail-rating-logo--{{ rating.key }}" src="{{ url_for('static', filename=rating.icon) }}" alt="{{ rating.name }}"><span class="detail-rating-score detail-rating-score--{{ rating.key }}">{{ rating.score }}</span></span>{% endfor %}
+                    {{ rating_items(preview.ratings) }}
                 </div>{% endif %}
                 {% if preview.overview %}<p class="deletion-overview small lh-lg mb-0">{{ preview.overview }}</p>{% endif %}
             </div>

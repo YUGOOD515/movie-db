@@ -1,0 +1,48 @@
+{# 页面通用的展示片段：标题栏、空状态、图片占位与评分。 #}
+
+{% macro page_header(title, meta=none, heading_id=none) %}
+    <header class="d-flex flex-wrap align-items-baseline justify-content-between column-gap-3 row-gap-2 mb-3">
+        <h1 class="h3 fw-bold mb-0"{% if heading_id %} id="{{ heading_id }}"{% endif %}>{{ title }}</h1>
+        <div class="d-flex flex-wrap align-items-center gap-3 small text-body-secondary">
+            {% if meta %}<span>{{ meta }}</span>{% endif %}
+            {% if caller %}{{ caller() }}{% endif %}
+        </div>
+    </header>
+{% endmacro %}
+
+{# 无提示和操作时为紧凑卡片；否则居中显示提示与按钮。 #}
+{% macro empty_state(message, icon=none, hint=none, href=none, label=none) %}
+    {% if hint or href %}
+        <div class="empty-state squircle-card border bg-body-tertiary p-5 text-center my-4">
+            <p class="text-body-secondary fs-5 mb-2">{% if icon %}<i class="bi bi-{{ icon }} me-2" aria-hidden="true"></i>{% endif %}{{ message }}</p>
+            {% if hint %}<p class="small text-body-secondary mb-0">{{ hint }}</p>{% endif %}
+            {% if href %}<a class="btn btn-sm btn-outline-secondary mt-3" href="{{ href }}">{{ label }}</a>{% endif %}
+        </div>
+    {% else %}
+        <div class="empty-state squircle-card border bg-body-tertiary p-4">
+            <p class="text-body-secondary mb-0">{{ message }}</p>
+        </div>
+    {% endif %}
+{% endmacro %}
+
+{# 图片缺失或加载失败（site.js 绑定 data-media-image）时显示的图标。 #}
+{% macro image_fallback(has_image, icon="film", size="fs-2") %}
+    <span class="image-fallback position-absolute top-0 start-0 w-100 h-100 align-items-center justify-content-center {{ size }} text-body-secondary{% if has_image %} d-none{% endif %}" aria-hidden="true"><i class="bi bi-{{ icon }}"></i></span>
+{% endmacro %}
+
+{# 多平台评分；没有同步评分时回退到 IMDb 单项评分。 #}
+{% macro rating_items(ratings=[], imdb_rating=none, imdb_title="IMDb 评分") %}
+    {% for rating in ratings %}
+        <span class="detail-rating-item" title="{{ rating.title }}">
+            <img class="detail-rating-logo detail-rating-logo--{{ rating.key }}" src="{{ url_for('static', filename=rating.icon) }}" alt="{{ rating.name }}">
+            <span class="detail-rating-score detail-rating-score--{{ rating.key }}">{{ rating.score }}</span>
+        </span>
+    {% else %}
+        {% if imdb_rating is not none and imdb_rating != "" %}
+            <span class="detail-rating-item" title="{{ imdb_title }}">
+                <img class="detail-rating-logo detail-rating-logo--imdb" src="{{ url_for('static', filename='imdb.png') }}" alt="IMDb">
+                <span class="detail-rating-score detail-rating-score--imdb">{{ "%.1f"|format(imdb_rating) }}</span>
+            </span>
+        {% endif %}
+    {% endfor %}
+{% endmacro %}
