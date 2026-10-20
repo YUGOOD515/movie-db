@@ -2022,7 +2022,18 @@ html[data-ambient] {
     transform-origin: 60% 40%;
 }
 
-.home-hero-slide.is-selected .home-hero-backdrop {
+.home-hero-slide.is-selected {
+    z-index: 2;
+}
+
+/* The outgoing slide stays opaque under the incoming one until Embla settles. */
+.home-hero-slide.is-leaving {
+    z-index: 1;
+    opacity: 1 !important;
+}
+
+.home-hero-slide.is-selected .home-hero-backdrop,
+.home-hero-slide.is-leaving .home-hero-backdrop {
     animation: hero-drift 16s ease-out both;
 }
 
@@ -2264,6 +2275,11 @@ html[data-ambient] {
 .poster-frame[data-tilt-bound] {
     transition: box-shadow 0.25s ease;
     transform-style: preserve-3d;
+}
+
+/* vanilla-tilt's glare inherits the radius but not the squircle corner shape. */
+.poster-frame .js-tilt-glare {
+    corner-shape: squircle;
 }
 
 .poster-link:hover .poster-frame[data-tilt-bound] {

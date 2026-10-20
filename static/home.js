@@ -11,20 +11,23 @@
     if (!reduceMotion) {
         plugins.push(window.EmblaCarouselAutoplay({ delay: 7000, stopOnInteraction: false, stopOnMouseEnter: true }));
     }
-    const embla = window.EmblaCarousel(viewport, { loop: true, duration: 32 }, plugins);
+    const embla = window.EmblaCarousel(viewport, { loop: true, duration: 28 }, plugins);
     const slides = embla.slideNodes();
     const dots = [...hero.querySelectorAll("[data-hero-dot]")];
 
+    // 上一张在新图淡入期间保持不透明并继续推镜（is-leaving），避免缩回与透底闪烁。
+    let current = embla.selectedScrollSnap();
     function select() {
         const index = embla.selectedScrollSnap();
+        if (index !== current) {
+            slides.forEach((slide) => slide.classList.remove("is-leaving"));
+            slides[current]?.classList.add("is-leaving");
+            current = index;
+        }
         slides.forEach((slide, position) => {
             const selected = position === index;
             slide.classList.toggle("is-selected", selected);
             slide.toggleAttribute("inert", !selected);
-            if (selected) {
-                // 懒加载的背景图在切换到前提前开始下载。
-                slides[(position + 1) % slides.length]?.querySelector("img[loading=lazy]")?.removeAttribute("loading");
-            }
         });
         dots.forEach((dot, position) => {
             dot.classList.toggle("is-selected", position === index);
@@ -57,6 +60,14 @@
         hero.classList.toggle("is-playing", autoplay.isPlaying());
     }
     embla.on("select", select);
+    embla.on("settle", () => slides.forEach((slide) => slide.classList.remove("is-leaving")));
+    // 首屏加载完后预载其余背景图，前后切换都不再等待下载。
+    const preload = () => hero.querySelectorAll("img[loading=lazy]").forEach((img) => img.removeAttribute("loading"));
+    if (document.readyState === "complete") {
+        preload();
+    } else {
+        window.addEventListener("load", preload, { once: true });
+    }
     hero.classList.add("is-ready");
     select();
 })();
