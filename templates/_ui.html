@@ -26,6 +26,12 @@
 {% endmacro %}
 
 {# 图片缺失或加载失败（site.js 绑定 data-media-image）时显示的图标。 #}
+{# 影像色调：环境色写入 --tone，BlurHash 供 effects.js 在图片加载前绘制模糊占位。 #}
+{% macro tone_attrs(path) -%}
+    {%- set tone = path|image_tone -%}
+    {%- if tone %} style="--tone: {{ tone.color }}" data-blurhash="{{ tone.blurhash }}"{% endif -%}
+{%- endmacro %}
+
 {% macro image_fallback(has_image, icon="film", size="fs-2") %}
     <span class="image-fallback position-absolute top-0 start-0 w-100 h-100 align-items-center justify-content-center {{ size }} text-body-secondary{% if has_image %} d-none{% endif %}" aria-hidden="true"><i class="bi bi-{{ icon }}"></i></span>
 {% endmacro %}

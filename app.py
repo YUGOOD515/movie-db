@@ -28,6 +28,7 @@ from queries.title import (
     query_title,
 )
 from services.playback import is_effectively_completed
+from services.image_tones import load_tones
 from services.thumbnails import get_card_image_path
 from viewmodels.catalog import (
     build_catalog_viewmodel,
@@ -121,6 +122,8 @@ app.config.update(
     SNAPSHOT_AT=os.environ.get("MOVIEDB_SNAPSHOT_AT", ""),
     ALIST_ORIGIN=os.environ.get("ALIST_ORIGIN", "http://127.0.0.1:5244").rstrip("/"),
     THUMBNAIL_INDEX=None,
+    # 只读快照的影像色调表 {local_path: [color, blurhash]}；本地模式读取 static/thumbnails/tones.json。
+    IMAGE_TONES=None,
 )
 init_database(app)
 if not READ_ONLY:
@@ -129,6 +132,10 @@ if not READ_ONLY:
 
     start_configured_alist()
     cloud_sync.init_app(app)
+    if not os.environ.get("MOVIEDB_TONES_DISABLED"):
+        from services.image_tones import start_backfill
+
+        start_backfill(DATABASE_PATH, app.static_folder)
 
 
 @app.context_processor
@@ -168,6 +175,20 @@ def card_image(path: str | None) -> str | None:
             options["thumbnail_index"] = app.config["THUMBNAIL_INDEX"]
         cache[path] = get_card_image_path(path, **options)
     return cache[path]
+
+
+@app.template_filter("image_tone")
+def image_tone(path: str | None) -> dict | None:
+    """海报 / 背景图的环境色与 BlurHash；尚未生成时返回 None。"""
+    if not path:
+        return None
+    if app.config["IMAGE_TONES"] is not None:
+        value = app.config["IMAGE_TONES"].get(path)
+        return {"color": value[0], "blurhash": value[1]} if value else None
+    tones = g.get("image_tones")
+    if tones is None:
+        tones = g.image_tones = load_tones(app.static_folder or BASE_DIR / "static")
+    return tones.get(path)
 
 
 @app.get("/")

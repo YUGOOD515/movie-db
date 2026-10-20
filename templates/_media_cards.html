@@ -1,4 +1,4 @@
-{% from "_ui.html" import image_fallback %}
+{% from "_ui.html" import image_fallback, tone_attrs %}
 
 {% macro progress_bar(progress, compact=false) %}
     <div class="watch-progress progress" role="progressbar" aria-label="观看进度" aria-valuenow="{{ progress.percent }}" aria-valuemin="0" aria-valuemax="100">
@@ -12,7 +12,7 @@
 {% macro poster_card(item) %}
     <article class="poster-card h-100">
         <a class="poster-link d-block h-100 text-body text-decoration-none" href="{{ item.detail_url }}" aria-label="查看{{ item.title }}详情">
-            <span class="poster-frame squircle-card ratio ratio-poster d-block overflow-hidden bg-body-tertiary shadow-sm">
+            <span class="poster-frame squircle-card ratio ratio-poster d-block overflow-hidden bg-body-tertiary shadow-sm"{{ tone_attrs(item.poster) }} data-tilt-card>
                 {% if item.poster %}
                     <img class="media-cover" src="{{ url_for('static', filename=item.poster) }}" alt="{{ item.title }}海报" width="500" height="750" loading="lazy" data-media-image>
                 {% endif %}
@@ -37,7 +37,7 @@
     <article class="ranked-feature">
         <span class="ranked-number" aria-hidden="true">{{ rank }}</span>
         <div class="ranked-feature-card squircle-card ratio ratio-16x9 overflow-hidden bg-body-tertiary shadow-sm position-relative">
-            <div class="ranked-feature-visual">
+            <div class="ranked-feature-visual"{{ tone_attrs(item.backdrop) }}>
                 {% if item.backdrop %}
                     <img class="media-cover" src="{{ url_for('static', filename=item.backdrop|card_image) }}" alt="{{ item.title }}背景图" width="960" height="540" data-media-image>
                 {% endif %}
@@ -45,7 +45,7 @@
                 <span class="ranked-feature-overlay position-absolute top-0 start-0 w-100 h-100" aria-hidden="true"></span>
                 <div class="ranked-feature-content position-absolute bottom-0 start-0 end-0 d-flex align-items-end justify-content-between gap-3 p-3 p-lg-4 text-white">
                     {% if item.logo %}
-                        <img class="ranked-feature-logo flex-shrink-1" src="{{ url_for('static', filename=item.logo|card_image) }}" alt="" width="320" height="120" data-media-logo>
+                        <img class="ranked-feature-logo flex-shrink-1" data-transition-logo src="{{ url_for('static', filename=item.logo|card_image) }}" alt="" width="320" height="120" data-media-logo>
                     {% endif %}
                     <div class="ranked-feature-meta d-flex align-items-center gap-2 ms-auto flex-shrink-0 small fw-semibold">
                         {% if item.year %}<span>{{ item.year }}</span>{% endif %}
@@ -59,14 +59,14 @@
     {% else %}
     <article class="continue-card">
         <div class="continue-frame squircle-card ratio ratio-16x9 overflow-hidden bg-body-tertiary shadow-sm position-relative">
-            <div class="continue-visual">
+            <div class="continue-visual"{{ tone_attrs(item.backdrop) }}>
             {% if item.backdrop %}
                 <img class="media-cover" src="{{ url_for('static', filename=item.backdrop|card_image) }}" alt="{{ item.title }}背景图" width="960" height="540" data-media-image>
             {% endif %}
             {{ image_fallback(item.backdrop) }}
             <a class="continue-detail-link position-absolute top-0 start-0 w-100 h-100" href="{{ item.detail_url }}" aria-label="查看{{ item.title }}详情"></a>
             {% if item.logo %}
-                <img class="continue-logo position-absolute" src="{{ url_for('static', filename=item.logo|card_image) }}" alt="" width="320" height="120" data-media-logo>
+                <img class="continue-logo position-absolute" data-transition-logo src="{{ url_for('static', filename=item.logo|card_image) }}" alt="" width="320" height="120" data-media-logo>
             {% endif %}
             {% if item.play_url %}
                 <form class="position-absolute top-50 start-50 translate-middle" action="{{ item.play_url }}" method="post">
@@ -85,7 +85,7 @@
 {% endmacro %}
 
 {% macro genre_card(item) %}
-    <a class="genre-card squircle-card ratio ratio-genre d-block overflow-hidden bg-body-tertiary shadow-sm text-decoration-none" href="{{ item.detail_url }}" aria-label="查看{{ item.name }}类别">
+    <a class="genre-card squircle-card ratio ratio-genre d-block overflow-hidden bg-body-tertiary shadow-sm text-decoration-none" href="{{ item.detail_url }}"{{ tone_attrs(item.backdrop) }} aria-label="查看{{ item.name }}类别">
         {% if item.backdrop %}<img class="media-cover" src="{{ url_for('static', filename=item.backdrop|card_image) }}" alt="{{ item.representative_title }}背景图" width="960" height="420" loading="lazy" data-media-image>{% endif %}
         {{ image_fallback(item.backdrop) }}
         <span class="genre-overlay position-absolute top-0 start-0 w-100 h-100"></span>

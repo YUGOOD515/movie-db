@@ -126,6 +126,13 @@ cd ..\router; npx wrangler deploy
 关闭云端快照：在 Cloudflare 删除 `library.yu2yu2.dpdns.org/*` Worker 路由即可恢复为纯 Tunnel 访问。
 
 <!-- archive-preparation:2026-10-14:start -->
+## 界面动效
+
+- 首页顶部为「最新入库」精选轮播（Embla），背景缓慢推镜，页面环境色随当前影片变化。
+- 海报 / 背景图先显示 BlurHash 模糊占位，再淡入原图；色调表 `static/thumbnails/tones.json` 在录入时生成，启动时自动为旧图片补齐（设置 `MOVIEDB_TONES_DISABLED=1` 可跳过）。
+- 桌面端海报悬停倾斜、列表进入视口时依次浮现、卡片到详情页的共享元素转场（View Transitions，Chrome / Edge / Safari 18+）。系统开启「减少动态效果」时自动关闭。
+- 第三方库（Embla Carousel、Motion、vanilla-tilt、BlurHash，均为 MIT）随仓库放在 `static/vendor/`。
+
 ## 使用与归档说明（2026-10-14）
 
 Flask + Jinja 影视库：IMDb 主数据、TMDB 补充数据、AList 媒体来源及 MPC-HC 播放。读查询、写模型、连接器、服务编排和页面 ViewModel 分层保存。

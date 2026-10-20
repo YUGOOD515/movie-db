@@ -12,7 +12,7 @@ ROOT = HERE.parent.parent
 BUILD = HERE / "build"
 FILES = ["app.py"]
 PACKAGES = ["models", "queries", "viewmodels", "templates"]
-SERVICES = ["__init__.py", "playback.py", "thumbnails.py"]
+SERVICES = ["__init__.py", "image_tones.py", "playback.py", "thumbnails.py"]
 
 
 def main() -> None:

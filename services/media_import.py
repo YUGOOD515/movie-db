@@ -22,6 +22,7 @@ from queries.imdb import (
     get_series_episodes,
 )
 from services.rating_sync import fetch_title_rating
+from services.image_tones import ensure_tones
 from services.thumbnails import ensure_thumbnail, normalize_image_path
 
 
@@ -559,6 +560,10 @@ def _persist_prepared_imports(
             ensure_thumbnail(local_path, static_root=image_root.parent)
         except Exception as error:
             logger.warning("Failed to build thumbnail for %s: %s", local_path, error)
+    try:
+        ensure_tones(thumbnail_paths, static_root=image_root.parent)
+    except Exception as error:
+        logger.warning("Failed to build image tones: %s", error)
     return results
 
 

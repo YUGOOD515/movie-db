@@ -353,6 +353,11 @@ class LibraryIntegrationTest(unittest.TestCase):
 
     def test_home_catalog_and_title_viewmodels_render_expected_data(self):
         home = self.client.get("/").get_data(as_text=True)
+        self.assertIn("data-home-hero", home)
+        self.assertIn("1 / 3：星际穿越", home)
+        self.assertIn('action="/play/3"', home)
+        self.assertIn("vendor/embla-carousel.umd.js", home)
+        self.assertIn("library-section--after-hero", home)
         self.assertIn("S3 E13 · 合同，规则和一点猪脑", home)
         self.assertIn("/title/tt6226232?resume=1", home)
         self.assertIn('action="/title/tt6226232/resume"', home)

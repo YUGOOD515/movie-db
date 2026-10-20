@@ -26,6 +26,8 @@ SQL 代码书写准则：https://www.sqlstyle.guide/zh/
 
 布局沿用 12 栏网格：`style.css` 顶部定义圆角等令牌与 `--grid-col` / `--grid-gap`，跨栏尺寸写成 `--grid-col` 的倍数。通用模板片段在 `templates/_ui.html`；`site.js` 只放全站行为，页面脚本按页拆分（`detail.js`、`manager.js` 等）。
 
+动效集中在 `effects.js`（BlurHash 占位、海报倾斜、入场动画、页面共享元素转场），首页轮播在 `home.js`；第三方库放在 `static/vendor/`（见其 README），不走 CDN。海报 / 背景图的环境色与 BlurHash 存于 `static/thumbnails/tones.json`，录入时生成、启动时补齐，模板用 `image_tone` 过滤器读取。
+
 ## 云端只读快照
 
 `cloud/` 下为 Cloudflare Worker：本机离线时提供只读快照，界面复用同一套模板。只读模式由 `MOVIEDB_READ_ONLY=1` 开启，只放行 `READ_ONLY_ENDPOINTS` 中的 GET 页面；新增只读页面时须加入该集合，写操作无需额外处理。

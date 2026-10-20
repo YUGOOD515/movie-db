@@ -2,7 +2,13 @@ from collections import OrderedDict
 
 from flask import url_for
 
-from viewmodels.cards import build_poster_card, build_progress, format_year
+from viewmodels.cards import (
+    TITLE_TYPE_LABELS,
+    build_poster_card,
+    build_progress,
+    detail_url,
+    format_year,
+)
 
 
 GENRE_ICONS = {
@@ -102,8 +108,47 @@ def build_genre_cards(rows: list[dict], title_type: str) -> list[dict]:
     return sorted(cards, key=lambda item: (-item["count"], item["name"]))
 
 
+def format_runtime(minutes: int | None) -> str:
+    if not minutes:
+        return ""
+    hours, rest = divmod(int(minutes), 60)
+    return f"{hours} 小时 {rest} 分钟" if hours and rest else (f"{hours} 小时" if hours else f"{rest} 分钟")
+
+
+def build_featured(rows: list[dict]) -> list[dict]:
+    """首页主视觉轮播：整幅背景图、标志、简介和播放入口。"""
+    items = []
+    for row in rows:
+        is_series = row["title_type"] == "series"
+        play_url, play_label = None, None
+        if is_series and row.get("has_episode_files"):
+            play_url, play_label = url_for("resume_title", title_id=row["title_id"]), "继续播放"
+        elif not is_series and row.get("file_id"):
+            play_url, play_label = url_for("play_media_file", file_id=row["file_id"]), "播放"
+        genres = [genre.strip() for genre in (row.get("genres") or "").split(",") if genre.strip()]
+        items.append(
+            {
+                "title": row["display_title"],
+                "type_label": TITLE_TYPE_LABELS.get(row["title_type"], row["title_type"]),
+                "year": format_year(row),
+                "runtime": "" if is_series else format_runtime(row.get("runtime_minutes")),
+                "genres": genres[:3],
+                "rating": row.get("average_rating"),
+                "tagline": row.get("tagline") or "",
+                "overview": row.get("overview") or "",
+                "backdrop": row.get("backdrop_path"),
+                "logo": row.get("logo_path"),
+                "detail_url": detail_url(row),
+                "play_url": play_url,
+                "play_label": play_label,
+            }
+        )
+    return items
+
+
 def build_home_viewmodel(raw: dict) -> dict:
     return {
+        "featured": build_featured(raw.get("featured", [])),
         "recent_watch": build_recent_watch(raw["recent_watch"]),
         "collections": build_collection_cards(raw["collections"]),
         "recent_added": [build_poster_card(row) for row in raw["recent_added"]],
