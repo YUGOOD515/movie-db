@@ -14,6 +14,6 @@
   // 更换令牌：生成新令牌写入 .env，再把摘要填到这里并重新部署。
   "vars": {
     "SNAPSHOT_HOSTS": "readonly-v1.yu2yu2.dpdns.org",
-    "SYNC_TOKEN_SHA256": "b9f5e2593d92afa079c1644fe7a01dc3e04ab320ced81342ce603d36325247d4"
+    "SYNC_TOKEN_SHA256": "8cab82d17184767bff64f185db6a48ebc5673f224c997215d18578d90ee4a965"
   }
 }
