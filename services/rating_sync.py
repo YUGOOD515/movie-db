@@ -3,11 +3,17 @@ from dataclasses import asdict
 from pathlib import Path
 from threading import Lock, Thread
 
-from connectors import mdblist
-from models.library import update_title_ratings
+import logging
+from contextlib import closing
+
+from connectors import imdb_ratings, mdblist
+from models.database import connect_database
+from models.library import update_imdb_ratings, update_title_ratings
+from queries.manager import get_all_title_ids
 
 
 DEFAULT_WORKERS = 3
+logger = logging.getLogger(__name__)
 _job_lock = Lock()
 _job_state = {
     "running": False,
@@ -113,6 +119,13 @@ def fetch_title_rating(title_id: str) -> dict:
     }
 
 
+def refresh_imdb_ratings(database_path: str | Path) -> int:
+    """用 IMDb 官方评分文件更新库内全部作品（含单集），返回变化的行数。"""
+    with closing(connect_database(database_path)) as db:
+        title_ids = get_all_title_ids(db)
+    return update_imdb_ratings(database_path, imdb_ratings.lookup_ratings(title_ids))
+
+
 def sync_title_ratings(
     database_path: str | Path,
     title_ids: list[str],
@@ -179,6 +192,10 @@ def _run_rating_refresh(database_path: Path, title_ids: list[str]) -> None:
         with _job_lock:
             _job_state.update(progress)
 
+    try:
+        refresh_imdb_ratings(database_path)
+    except Exception as error:
+        logger.warning("IMDb 评分刷新失败：%s", error)
     try:
         result = sync_title_ratings(
             database_path,

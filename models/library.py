@@ -340,22 +340,45 @@ def import_media_bundle(
                 ON CONFLICT (title_id) DO UPDATE SET
                     tmdb_id = COALESCE(excluded.tmdb_id, title_basic.tmdb_id),
                     title_type = excluded.title_type,
-                    primary_title = excluded.primary_title,
-                    original_title = excluded.original_title,
+                    -- 已有名称与分类保持不变（多来自旧 IMDb 数据），只替换空值和"第 N 集"占位名。
+                    primary_title = CASE
+                        WHEN title_basic.primary_title IS NULL
+                          OR title_basic.primary_title GLOB '第*集'
+                          OR title_basic.primary_title GLOB 'Episode*'
+                        THEN excluded.primary_title
+                        ELSE title_basic.primary_title
+                    END,
+                    original_title = COALESCE(
+                        title_basic.original_title,
+                        excluded.original_title
+                    ),
                     original_language = COALESCE(
                         excluded.original_language,
                         title_basic.original_language
                     ),
-                    display_title = excluded.display_title,
+                    display_title = CASE
+                        WHEN title_basic.display_title IS NULL
+                          OR title_basic.display_title GLOB '第*集'
+                          OR title_basic.display_title GLOB 'Episode*'
+                        THEN excluded.display_title
+                        ELSE title_basic.display_title
+                    END,
                     is_adult = excluded.is_adult,
-                    start_year = excluded.start_year,
-                    end_year = excluded.end_year,
-                    runtime_minutes = excluded.runtime_minutes,
-                    genres = excluded.genres,
+                    start_year = COALESCE(excluded.start_year, title_basic.start_year),
+                    end_year = COALESCE(excluded.end_year, title_basic.end_year),
+                    runtime_minutes = COALESCE(
+                        excluded.runtime_minutes,
+                        title_basic.runtime_minutes
+                    ),
+                    genres = COALESCE(title_basic.genres, excluded.genres),
                     overview = COALESCE(excluded.overview, title_basic.overview),
                     tagline = COALESCE(excluded.tagline, title_basic.tagline),
-                    average_rating = excluded.average_rating,
-                    num_votes = excluded.num_votes,
+                    -- 评分缺失时保留旧值，不用其他来源顶替。
+                    average_rating = COALESCE(
+                        excluded.average_rating,
+                        title_basic.average_rating
+                    ),
+                    num_votes = COALESCE(excluded.num_votes, title_basic.num_votes),
                     updated_at = CURRENT_TIMESTAMP
                 """,
                 title,
@@ -503,6 +526,30 @@ def update_title_ratings(
     """Update multi-platform ratings for a title in title_basic."""
     with closing(connect_writable(database_path)) as db, db:
         return _update_title_ratings(db, title_id, ratings)
+
+
+def update_imdb_ratings(
+    database_path: str | Path,
+    ratings: dict[str, tuple[float, int]],
+) -> int:
+    """按 IMDb 评分文件批量更新 average_rating / num_votes，返回变化的行数。"""
+    with closing(connect_writable(database_path)) as db, db:
+        before = db.total_changes
+        db.executemany(
+            """
+            UPDATE title_basic
+               SET average_rating = ?,
+                   num_votes = ?,
+                   updated_at = CURRENT_TIMESTAMP
+             WHERE title_id = ?
+               AND (average_rating IS NOT ? OR num_votes IS NOT ?)
+            """,
+            [
+                (rating, votes, title_id, rating, votes)
+                for title_id, (rating, votes) in ratings.items()
+            ],
+        )
+        return db.total_changes - before
 
 
 def _update_title_ratings(db, title_id: str, ratings: dict) -> bool:

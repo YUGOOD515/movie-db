@@ -16,9 +16,9 @@ from connectors.tmdb import DEFAULT_IMAGE_ROOT, build_media_metadata, download_m
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="通过 IMDb ID 从 TMDB 抓取补充元数据 JSON（主数据来自本地 imdb.db）。"
+        description="通过 IMDb ID 从 TMDB 抓取元数据 JSON（与 library.db 字段对应，不含 IMDb 评分）。"
     )
-    parser.add_argument("imdb_id", help="电影、剧集或单集的 IMDb ID，例如 tt0816692")
+    parser.add_argument("imdb_id", help="电影或剧集的 IMDb ID，例如 tt0816692")
     parser.add_argument("-o", "--output", type=Path, help="写入文件（默认打印到终端）")
     parser.add_argument(
         "--download",

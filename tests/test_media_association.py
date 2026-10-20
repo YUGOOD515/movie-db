@@ -72,7 +72,7 @@ class AssociationIntegrationTest(unittest.TestCase):
 
     def test_metadata_preflight_and_correction_are_read_only(self):
         self.seed_discovery(["/share/S01E01.mkv", "/share/S01E02.mkv"])
-        before = self.database_path.read_bytes(), self.imdb_path.read_bytes()
+        before = self.database_path.read_bytes()
         title = self.client.get("/manager/titles/episodes?title_id=tt9000002").json
         self.assertEqual(len(title["episodes"]), 2)
         payload = {"title_id": "tt9000002", "items": [{"path": "/share/S01E01.mkv", "season_number": 2, "episode_number": 1}]}
@@ -83,7 +83,7 @@ class AssociationIntegrationTest(unittest.TestCase):
         response = self.client.post("/manager/association/check", json=payload)
         self.assertTrue(response.json["valid"])
         self.assertEqual(response.json["rows"][0]["target"]["title_id"], "tt9000003")
-        self.assertEqual(before, (self.database_path.read_bytes(), self.imdb_path.read_bytes()))
+        self.assertEqual(before, self.database_path.read_bytes())
 
     def test_invalid_batch_and_duplicate_positions(self):
         paths = ["/share/one.mkv", "/share/two.mkv"]
@@ -105,7 +105,6 @@ class AssociationIntegrationTest(unittest.TestCase):
              patch.object(alist, "validate_alist_video_url"), \
              patch.object(alist, "get_video_link", return_value="https://video.test/file.mkv"), \
              patch.object(media_probe, "probe_video", return_value={"duration_ms": 1000}), \
-             patch.object(tmdb, "build_media_metadata", return_value={"title_basic": {}, "episodes": [], "title_artwork": []}), \
              patch.object(media_import, "fetch_title_rating", return_value={"status": "unavailable"}):
             movie = {"title_id": "tt9000001", "items": [{"path": paths[0]}]}
             self.assertEqual(self.client.post("/manager/association/complete", json=movie).json["imported"], 1)
@@ -131,7 +130,6 @@ class AssociationIntegrationTest(unittest.TestCase):
              patch.object(alist, "validate_alist_video_url"), \
              patch.object(alist, "get_video_link", return_value="https://video.test/file.mkv"), \
              patch.object(media_probe, "probe_video", side_effect=[{"duration_ms": 1000}, requests.Timeout("sign=secret")]), \
-             patch.object(tmdb, "build_media_metadata", return_value={"title_basic": {}, "episodes": [], "title_artwork": []}), \
              patch.object(media_import, "fetch_title_rating", return_value={"status": "unavailable"}):
             payload = {"title_id": "tt9000002", "items": [{"path": path, "season_number": 1, "episode_number": index} for index, path in enumerate(paths, 1)]}
             response = self.client.post("/manager/association/complete", json=payload)

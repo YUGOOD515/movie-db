@@ -38,10 +38,6 @@ def connect_writable(database_path: str | Path) -> sqlite3.Connection:
     return _connect(database_path, mode="rw")
 
 
-def connect_imdb(database_path: str | Path) -> sqlite3.Connection:
-    return _connect(database_path, mode="ro", timeout=30)
-
-
 def get_db() -> sqlite3.Connection:
     if "library_db" not in g:
         g.library_db = connect_database(current_app.config["DATABASE"])

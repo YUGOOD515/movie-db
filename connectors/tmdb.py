@@ -2,9 +2,10 @@
 
 import logging
 import os
-import sqlite3
+import re
 from collections import OrderedDict
 from concurrent.futures import Future
+from copy import deepcopy
 from pathlib import Path
 from threading import Lock
 from time import monotonic
@@ -12,7 +13,6 @@ from time import monotonic
 import requests
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-IMDB_DB = PROJECT_ROOT / "imdb.db"
 
 TMDB_API = os.environ.get("TMDB_API_ORIGIN", "https://api.themoviedb.org/3").rstrip("/")
 TMDB_IMAGE = os.environ.get("TMDB_IMAGE_ORIGIN", "https://image.tmdb.org/t/p").rstrip("/")
@@ -22,6 +22,22 @@ REQUEST_TIMEOUT = 20
 ARTWORK_LIMIT = 5
 CAST_LIMIT = 24
 DOWNLOAD_ATTEMPTS = 3
+# append_to_response 官方上限为 20 项。
+APPEND_LIMIT = 20
+TITLE_ID_PATTERN = re.compile(r"tt[0-9]+")
+# 中文名按地区回退，与原 IMDb 别名的 CN → TW → HK 顺序一致。
+CHINESE_REGIONS = ("CN", "TW", "HK", "SG")
+# TMDB 分类 ID → 库内沿用的 IMDb 英文分类；TV Movie 等无对应项的分类不写入。
+GENRE_NAMES = {
+    28: ("Action",), 12: ("Adventure",), 16: ("Animation",), 35: ("Comedy",),
+    80: ("Crime",), 99: ("Documentary",), 18: ("Drama",), 10751: ("Family",),
+    14: ("Fantasy",), 36: ("History",), 27: ("Horror",), 10402: ("Music",),
+    9648: ("Mystery",), 10749: ("Romance",), 878: ("Sci-Fi",), 53: ("Thriller",),
+    10752: ("War",), 37: ("Western",),
+    10759: ("Action", "Adventure"), 10762: ("Family",), 10763: ("News",),
+    10764: ("Reality-TV",), 10765: ("Sci-Fi", "Fantasy"), 10766: ("Drama",),
+    10767: ("Talk-Show",), 10768: ("War",),
+}
 # 与 library.db 现存数据约定一致：poster 存 w500，backdrop/logo 存 original
 POSTER_SIZE = "w500"
 PROFILE_SIZE = "w342"
@@ -82,12 +98,21 @@ def search_media(query: str, media_type: str, page: int = 1) -> dict:
     return _cached(("search", media_type, query, LANGUAGE, page), fetch)
 
 
-def resolve_imdb_id(media_type: str, tmdb_id: int) -> str:
+def fetch_title_summary(media_type: str, tmdb_id: int) -> dict:
+    """搜索结果选中后取 IMDb ID、中文名和年份（一次详情请求）。"""
     def fetch():
         with _session() as session:
-            return _get(session, f"/{media_type}/{tmdb_id}/external_ids", {})
-    payload = _cached(("external_ids", media_type, tmdb_id), fetch)
-    return payload.get("imdb_id") or ""
+            return _get(session, f"/{media_type}/{tmdb_id}", {
+                "language": LANGUAGE, "append_to_response": "external_ids",
+            })
+    detail = _cached(("summary", media_type, tmdb_id), fetch)
+    date = detail.get("release_date" if media_type == "movie" else "first_air_date")
+    return {
+        "title_id": (detail.get("external_ids") or {}).get("imdb_id") or "",
+        "title_type": "movie" if media_type == "movie" else "series",
+        "display_title": detail.get("title" if media_type == "movie" else "name") or "",
+        "start_year": _year(date),
+    }
 
 
 def chinese_search_poster(media_type: str, tmdb_id: int) -> str | None:
@@ -101,7 +126,7 @@ def chinese_search_poster(media_type: str, tmdb_id: int) -> str | None:
 
 
 def remember_media_identity(imdb_id: str, media_type: str, tmdb_id: int):
-    """复用已与本地 IMDb 核对的 TMDB 映射，避免导入时重复 find。"""
+    """复用已确认的 IMDb → TMDB 映射，避免导入时重复 find。"""
     _remember(("find", imdb_id, LANGUAGE), (media_type, {"id": tmdb_id}))
 
 
@@ -183,22 +208,41 @@ def fetch_detail(
     return _get(session, f"/{media_type}/{tmdb_id}", params)
 
 
+def _append_chunks(session: requests.Session, tmdb_id: int, keys: list[str]) -> dict:
+    """按 20 项一组挂载剧集子资源，合并返回 {key: payload}。"""
+    merged = {}
+    for start in range(0, len(keys), APPEND_LIMIT):
+        chunk = keys[start:start + APPEND_LIMIT]
+        detail = fetch_detail(session, "tv", tmdb_id, append=",".join(chunk))
+        merged.update({key: detail[key] for key in chunk if detail.get(key)})
+    return merged
+
+
 def fetch_seasons(
     session: requests.Session, tmdb_id: int, seasons: list[dict]
 ) -> list[dict]:
-    """一次请求挂载所有有单集的季，返回季 payload 列表。"""
-    numbers = [
-        int(season["season_number"])
+    """挂载所有有单集的季，返回季 payload 列表。"""
+    keys = [
+        f"season/{int(season['season_number'])}"
         for season in seasons
         if season.get("episode_count", 0) > 0 and season.get("season_number") is not None
     ]
-    if not numbers:
-        return []
+    payloads = _append_chunks(session, tmdb_id, keys)
+    return [payloads[key] for key in keys if key in payloads]
 
-    append = ",".join(f"season/{n}" for n in numbers)
-    detail = fetch_detail(session, "tv", tmdb_id, append=append)
-    return [detail[f"season/{n}"] for n in numbers if detail.get(f"season/{n}")]
 
+def fetch_episode_ids(
+    session: requests.Session, tmdb_id: int, positions: list[tuple[int, int]]
+) -> dict[tuple[int, int], str]:
+    """批量取单集 IMDb ID；没有 IMDb ID 的单集不返回。"""
+    keys = {f"season/{s}/episode/{e}/external_ids": (s, e) for s, e in positions}
+    payloads = _append_chunks(session, tmdb_id, list(keys))
+    ids = {}
+    for key, position in keys.items():
+        imdb_id = (payloads.get(key) or {}).get("imdb_id") or ""
+        if TITLE_ID_PATTERN.fullmatch(imdb_id):
+            ids[position] = imdb_id
+    return ids
 
 
 # ---------------------------------------------------------------- 纯转换
@@ -209,13 +253,65 @@ def _suffix(file_path: str) -> str:
     return suffix if suffix in {".jpg", ".jpeg", ".png", ".webp", ".svg"} else ".jpg"
 
 
-def build_title_supplement(details: dict) -> dict:
-    """组装 title_basic 的 TMDB 补充字段（电影或剧集）。"""
+def _year(value) -> int | None:
+    value = str(value or "")[:4]
+    return int(value) if value.isdigit() else None
+
+
+def _genres(details: dict) -> str | None:
+    names = [
+        name
+        for genre in details.get("genres") or []
+        for name in GENRE_NAMES.get(genre.get("id"), ())
+    ]
+    return ",".join(dict.fromkeys(names)) or None
+
+
+def _translations(details: dict, key: str) -> dict[tuple, str]:
+    names = {}
+    for item in (details.get("translations") or {}).get("translations") or []:
+        value = ((item.get("data") or {}).get(key) or "").strip()
+        if value:
+            names.setdefault((item.get("iso_639_1"), item.get("iso_3166_1")), value)
+    return names
+
+
+def build_title_basic(details: dict, title_id: str, title_type: str) -> dict:
+    """组装电影或剧集的 title_basic 行；IMDb 评分由调用方另行填入。"""
+    key = "title" if title_type == "movie" else "name"
+    original = details.get(f"original_{key}") or None
+    names = _translations(details, key)
+    chinese = next((names[("zh", region)] for region in CHINESE_REGIONS if ("zh", region) in names), None)
+    english = names.get(("en", "US")) or next(
+        (value for (language, _), value in names.items() if language == "en"), None
+    )
+    if title_type == "movie":
+        start_year = _year(details.get("release_date"))
+        end_year = None
+        runtime = details.get("runtime") or None
+    else:
+        start_year = _year(details.get("first_air_date"))
+        # last_air_date 不是停播年份，只在已完结时写入。
+        ended = details.get("status") in ("Ended", "Canceled")
+        end_year = _year(details.get("last_air_date")) if ended else None
+        runtime = next(iter(details.get("episode_run_time") or []), None) or None
     return {
+        "title_id": title_id,
         "tmdb_id": int(details["id"]),
+        "title_type": title_type,
+        "primary_title": english or original or details.get(key),
+        "original_title": original,
+        "original_language": details.get("original_language"),
+        "display_title": chinese or details.get(key) or original or title_id,
+        "is_adult": int(bool(details.get("adult"))),
+        "start_year": start_year,
+        "end_year": end_year,
+        "runtime_minutes": runtime,
+        "genres": _genres(details),
         "overview": details.get("overview") or None,
         "tagline": details.get("tagline") or None,
-        "original_language": details.get("original_language"),
+        "average_rating": None,
+        "num_votes": None,
     }
 
 
@@ -335,32 +431,17 @@ def fetch_title_cast(
 
 
 
-def build_episode(
-    episode: dict,
-    series_title_id: str,
-    series_language: str | None,
-    episode_title_id: str | None = None,
-) -> dict:
-    """组装单个单集的 TMDB 补充数据 + still。
+def build_episode(episode: dict, series: dict, episode_title_id: str) -> dict:
+    """组装单集的 title_basic 行与 still；series 为父剧集的 title_basic 行。
 
-    season_number / episode_number / tmdb_id 为匹配键，供调用方对齐
-    imdb.db 的 title_episode；不作为入库字段。
-    still 的 local_path 为 images/{series_title_id}/{episode_title_id}-still{ext}；
-    episode_title_id 未知时回退用 TMDB 单集 ID 命名并告警。
+    still 的 local_path 为 images/{series_title_id}/{episode_title_id}-still{ext}。
     """
-    episode_tmdb_id = int(episode["id"])
     season_number = episode.get("season_number")
+    episode_number = episode.get("episode_number")
     still_path = episode.get("still_path")
-
+    name = (episode.get("name") or "").strip() or f"第 {episode_number} 集"
     artwork = []
     if still_path:
-        episode_identifier = episode_title_id
-        if episode_identifier is None:
-            logger.warning(
-                "单集 %s (S%sE%s) 在本地 imdb.db 未找到 Title ID，剧照用 TMDB ID 命名",
-                episode_tmdb_id, season_number, episode.get("episode_number"),
-            )
-            episode_identifier = str(episode_tmdb_id)
         artwork.append(
             {
                 "title_id": episode_title_id,
@@ -368,150 +449,150 @@ def build_episode(
                 "position": 1,
                 "remote_path": still_path,
                 "local_path": (
-                    f"{LOCAL_PATH_PREFIX}/{series_title_id}"
-                    f"/{episode_identifier}-still{_suffix(still_path)}"
+                    f"{LOCAL_PATH_PREFIX}/{series['title_id']}"
+                    f"/{episode_title_id}-still{_suffix(still_path)}"
                 ),
             }
         )
-
     return {
         "season_number": season_number,
-        "episode_number": episode.get("episode_number"),
+        "episode_number": episode_number,
         "title_basic": {
-            "tmdb_id": episode_tmdb_id,
+            "title_id": episode_title_id,
+            "tmdb_id": int(episode["id"]),
+            "title_type": "episode",
+            "primary_title": name,
+            "original_title": None,
+            "original_language": series.get("original_language"),
+            "display_title": name,
+            "is_adult": series.get("is_adult", 0),
+            "start_year": _year(episode.get("air_date")),
+            "end_year": None,
+            "runtime_minutes": episode.get("runtime") or None,
+            "genres": series.get("genres"),
             "overview": episode.get("overview") or None,
             "tagline": None,
-            "original_language": series_language,
+            "average_rating": None,
+            "num_votes": None,
         },
         "title_artwork": artwork,
     }
 
 
-
 # ---------------------------------------------------------------- 组装入口
 
 
-def _episode_tconsts(series_title_id: str) -> dict[tuple[int, int], str]:
-    """从本地 imdb.db 取父剧集下 (season, episode) -> 单集 Title ID 映射。"""
-    if not IMDB_DB.exists():
-        logger.warning("未找到本地 imdb.db，单集 Title ID 无法解析")
-        return {}
-    with sqlite3.connect(f"file:{IMDB_DB}?mode=ro", uri=True) as connection:
-        rows = connection.execute(
-            """
-            SELECT seasonNumber, episodeNumber, tconst
-              FROM title_episode
-             WHERE parentTconst = ?
-            """,
-            (series_title_id,),
-        ).fetchall()
-    return {
-        (int(row[0]), int(row[1])): row[2]
-        for row in rows
-        if row[0] is not None and row[1] is not None
-    }
-
-
-def _parent_tconst(episode_title_id: str) -> str | None:
-    """从本地 imdb.db 查单集的父剧集 Title ID。"""
-    if not IMDB_DB.exists():
-        logger.warning("未找到本地 imdb.db，父剧集 Title ID 无法解析")
-        return None
-    with sqlite3.connect(f"file:{IMDB_DB}?mode=ro", uri=True) as connection:
-        row = connection.execute(
-            "SELECT parentTconst FROM title_episode WHERE tconst = ?",
-            (episode_title_id,),
-        ).fetchone()
-    return row[0] if row else None
-
-
-def build_episode_metadata(
-    session: requests.Session, imdb_id: str, found: dict
-) -> dict:
-    """组装单个单集：父剧集仅用于补 original_language（归属关系在本地 imdb.db）。"""
-    series = fetch_detail(session, "tv", int(found["show_id"]))
-
-    parent_tconst = _parent_tconst(imdb_id)
-    if parent_tconst is None:
-        logger.warning(
-            "单集 %s 在本地 imdb.db 未找到父剧集，剧照目录用 TMDB 剧集 ID 命名", imdb_id
-        )
-        parent_tconst = str(int(found["show_id"]))
-
-    item = build_episode(
-        found, parent_tconst, series.get("original_language"), episode_title_id=imdb_id
-    )
-    item["title_artwork"] = [
-        {**row, "title_id": imdb_id} for row in item["title_artwork"]
-    ]
-    del item["season_number"], item["episode_number"]
-
-    return {
-        "title_basic": item["title_basic"],
-        "title_artwork": item["title_artwork"],
-        "title_cast": [],
-        "episodes": [],
-    }
-
-
-def build_media_metadata(imdb_id: str, session: requests.Session | None = None) -> dict:
-    """主入口：IMDb ID → TMDB 补充字段（与 library.db 字段对应）。
-
-    电影 2 次请求（find + detail 挂载 images），
-    剧集 3 次（find + detail 挂载 images + detail 挂载全部季），
-    单集 2 次（find + 父剧集 detail 取 original_language）。
-    """
+def identify_title(imdb_id: str, session: requests.Session | None = None) -> dict:
+    """IMDb ID → 类型与根作品 ID；单集解析出父剧集 IMDb ID 和季集号。"""
     own_session = session is None
     session = session or _session()
-
     try:
-        imdb_id = imdb_id.strip()
         media_type, found = find_media(session, imdb_id)
-
-        if media_type == "episode":
-            return build_episode_metadata(session, imdb_id, found)
-
-        tmdb_id = int(found["id"])
-        credits_key = "aggregate_credits" if media_type == "tv" else "credits"
-        detail = fetch_detail(
-            session,
-            media_type,
-            tmdb_id,
-            append=f"images,{credits_key}",
-        )
-        images = detail.get("images") or {}
-
-        metadata = {
-            "title_basic": build_title_supplement(detail),
-            "title_artwork": build_title_artwork(imdb_id, images),
-            "title_cast": build_title_cast(
-                imdb_id,
-                (detail.get(credits_key) or {}).get("cast") or [],
-            ),
-            "episodes": [],
-        }
-
+        if media_type == "movie":
+            return {"title_type": "movie", "root_id": imdb_id}
         if media_type == "tv":
-            series_language = detail.get("original_language")
-            seasons = fetch_seasons(session, tmdb_id, detail.get("seasons") or [])
-            tconsts = _episode_tconsts(imdb_id)
-            metadata["episodes"] = [
-                build_episode(
-                    episode,
-                    imdb_id,
-                    series_language,
-                    episode_title_id=tconsts.get(
-                        (episode.get("season_number"), episode.get("episode_number"))
-                    ),
-                )
-                for season in seasons
-                for episode in season.get("episodes") or []
-            ]
-
-        return metadata
+            return {"title_type": "series", "root_id": imdb_id}
+        show_id = int(found["show_id"])
+        series = _cached(
+            ("external_ids", "tv", show_id),
+            lambda: _get(session, f"/tv/{show_id}/external_ids", {}),
+        )
+        root_id = series.get("imdb_id") or ""
+        if not TITLE_ID_PATTERN.fullmatch(root_id):
+            raise ValueError(f"TMDB 中 {imdb_id} 的父剧集没有 IMDb ID。")
+        remember_media_identity(root_id, "tv", show_id)
+        return {
+            "title_type": "episode",
+            "root_id": root_id,
+            "season_number": found.get("season_number"),
+            "episode_number": found.get("episode_number"),
+        }
     finally:
         if own_session:
             session.close()
+
+
+def _series_episodes(
+    session: requests.Session,
+    tmdb_id: int,
+    series: dict,
+    seasons: list[dict],
+    known_episode_ids: dict[tuple[int, int], str],
+) -> list[dict]:
+    """组装有 IMDb ID 的单集；库内已有的季集关系优先，冲突的 ID 跳过并告警。"""
+    episodes = {
+        (episode.get("season_number"), episode.get("episode_number")): episode
+        for season in seasons
+        for episode in season.get("episodes") or []
+        if episode.get("season_number") is not None and episode.get("episode_number") is not None
+    }
+    ids = {position: known_episode_ids[position] for position in episodes if position in known_episode_ids}
+    missing = [position for position in episodes if position not in ids]
+    used = set(known_episode_ids.values())
+    for position, imdb_id in fetch_episode_ids(session, tmdb_id, missing).items():
+        if imdb_id in used:
+            logger.warning("单集 %s 已对应其他季集，跳过 TMDB 的 S%sE%s", imdb_id, *position)
+            continue
+        used.add(imdb_id)
+        ids[position] = imdb_id
+    return [build_episode(episode, series, ids[position]) for position, episode in episodes.items() if position in ids]
+
+
+def build_media_metadata(
+    imdb_id: str,
+    session: requests.Session | None = None,
+    known_episode_ids: dict[tuple[int, int], str] | None = None,
+) -> dict:
+    """主入口：电影或剧集 IMDb ID → 与 library.db 对应的完整元数据（不含 IMDb 评分）。
+
+    电影 2 次请求（find + detail 挂载 images/credits/translations）；
+    剧集另加 ceil(季数/20) 次季详情，以及 ceil(新单集数/20) 次单集 IMDb ID。
+    known_episode_ids 为库内已有的 {(季, 集): 单集 ID}，可省去这些单集的 ID 请求。
+    结果缓存 10 分钟，返回副本。
+    """
+    imdb_id = imdb_id.strip()
+    known = dict(known_episode_ids or {})
+    key = ("metadata", imdb_id, LANGUAGE, tuple(sorted(known.items())))
+
+    def fetch():
+        own_session = session is None
+        current = session or _session()
+        try:
+            return _build_media_metadata(current, imdb_id, known)
+        finally:
+            if own_session:
+                current.close()
+
+    return deepcopy(_cached(key, fetch))
+
+
+def _build_media_metadata(session: requests.Session, imdb_id: str, known: dict) -> dict:
+    media_type, found = find_media(session, imdb_id)
+    if media_type == "episode":
+        raise ValueError(f"{imdb_id} 是单集，请使用父剧集的 IMDb ID。")
+
+    tmdb_id = int(found["id"])
+    credits_key = "aggregate_credits" if media_type == "tv" else "credits"
+    detail = fetch_detail(
+        session,
+        media_type,
+        tmdb_id,
+        append=f"images,{credits_key},translations",
+    )
+    title = build_title_basic(detail, imdb_id, "movie" if media_type == "movie" else "series")
+    metadata = {
+        "title_basic": title,
+        "title_artwork": build_title_artwork(imdb_id, detail.get("images") or {}),
+        "title_cast": build_title_cast(
+            imdb_id,
+            (detail.get(credits_key) or {}).get("cast") or [],
+        ),
+        "episodes": [],
+    }
+    if media_type == "tv":
+        seasons = fetch_seasons(session, tmdb_id, detail.get("seasons") or [])
+        metadata["episodes"] = _series_episodes(session, tmdb_id, title, seasons, known)
+    return metadata
 
 
 # ---------------------------------------------------------------- 图片下载

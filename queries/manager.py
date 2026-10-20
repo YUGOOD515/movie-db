@@ -3,6 +3,10 @@ from sqlite3 import Connection
 from queries._shared import dictionaries, query_title_cards
 
 
+def get_all_title_ids(db: Connection) -> list[str]:
+    return [row[0] for row in db.execute("SELECT title_id FROM title_basic")]
+
+
 def get_rating_title_ids(db: Connection) -> list[str]:
     return [
         row[0]

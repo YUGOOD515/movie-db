@@ -17,7 +17,7 @@ from urllib.parse import unquote
 
 with patch.dict(os.environ, {"ALIST_AUTOSTART": "0"}):
     import app as movie_app
-from connectors import alist, media_probe, player, tmdb
+from connectors import alist, imdb_ratings, media_probe, player, tmdb
 from models import database as database_module
 from models import library as models
 from queries.collection import get_collection_items
@@ -27,6 +27,67 @@ from services import rating_sync
 from services.playback import is_effectively_completed
 from connectors import tmdb as tmdb_connector
 from viewmodels.title import build_title_viewmodel
+
+
+REAL_IDENTIFY_TITLE = tmdb.identify_title
+REAL_BUILD_MEDIA_METADATA = tmdb.build_media_metadata
+
+
+def _fake_title(title_id, title_type, name, **values):
+    return {
+        "title_id": title_id, "tmdb_id": None, "title_type": title_type,
+        "primary_title": name, "original_title": name, "original_language": "en",
+        "display_title": values.pop("display_title"), "is_adult": 0, "start_year": 2026,
+        "end_year": None, "runtime_minutes": values.pop("runtime", 50), "genres": "Drama",
+        "overview": None, "tagline": None, "average_rating": None, "num_votes": None, **values,
+    }
+
+
+FAKE_EPISODES = {
+    "tt9000003": (1, 1, "First Episode", "第一集"),
+    "tt9000004": (1, 2, "Second Episode", "第二集"),
+}
+FAKE_RATINGS = {
+    "tt9000001": (8.1, 1000), "tt9000002": (8.2, 2000),
+    "tt9000003": (8.3, 300), "tt9000004": (8.4, 400),
+}
+
+
+def fake_identify_title(title_id, session=None):
+    if title_id == "tt9000001":
+        return {"title_type": "movie", "root_id": title_id}
+    if title_id == "tt9000002":
+        return {"title_type": "series", "root_id": title_id}
+    if title_id in FAKE_EPISODES:
+        season, episode, *_ = FAKE_EPISODES[title_id]
+        return {"title_type": "episode", "root_id": "tt9000002",
+                "season_number": season, "episode_number": episode}
+    raise ValueError(f"TMDB 中未找到 {title_id} 对应的电影、剧集或单集。")
+
+
+def fake_media_metadata(title_id, session=None, known_episode_ids=None, artwork=()):
+    """Offline stand-in for TMDB: one movie and one two-episode series."""
+    artwork = [dict(image) for image in artwork]
+    if title_id == "tt9000001":
+        return {"title_basic": _fake_title(title_id, "movie", "Import Movie", display_title="导入电影", runtime=120),
+                "title_artwork": artwork, "title_cast": [], "episodes": []}
+    if title_id == "tt9000002":
+        return {
+            "title_basic": _fake_title(title_id, "series", "Import Series", display_title="导入剧集"),
+            "title_artwork": artwork, "title_cast": [],
+            "episodes": [
+                {"season_number": season, "episode_number": episode, "title_artwork": [],
+                 "title_basic": _fake_title(episode_id, "episode", name, display_title=display)}
+                for episode_id, (season, episode, name, display) in FAKE_EPISODES.items()
+            ],
+        }
+    raise ValueError(f"TMDB 中未找到 {title_id} 对应的电影、剧集或单集。")
+
+
+def fake_metadata_with(artwork):
+    return lambda title_id, session=None, known_episode_ids=None: fake_media_metadata(
+        title_id, session, known_episode_ids, artwork
+    )
 
 
 class LibraryIntegrationTest(unittest.TestCase):
@@ -43,78 +104,28 @@ class LibraryIntegrationTest(unittest.TestCase):
             database.executescript(schema)
             database.executescript(fixture)
 
-        self.imdb_path = Path(self.temporary_directory.name) / "imdb.db"
-        with closing(sqlite3.connect(self.imdb_path)) as imdb:
-            imdb.executescript(
-                """
-                CREATE TABLE title_basics (
-                    tconst TEXT PRIMARY KEY,
-                    titleType TEXT,
-                    primaryTitle TEXT,
-                    originalTitle TEXT,
-                    isAdult INTEGER,
-                    startYear INTEGER,
-                    endYear INTEGER,
-                    runtimeMinutes INTEGER,
-                    genres TEXT
-                );
-                CREATE TABLE title_akas (
-                    titleId TEXT,
-                    ordering INTEGER,
-                    title TEXT,
-                    region TEXT,
-                    language TEXT,
-                    types TEXT,
-                    attributes TEXT,
-                    isOriginalTitle INTEGER,
-                    PRIMARY KEY (titleId, ordering)
-                );
-                CREATE TABLE title_ratings (
-                    tconst TEXT PRIMARY KEY,
-                    averageRating REAL,
-                    numVotes INTEGER
-                );
-                CREATE TABLE title_episode (
-                    tconst TEXT PRIMARY KEY,
-                    parentTconst TEXT,
-                    seasonNumber INTEGER,
-                    episodeNumber INTEGER
-                );
-                INSERT INTO title_basics VALUES
-                    ('tt9000001', 'movie', 'Import Movie', 'Import Movie', 0, 2026, NULL, 120, 'Drama'),
-                    ('tt9000002', 'tvSeries', 'Import Series', 'Import Series', 0, 2026, NULL, 50, 'Drama'),
-                    ('tt9000003', 'tvEpisode', 'First Episode', 'First Episode', 0, 2026, NULL, 50, 'Drama'),
-                    ('tt9000004', 'tvEpisode', 'Second Episode', 'Second Episode', 0, 2026, NULL, 51, 'Drama');
-                INSERT INTO title_akas VALUES
-                    ('tt9000001', 1, '导入电影', 'CN', 'zh', NULL, NULL, 0),
-                    ('tt9000002', 1, '导入剧集', 'CN', 'zh', NULL, NULL, 0),
-                    ('tt9000003', 1, '第一集', 'CN', 'zh', NULL, NULL, 0),
-                    ('tt9000004', 1, '第二集', 'CN', 'zh', NULL, NULL, 0);
-                INSERT INTO title_ratings VALUES
-                    ('tt9000001', 8.1, 1000),
-                    ('tt9000002', 8.2, 2000),
-                    ('tt9000003', 8.3, 300),
-                    ('tt9000004', 8.4, 400);
-                INSERT INTO title_episode VALUES
-                    ('tt9000003', 'tt9000002', 1, 1),
-                    ('tt9000004', 'tt9000002', 1, 2);
-                """
-            )
+        tmdb._cache.clear()
+        for name, fake in (("identify_title", fake_identify_title), ("build_media_metadata", fake_media_metadata)):
+            patcher = patch.object(tmdb, name, side_effect=fake)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        patcher = patch.object(imdb_ratings, "lookup_ratings", side_effect=lambda ids, path=None: {
+            title_id: FAKE_RATINGS[title_id] for title_id in ids if title_id in FAKE_RATINGS
+        })
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
         self.previous_database = movie_app.app.config["DATABASE"]
-        self.previous_imdb_database = movie_app.app.config["IMDB_DATABASE"]
         self.previous_image_root = movie_app.app.config["IMAGE_ROOT"]
         movie_app.app.config.update(
             TESTING=True,
             DATABASE=self.database_path,
-            IMDB_DATABASE=self.imdb_path,
             IMAGE_ROOT=Path(self.temporary_directory.name) / "images",
         )
         self.client = movie_app.app.test_client()
 
     def tearDown(self):
         movie_app.app.config["DATABASE"] = self.previous_database
-        movie_app.app.config["IMDB_DATABASE"] = self.previous_imdb_database
         movie_app.app.config["IMAGE_ROOT"] = self.previous_image_root
         self.temporary_directory.cleanup()
 
@@ -125,7 +136,7 @@ class LibraryIntegrationTest(unittest.TestCase):
         return connection
 
     def test_title_search_and_selection_reuse_identity_without_writes(self):
-        before = self.database_path.read_bytes(), self.imdb_path.read_bytes()
+        before = self.database_path.read_bytes()
         with patch.object(tmdb, "_session"), patch.object(tmdb, "_get") as fetch:
             tmdb._cache.clear()
             self.addCleanup(tmdb._cache.clear)
@@ -135,7 +146,8 @@ class LibraryIntegrationTest(unittest.TestCase):
                     "release_date": "2026-01-01", "poster_path": "/poster.jpg",
                     "overview": "用于区分同名电影的简介",
                 }]},
-                {"imdb_id": "tt9000001"},
+                {"id": 9001, "title": "导入电影", "release_date": "2026-01-01",
+                 "external_ids": {"imdb_id": "tt9000001"}},
             ]
             url = "/manager/titles/search?q=导入电影&type=movie"
             data = self.client.get(url).get_json()
@@ -144,21 +156,23 @@ class LibraryIntegrationTest(unittest.TestCase):
             self.assertEqual(self.client.get(url).get_json(), data)
             selected = self.client.get("/manager/titles/select?type=movie&tmdb_id=9001")
             self.assertEqual(selected.status_code, 200)
-            self.assertEqual(selected.json["title_id"], "tt9000001")
+            self.assertEqual(selected.json, {"title_id": "tt9000001", "name": "导入电影", "year": 2026, "media_type": "movie"})
             self.assertEqual(tmdb.find_media(Mock(), "tt9000001"), ("movie", {"id": 9001}))
             self.assertEqual(fetch.call_count, 2)
-        self.assertEqual(before, (self.database_path.read_bytes(), self.imdb_path.read_bytes()))
+        self.assertEqual(before, self.database_path.read_bytes())
 
-    def test_title_selection_rejects_missing_and_mismatched_identities(self):
-        for title_id, message in [("", "没有 IMDb 映射"), ("tt123456789", "尚未收录"), ("tt9000002", "类型不一致")]:
-            with self.subTest(title_id=title_id), patch.object(tmdb, "resolve_imdb_id", return_value=title_id), patch.object(tmdb, "remember_media_identity") as remember:
+    def test_title_selection_rejects_missing_identity(self):
+        for title_id in ("", "nm123"):
+            summary = {"title_id": title_id, "title_type": "movie", "display_title": "电影", "start_year": 2026}
+            with self.subTest(title_id=title_id), patch.object(tmdb, "fetch_title_summary", return_value=summary), patch.object(tmdb, "remember_media_identity") as remember:
                 response = self.client.get("/manager/titles/select?type=movie&tmdb_id=9001")
                 self.assertEqual(response.status_code, 400)
-                self.assertIn(message, response.json["error"])
+                self.assertIn("没有 IMDb 映射", response.json["error"])
                 remember.assert_not_called()
 
     def test_selected_series_returns_identity_for_manual_episode_entry(self):
-        with patch.object(tmdb, "resolve_imdb_id", return_value="tt9000002"), \
+        summary = {"title_id": "tt9000002", "title_type": "series", "display_title": "导入剧集", "start_year": 2026}
+        with patch.object(tmdb, "fetch_title_summary", return_value=summary), \
              patch.object(tmdb, "remember_media_identity"):
             response = self.client.get("/manager/titles/select?type=tv&tmdb_id=9002")
         self.assertEqual(response.status_code, 200)
@@ -168,23 +182,31 @@ class LibraryIntegrationTest(unittest.TestCase):
     def test_selected_movie_is_written_by_existing_batch_import(self):
         tmdb._cache.clear()
         self.addCleanup(tmdb._cache.clear)
+        # Exercise the real TMDB connector here instead of the offline fake.
         with patch.object(tmdb, "_session"), patch.object(tmdb, "_get") as get, \
+             patch.object(tmdb, "identify_title", new=REAL_IDENTIFY_TITLE), \
+             patch.object(tmdb, "build_media_metadata", new=REAL_BUILD_MEDIA_METADATA), \
              patch.object(alist, "validate_alist_video_url"), \
              patch.object(alist, "get_video_link", return_value="https://media.test/movie.mkv"), \
              patch.object(media_probe, "probe_video", return_value={"duration_ms": 7200000}), \
              patch.object(media_import_service, "fetch_title_rating", return_value={"status": "unavailable"}):
-            get.side_effect = [{"imdb_id": "tt9000001"}, {"id": 9001, "overview": "搜索后导入"}]
+            get.side_effect = [
+                {"id": 9001, "title": "导入电影", "release_date": "2026-01-01", "external_ids": {"imdb_id": "tt9000001"}},
+                {"id": 9001, "title": "导入电影", "original_title": "Import Movie", "release_date": "2026-01-01",
+                 "overview": "搜索后导入", "genres": [{"id": 18}, {"id": 878}, {"id": 10770}]},
+            ]
             selected = self.client.get("/manager/titles/select?type=movie&tmdb_id=9001").json
             response = self.client.post("/manager/import/batch", data={
                 "title_id": selected["title_id"], "season_number": "", "episode_number": "",
                 "alist_url": "http://127.0.0.1:5244/d/Movies/Search.mkv?sign=test",
             }, follow_redirects=True)
             self.assertIn("批量录入完成：成功 1 条", response.get_data(as_text=True))
-            self.assertEqual([call.args[1] for call in get.call_args_list], ["/movie/9001/external_ids", "/movie/9001"])
+            self.assertEqual([call.args[1] for call in get.call_args_list], ["/movie/9001", "/movie/9001"])
+            self.assertEqual(get.call_args_list[1].args[2]["append_to_response"], "images,credits,translations")
         with closing(self.connect()) as db:
-            title = db.execute("SELECT tmdb_id, overview FROM title_basic WHERE title_id = 'tt9000001'").fetchone()
+            title = db.execute("SELECT tmdb_id, overview, genres, average_rating FROM title_basic WHERE title_id = 'tt9000001'").fetchone()
             media = db.execute("SELECT title_id FROM media_file WHERE alist_path = '/Movies/Search.mkv'").fetchone()
-        self.assertEqual(tuple(title), (9001, "搜索后导入"))
+        self.assertEqual(tuple(title), (9001, "搜索后导入", "Drama,Sci-Fi", 8.1))
         self.assertEqual(media["title_id"], selected["title_id"])
 
     def test_title_search_validates_inputs_and_handles_upstream_errors(self):
@@ -196,7 +218,7 @@ class LibraryIntegrationTest(unittest.TestCase):
             response = self.client.get("/manager/titles/search?q=test")
             self.assertEqual(response.status_code, 502)
             self.assertNotIn("private", response.json["error"])
-        with patch.object(tmdb, "resolve_imdb_id") as resolve:
+        with patch.object(tmdb, "fetch_title_summary") as resolve:
             for value in ["0", "-1", "../movie", "abc"]:
                 self.assertEqual(self.client.get("/manager/titles/select", query_string={"tmdb_id": value}).status_code, 400)
             resolve.assert_not_called()
@@ -894,8 +916,14 @@ class LibraryIntegrationTest(unittest.TestCase):
             ],
         }
 
-        def metadata(title_id):
-            return movie_metadata if title_id == "tt9000001" else series_metadata
+        def metadata(title_id, session=None, known_episode_ids=None):
+            base = fake_media_metadata(title_id)
+            extra = movie_metadata if title_id == "tt9000001" else series_metadata
+            base["title_basic"].update(extra["title_basic"])
+            base["title_cast"] = extra["title_cast"]
+            for item, more in zip(base["episodes"], extra["episodes"]):
+                item["title_basic"].update(more["title_basic"])
+            return base
 
         probe = {
             "duration_ms": 7_200_000,
@@ -1151,12 +1179,11 @@ class LibraryIntegrationTest(unittest.TestCase):
                  patch.object(alist, "get_video_link", side_effect=lambda p: f"http://127.0.0.1:5244/d{p}"), \
                  patch.object(media_probe, "probe_video", side_effect=probe_side_effect), \
                  patch.object(media_import_service, "fetch_title_rating", return_value={"status": "skipped", "ratings": {}}), \
-                 patch.object(tmdb, "build_media_metadata", return_value=metadata), \
+                 patch.object(tmdb, "build_media_metadata", side_effect=fake_metadata_with(metadata["title_artwork"])), \
                  patch.object(tmdb, "download_metadata_images", side_effect=stage_images):
 
                 result = media_import_service.import_media_batch(
                     library_database=temp_db,
-                    imdb_database=self.imdb_path,
                     image_root=temp_images,
                     items=items,
                 )
@@ -1220,12 +1247,11 @@ class LibraryIntegrationTest(unittest.TestCase):
              patch.object(alist, "get_video_link", return_value="https://media.test/episode"), \
              patch.object(media_probe, "probe_video", return_value={"duration_ms": 1000}), \
              patch.object(media_import_service, "fetch_title_rating", return_value={"status": "skipped", "ratings": {}}), \
-             patch.object(tmdb, "build_media_metadata", return_value=metadata), \
+             patch.object(tmdb, "build_media_metadata", side_effect=fake_metadata_with(metadata["title_artwork"])), \
              patch.object(tmdb, "download_metadata_images", side_effect=stage_images), \
              patch.object(media_import_service, "import_media_bundle", side_effect=fail_second_write):
             result = media_import_service.import_media_batch(
                 library_database=self.database_path,
-                imdb_database=self.imdb_path,
                 image_root=image_root,
                 items=items,
             )
@@ -1262,11 +1288,9 @@ class LibraryIntegrationTest(unittest.TestCase):
              patch.object(alist, "get_video_link", side_effect=lambda path: f"https://media.test{path}"), \
              patch.object(media_probe, "probe_video", side_effect=probe_video), \
              patch.object(media_import_service, "fetch_title_rating", return_value={"status": "skipped", "ratings": {}}), \
-             patch.object(tmdb, "build_media_metadata", return_value={"title_basic": {}, "title_artwork": [], "episodes": []}), \
-             patch.object(media_import_service, "_build_series_context", wraps=media_import_service._build_series_context) as build_context:
+             patch.object(media_import_service, "_build_context", wraps=media_import_service._build_context) as build_context:
             result = media_import_service.import_media_batch(
                 library_database=self.database_path,
-                imdb_database=self.imdb_path,
                 image_root=Path(self.temporary_directory.name) / "images",
                 items=items,
             )
@@ -1294,7 +1318,6 @@ class LibraryIntegrationTest(unittest.TestCase):
         ):
             result = media_import_service.import_media_batch(
                 library_database=self.database_path,
-                imdb_database=self.imdb_path,
                 image_root=Path(self.temporary_directory.name) / "images",
                 items=[item],
             )
@@ -1335,12 +1358,11 @@ class LibraryIntegrationTest(unittest.TestCase):
              patch.object(alist, "get_video_link", return_value="https://media.test/movie"), \
              patch.object(media_probe, "probe_video", return_value={"duration_ms": 1000}), \
              patch.object(media_import_service, "fetch_title_rating", return_value={"status": "skipped", "ratings": {}}), \
-             patch.object(tmdb, "build_media_metadata", return_value=metadata), \
+             patch.object(tmdb, "build_media_metadata", side_effect=fake_metadata_with(metadata["title_artwork"])), \
              patch.object(tmdb, "download_metadata_images", side_effect=stage_images), \
              patch.object(media_import_service, "ensure_thumbnail", side_effect=RuntimeError("thumbnail failed")):
             result = media_import_service.import_media_batch(
                 library_database=self.database_path,
-                imdb_database=self.imdb_path,
                 image_root=Path(self.temporary_directory.name) / "images",
                 items=[item],
             )

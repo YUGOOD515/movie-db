@@ -48,26 +48,14 @@ def read_local_records():
         library["collection"] = [dict(row) for row in db.execute(
             f"SELECT * FROM collection WHERE collection_id IN "
             f"(SELECT collection_id FROM collection_item WHERE title_id IN ({marks}))", ids)]
-    with closing(sqlite3.connect(f"file:{PROJECT / 'imdb.db'}?mode=ro", uri=True)) as db:
-        db.row_factory = sqlite3.Row
-        episodes = [dict(row) for row in db.execute(
-            "SELECT * FROM title_episode WHERE parentTconst = ?", (TITLE_ID,))]
-        ids = [TITLE_ID] + [row["tconst"] for row in episodes]
-        marks = ",".join("?" for _ in ids)
-        imdb = {"title_episode": episodes}
-        for table in ("title_basics", "title_akas", "title_ratings"):
-            id_column = "titleId" if table == "title_akas" else "tconst"
-            imdb[table] = [dict(row) for row in db.execute(
-                f"SELECT * FROM {table} WHERE {id_column} IN ({marks})", ids)]
-    return library, imdb
+    return library
 
 
 def capture(root):
     # Refuse to overwrite the original snapshot, including interrupted captures.
     root.mkdir(parents=True, exist_ok=False)
-    library, imdb = read_local_records()
+    library = read_local_records()
     write_json(root / "library-records.json", library)
-    write_json(root / "imdb-records.json", imdb)
     local_assets = {}
     for source in (PROJECT / "static/images" / TITLE_ID).rglob("*"):
         if source.is_file():
@@ -96,17 +84,25 @@ def capture(root):
             return response.json()
 
         found = get(f"/find/{TITLE_ID}", external_source="imdb_id")
-        detail = get(f"/tv/{TMDB_ID}", append_to_response="images,aggregate_credits,external_ids",
+        detail = get(f"/tv/{TMDB_ID}", append_to_response="images,aggregate_credits,external_ids,translations",
                      include_image_language="zh,null,en")
         assert detail["id"] == TMDB_ID and detail["external_ids"]["imdb_id"] == TITLE_ID
         resources = {}
-        for key in ("images", "aggregate_credits", "external_ids"):
+        for key in ("images", "aggregate_credits", "external_ids", "translations"):
             resources[f"tv/{TMDB_ID}/{key}"] = detail.pop(key)
         resources[f"tv/{TMDB_ID}"] = detail
         numbers = [s["season_number"] for s in detail["seasons"] if s.get("episode_count", 0) > 0]
         seasons_detail = get(f"/tv/{TMDB_ID}", append_to_response=",".join(f"season/{n}" for n in numbers))
         seasons = [seasons_detail[f"season/{n}"] for n in numbers]
-        mapping = {(row["seasonNumber"], row["episodeNumber"]): row["tconst"] for row in imdb["title_episode"]}
+        keys = [f"season/{e['season_number']}/episode/{e['episode_number']}/external_ids"
+                for season in seasons for e in season.get("episodes", [])]
+        mapping = {}
+        for start in range(0, len(keys), tmdb.APPEND_LIMIT):
+            chunk = keys[start:start + tmdb.APPEND_LIMIT]
+            payload = get(f"/tv/{TMDB_ID}", append_to_response=",".join(chunk))
+            for key in chunk:
+                parts = key.split("/")
+                mapping[(int(parts[1]), int(parts[3]))] = (payload.get(key) or {}).get("imdb_id")
         finds = {TITLE_ID: found}
         episode_assets = []
         for season in seasons:
@@ -171,7 +167,7 @@ def capture(root):
         "imdb_id": TITLE_ID, "tmdb_id": TMDB_ID,
         "captured_at": datetime.now(timezone.utc).isoformat(),
         "sources": {"tmdb": REMOTE_API, "images": REMOTE_IMAGES, "mdblist": "https://mdblist.com/api/"},
-        "notes": "Episode find/external_ids replay combines saved TMDb season payloads with local IMDb episode mappings. Only images used by current search/import and pre-existing files are saved. AList videos are not copied.",
+        "notes": "Episode find replay combines saved TMDb season payloads with TMDb episode external_ids. Only images used by current search/import and pre-existing files are saved. AList videos are not copied.",
         "library_counts": {key: len(value) for key, value in library.items()},
         "episode_find_count": len(finds) - 1,
         "images": local_assets, "sha256": hashes,
