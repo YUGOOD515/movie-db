@@ -1920,3 +1920,370 @@ body.discovery-progress-active .save-toast {
     cursor: not-allowed;
     pointer-events: auto;
 }
+
+/* ==========================================================================
+   Cinematic layer: ambient tone, home hero, placeholders, motion
+   ========================================================================== */
+
+/* Ambient tone: the current hero/backdrop color tints the page (data-ambient). */
+@property --ambient-tone {
+    syntax: "<color>";
+    inherits: true;
+    initial-value: #1d1f24;
+}
+
+:root {
+    transition: --ambient-tone 1.2s ease;
+}
+
+html[data-ambient] body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+        radial-gradient(120% 70% at 15% 0%, color-mix(in oklab, var(--ambient-tone) 42%, transparent), transparent 70%),
+        radial-gradient(90% 60% at 100% 100%, color-mix(in oklab, var(--ambient-tone) 18%, transparent), transparent 70%);
+}
+
+[data-bs-theme="light"][data-ambient] body::before {
+    opacity: 0.45;
+}
+
+html[data-ambient] body {
+    background: transparent;
+}
+
+html[data-ambient] {
+    background-color: var(--bs-body-bg);
+}
+
+html[data-ambient] .detail-hero {
+    background: color-mix(in oklab, var(--ambient-tone) 35%, var(--bs-tertiary-bg));
+}
+
+/* Home hero: full-bleed featured carousel (Embla fade, see home.js). */
+.home-main {
+    padding-top: 0;
+}
+
+.home-hero {
+    position: relative;
+    margin-bottom: 1rem;
+}
+
+.home-hero-viewport {
+    overflow: hidden;
+}
+
+.home-hero-track {
+    display: flex;
+    touch-action: pan-y pinch-zoom;
+}
+
+.home-hero-slide {
+    position: relative;
+    flex: 0 0 100%;
+    min-width: 0;
+    display: flex;
+    align-items: flex-end;
+    min-height: clamp(34rem, 78dvh, 50rem);
+    overflow: hidden;
+    background: var(--bs-tertiary-bg);
+}
+
+.home-hero-media,
+.home-hero-scrim {
+    position: absolute;
+    inset: 0;
+}
+
+.home-hero-media {
+    background-size: cover;
+    background-position: center 25%;
+}
+
+.home-hero-backdrop {
+    object-position: center 25%;
+    transform: scale(1.04);
+    transform-origin: 60% 40%;
+}
+
+.home-hero-slide.is-selected .home-hero-backdrop {
+    animation: hero-drift 16s ease-out both;
+}
+
+@keyframes hero-drift {
+    from { transform: scale(1.12) translate3d(1.5%, 0, 0); }
+    to { transform: scale(1.04) translate3d(0, 0, 0); }
+}
+
+.home-hero-scrim {
+    background:
+        linear-gradient(
+            0deg,
+            var(--bs-body-bg) 0%,
+            rgba(var(--bs-body-bg-rgb), 0.82) 12%,
+            rgba(var(--bs-body-bg-rgb), 0.4) 34%,
+            rgba(var(--bs-body-bg-rgb), 0) 60%
+        ),
+        linear-gradient(
+            90deg,
+            rgba(var(--bs-body-bg-rgb), 0.78) 0%,
+            rgba(var(--bs-body-bg-rgb), 0.4) 38%,
+            rgba(var(--bs-body-bg-rgb), 0) 70%
+        ),
+        radial-gradient(140% 100% at 50% 40%, transparent 55%, rgba(0, 0, 0, 0.35) 100%);
+}
+
+[data-bs-theme="light"] .home-hero-scrim {
+    background:
+        linear-gradient(
+            0deg,
+            var(--bs-body-bg) 0%,
+            rgba(var(--bs-body-bg-rgb), 0.86) 14%,
+            rgba(var(--bs-body-bg-rgb), 0.5) 36%,
+            rgba(var(--bs-body-bg-rgb), 0) 62%
+        ),
+        linear-gradient(
+            90deg,
+            rgba(var(--bs-body-bg-rgb), 0.86) 0%,
+            rgba(var(--bs-body-bg-rgb), 0.52) 40%,
+            rgba(var(--bs-body-bg-rgb), 0) 72%
+        );
+}
+
+.home-hero-content {
+    position: relative;
+    z-index: 1;
+    padding-bottom: 5.5rem;
+    container-type: inline-size;
+}
+
+.home-hero-copy {
+    max-width: 100%;
+}
+
+@media (min-width: 768px) {
+    .home-hero-copy {
+        width: calc(var(--grid-col) * 7 + var(--grid-gap) * 6);
+    }
+}
+
+@media (min-width: 992px) {
+    .home-hero-copy {
+        width: calc(var(--grid-col) * 5 + var(--grid-gap) * 4);
+    }
+}
+
+.home-hero-eyebrow {
+    letter-spacing: 0.16em;
+    color: var(--bs-secondary-color);
+}
+
+.home-hero-logo {
+    display: block;
+    width: auto;
+    max-width: min(100%, 22rem);
+    max-height: 7.5rem;
+    object-fit: contain;
+    object-position: left bottom;
+    filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.35));
+}
+
+.home-hero-chip {
+    padding: 0.125rem 0.625rem;
+    border: 1px solid var(--media-selected-border);
+    border-radius: var(--radius-pill);
+    background: var(--media-selected-bg);
+}
+
+.home-hero-tagline {
+    color: var(--bs-emphasis-color);
+}
+
+.home-hero-overview {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    color: var(--bs-secondary-color);
+}
+
+.home-hero-play,
+.home-hero-detail {
+    padding: 0.625rem 1.375rem;
+    font-weight: 600;
+}
+
+.home-hero-detail {
+    --bs-btn-color: var(--bs-body-color);
+    --bs-btn-hover-color: var(--bs-body-color);
+    --bs-btn-active-color: var(--bs-body-color);
+    --bs-btn-bg: rgba(var(--bs-body-color-rgb), 0.12);
+    --bs-btn-hover-bg: rgba(var(--bs-body-color-rgb), 0.2);
+    --bs-btn-active-bg: rgba(var(--bs-body-color-rgb), 0.26);
+    --bs-btn-border-color: rgba(var(--bs-body-color-rgb), 0.16);
+    --bs-btn-hover-border-color: rgba(var(--bs-body-color-rgb), 0.24);
+    backdrop-filter: blur(14px) saturate(1.4);
+}
+
+.home-hero-controls {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 1.75rem;
+    z-index: 2;
+}
+
+.home-hero-dot {
+    position: relative;
+    width: 0.5rem;
+    height: 0.5rem;
+    padding: 0;
+    overflow: hidden;
+    border: 0;
+    border-radius: var(--radius-pill);
+    background: rgba(var(--bs-body-color-rgb), 0.3);
+    transition: width 0.35s var(--ease-out), background-color 0.2s ease;
+}
+
+.home-hero-dot.is-selected {
+    width: 2.25rem;
+}
+
+.home-hero-dot > span {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: var(--bs-body-color);
+    transform: scaleX(0);
+    transform-origin: left center;
+}
+
+.home-hero-dot.is-selected > span {
+    transform: scaleX(1);
+}
+
+.home-hero.is-playing .home-hero-dot.is-selected > span {
+    animation: hero-progress 7s linear both;
+}
+
+@keyframes hero-progress {
+    from { transform: scaleX(0); }
+    to { transform: scaleX(1); }
+}
+
+.home-hero-arrow {
+    width: 2.5rem;
+    height: 2.5rem;
+    font-size: 1.125rem;
+    color: var(--bs-body-color);
+    background: rgba(var(--bs-body-color-rgb), 0.1);
+    backdrop-filter: blur(12px);
+    border-radius: var(--radius-pill);
+}
+
+.library-section--after-hero {
+    position: relative;
+    z-index: 1;
+    margin-top: -2.5rem;
+}
+
+@media (max-width: 767.98px) {
+    .home-hero-slide {
+        min-height: max(32rem, 72dvh);
+    }
+
+    .home-hero-scrim {
+        background:
+            linear-gradient(
+                0deg,
+                var(--bs-body-bg) 0%,
+                rgba(var(--bs-body-bg-rgb), 0.9) 18%,
+                rgba(var(--bs-body-bg-rgb), 0.55) 44%,
+                rgba(var(--bs-body-bg-rgb), 0) 72%
+            );
+    }
+
+    .home-hero-content {
+        padding-bottom: 4.5rem;
+    }
+
+    .home-hero-logo {
+        max-height: 5.5rem;
+    }
+
+    .home-hero-overview {
+        -webkit-line-clamp: 2;
+    }
+
+    .home-hero-controls {
+        bottom: 1.25rem;
+    }
+
+    .library-section--after-hero {
+        margin-top: 0;
+    }
+}
+
+/* BlurHash placeholders (effects.js): blur first, then fade the real image in. */
+.has-placeholder {
+    background-size: cover;
+    background-position: center;
+}
+
+.has-placeholder img.media-cover {
+    transition: opacity 0.45s ease;
+}
+
+.has-placeholder:not(.is-loaded) img.media-cover {
+    opacity: 0;
+}
+
+/* Scroll reveal (Motion): hidden only while effects.js is expected to run. */
+.motion-reveal .library-section:not(.is-revealed) > header,
+.motion-reveal .library-section:not(.is-revealed) .media-rail-item {
+    opacity: 0;
+}
+
+/* Poster tilt (vanilla-tilt): JS drives transform, CSS keeps the tone glow. */
+.poster-frame[data-tilt-bound] {
+    transition: box-shadow 0.25s ease;
+    transform-style: preserve-3d;
+}
+
+.poster-link:hover .poster-frame[data-tilt-bound] {
+    box-shadow:
+        0 18px 40px color-mix(in oklab, var(--tone, #000) 55%, transparent),
+        var(--media-card-shadow) !important;
+}
+
+/* Shared-element page transition: card artwork → detail backdrop, logo → logo. */
+@media (prefers-reduced-motion: no-preference) {
+    @view-transition {
+        navigation: auto;
+    }
+}
+
+.detail-backdrop--active {
+    view-transition-name: media-hero;
+}
+
+.detail-logo {
+    view-transition-name: media-logo;
+}
+
+::view-transition-group(media-hero),
+::view-transition-group(media-logo) {
+    animation-duration: 0.55s;
+    animation-timing-function: var(--ease-out);
+}
+
+::view-transition-old(media-hero),
+::view-transition-new(media-hero) {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}

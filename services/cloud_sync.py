@@ -35,7 +35,8 @@ def is_enabled() -> bool:
 
 def database_signature(database: Path) -> tuple:
     signature = []
-    for path in (database, Path(f"{database}-wal")):
+    # 影像色调表单独生成，变化后同样需要重新同步。
+    for path in (database, Path(f"{database}-wal"), BASE_DIR / "static" / "thumbnails" / "tones.json"):
         try:
             stat = path.stat()
             signature.append((stat.st_mtime_ns, stat.st_size))

@@ -153,8 +153,58 @@ def get_top_rated_movies(
     )
 
 
+def get_featured_titles(db: Connection, limit: int = 6) -> list[dict]:
+    """首页主视觉：最近入库且有背景图的电影与剧集，附简介与可播放文件。"""
+    rows = query_title_cards(
+        db,
+        where_sql="""
+            title.title_type IN ('movie', 'series')
+            AND EXISTS (
+                SELECT 1
+                  FROM title_artwork AS artwork
+                 WHERE artwork.title_id = title.title_id
+                   AND artwork.artwork_type = 'landscape_poster'
+            )
+        """,
+        order_sql=(
+            "title.added_at DESC, title.updated_at DESC, "
+            "title.display_title COLLATE NOCASE"
+        ),
+        limit=limit,
+    )
+    if not rows:
+        return rows
+    placeholders = ", ".join("?" for _ in rows)
+    details = {
+        row["title_id"]: dict(row)
+        for row in db.execute(
+            f"""
+            SELECT title.title_id,
+                   title.overview,
+                   title.tagline,
+                   title.runtime_minutes,
+                   (SELECT MIN(file.file_id)
+                      FROM media_file AS file
+                     WHERE file.title_id = title.title_id) AS file_id,
+                   EXISTS (
+                       SELECT 1
+                         FROM title_relation AS relation
+                         JOIN media_file AS file
+                           ON file.title_id = relation.episode_id
+                        WHERE relation.series_id = title.title_id
+                   ) AS has_episode_files
+              FROM title_basic AS title
+             WHERE title.title_id IN ({placeholders})
+            """,
+            tuple(row["title_id"] for row in rows),
+        )
+    }
+    return [{**row, **details.get(row["title_id"], {})} for row in rows]
+
+
 def query_home(db: Connection) -> dict:
     return {
+        "featured": get_featured_titles(db),
         "recent_watch": get_recently_watched(db),
         "collections": get_collections(db),
         "recent_added": get_recently_added(db),

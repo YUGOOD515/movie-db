@@ -192,7 +192,7 @@ def render_pages(app, database: Path) -> dict[str, bytes]:
 def static_files() -> dict[str, Path]:
     files = {}
     for path in STATIC_ROOT.rglob("*"):
-        if path.is_file() and not path.name.startswith(".tmp_"):
+        if path.is_file() and not path.name.startswith("."):
             files["static/" + path.relative_to(STATIC_ROOT).as_posix()] = path
     return files
 
@@ -254,7 +254,11 @@ def build_snapshot(source_database: Path, workdir: Path) -> tuple[dict, dict]:
     sys.path.insert(0, str(BASE_DIR))
     import app as movie_app
 
+    from services.image_tones import public_tones
+
+    tones = public_tones(STATIC_ROOT)
     movie_app.app.config["THUMBNAIL_INDEX"] = frozenset(thumbnails)
+    movie_app.app.config["IMAGE_TONES"] = tones
     pages = render_pages(movie_app.app, database)
 
     objects: dict[str, tuple[object, str]] = {
@@ -270,6 +274,7 @@ def build_snapshot(source_database: Path, workdir: Path) -> tuple[dict, dict]:
         "snapshot_at": snapshot_at,
         "alist_origin": movie_app.app.config["ALIST_ORIGIN"],
         "thumbnails": thumbnails,
+        "tones": tones,
         "pages": len(pages),
     }
     return objects, meta

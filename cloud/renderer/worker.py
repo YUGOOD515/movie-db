@@ -35,6 +35,7 @@ async def load_snapshot(env, version: str | None) -> bool:
         SNAPSHOT_AT=meta.get("snapshot_at", ""),
         ALIST_ORIGIN=meta.get("alist_origin", ""),
         THUMBNAIL_INDEX=frozenset(meta.get("thumbnails", [])),
+        IMAGE_TONES=meta.get("tones", {}),
     )
     STATE["version"] = meta.get("version")
     return True

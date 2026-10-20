@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 
-<html lang="zh-CN" data-bs-theme="dark">
+<html lang="zh-CN" data-bs-theme="dark"{% block html_attrs %}{% endblock %}>
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="initial-scale=1, width=device-width">
@@ -16,6 +16,11 @@
                 try {
                     document.documentElement.dataset.bsTheme = localStorage.getItem("media-theme") || "dark";
                 } catch {}
+                // 入场动画：先隐藏待动画的列表，effects.js 加载失败时 3 秒后恢复显示。
+                if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+                    document.documentElement.classList.add("motion-reveal");
+                    setTimeout(() => window.MediaEffects || document.documentElement.classList.remove("motion-reveal"), 3000);
+                }
             })();
         </script>
 
@@ -86,6 +91,9 @@
         {% endwith %}
         <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js" integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI" crossorigin="anonymous"></script>
         <script src="{{ url_for('static', filename='site.js') }}"></script>
+        <script src="{{ url_for('static', filename='vendor/motion.min.js') }}" defer></script>
+        <script src="{{ url_for('static', filename='vendor/vanilla-tilt.min.js') }}" defer></script>
+        <script src="{{ url_for('static', filename='effects.js') }}" type="module"></script>
         {% block scripts %}{% endblock %}
     </body>
 </html>

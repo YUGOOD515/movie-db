@@ -1,8 +1,12 @@
 {% extends "layout.html" %}
 {% from "_media_cards.html" import backdrop_card, collection_card, genre_card, poster_card %}
-{% from "_ui.html" import empty_state as empty_card %}
+{% from "_ui.html" import empty_state as empty_card, tone_attrs %}
 
 {% block title %} - 主页{% endblock %}
+
+{% block html_attrs %}{% set hero_tone = page.featured[0].backdrop|image_tone if page.featured else none %}{% if hero_tone %} data-ambient style="--ambient-tone: {{ hero_tone.color }}"{% endif %}{% endblock %}
+
+{% block main_class %}{% if page.featured %}home-main pb-5{% else %}pt-5 mt-3 pb-5{% endif %}{% endblock %}
 
 {% macro section_header(title, href=none, heading_id=none, label='查看全部') %}
     <header class="container-xl d-flex align-items-end justify-content-between gap-3 mb-3">
@@ -35,8 +39,66 @@
     <div class="container-xl">{{ empty_card(message) }}</div>
 {% endmacro %}
 
+{% macro featured_hero(items) %}
+    <section class="home-hero" aria-roledescription="carousel" aria-label="精选影片" data-home-hero>
+        <div class="home-hero-viewport" data-hero-viewport>
+            <div class="home-hero-track">
+                {% for item in items %}
+                    {% set tone = item.backdrop|image_tone %}
+                    <article class="home-hero-slide{% if loop.first %} is-selected{% endif %}" aria-roledescription="slide" aria-label="{{ loop.index }} / {{ loop.length }}：{{ item.title }}"{% if tone %} data-tone="{{ tone.color }}"{% endif %}>
+                        <div class="home-hero-media"{{ tone_attrs(item.backdrop) }}>
+                            <img class="home-hero-backdrop media-cover" src="{{ url_for('static', filename=item.backdrop) }}" alt="" width="1920" height="1080"{% if loop.first %} fetchpriority="high"{% else %} loading="lazy"{% endif %} data-media-image>
+                        </div>
+                        <span class="home-hero-scrim" aria-hidden="true"></span>
+                        <div class="home-hero-content container-xl">
+                            <div class="home-hero-copy" data-hero-copy>
+                                <p class="home-hero-eyebrow small text-uppercase fw-semibold mb-3">最新入库 · {{ item.type_label }}</p>
+                                {% if item.logo %}
+                                    <img class="home-hero-logo mb-3" src="{{ url_for('static', filename=item.logo|card_image) }}" alt="{{ item.title }}" width="320" height="120" data-media-logo data-transition-logo>
+                                    <h2 class="visually-hidden">{{ item.title }}</h2>
+                                {% else %}
+                                    <h2 class="home-hero-title display-5 fw-bold lh-1 mb-3">{{ item.title }}</h2>
+                                {% endif %}
+                                <div class="home-hero-meta d-flex flex-wrap align-items-center gap-2 small fw-semibold mb-3">
+                                    {% if item.rating %}<span class="text-warning"><i class="bi bi-star-fill me-1" aria-hidden="true"></i>{{ "%.1f"|format(item.rating) }}</span>{% endif %}
+                                    {% if item.year %}<span>{{ item.year }}</span>{% endif %}
+                                    {% if item.runtime %}<span>{{ item.runtime }}</span>{% endif %}
+                                    {% for genre in item.genres %}<span class="home-hero-chip">{{ genre }}</span>{% endfor %}
+                                </div>
+                                {% if item.tagline %}<p class="home-hero-tagline fs-5 fw-semibold mb-2">{{ item.tagline }}</p>{% endif %}
+                                {% if item.overview %}<p class="home-hero-overview mb-4">{{ item.overview }}</p>{% endif %}
+                                <div class="home-hero-actions d-flex align-items-center gap-2">
+                                    {% if item.play_url %}
+                                        <form action="{{ item.play_url }}" method="post">
+                                            <button class="btn media-primary-action home-hero-play d-inline-flex align-items-center gap-2" type="submit"><i class="bi bi-play-fill fs-5" aria-hidden="true"></i>{{ item.play_label }}</button>
+                                        </form>
+                                    {% endif %}
+                                    <a class="btn home-hero-detail d-inline-flex align-items-center gap-2" href="{{ item.detail_url }}" data-transition-source><i class="bi bi-info-circle" aria-hidden="true"></i>详情</a>
+                                </div>
+                            </div>
+                        </div>
+                    </article>
+                {% endfor %}
+            </div>
+        </div>
+        {% if items|length > 1 %}
+            <div class="home-hero-controls container-xl d-flex align-items-center gap-3">
+                <div class="home-hero-dots d-flex align-items-center gap-2" role="tablist" aria-label="选择精选影片">
+                    {% for item in items %}
+                        <button class="home-hero-dot{% if loop.first %} is-selected{% endif %}" type="button" role="tab" aria-label="{{ item.title }}" aria-selected="{{ 'true' if loop.first else 'false' }}" data-hero-dot="{{ loop.index0 }}"><span></span></button>
+                    {% endfor %}
+                </div>
+                <div class="ms-auto d-none d-md-flex gap-2">
+                    <button class="icon-btn home-hero-arrow" type="button" aria-label="上一部" data-hero-prev><i class="bi bi-chevron-left" aria-hidden="true"></i></button>
+                    <button class="icon-btn home-hero-arrow" type="button" aria-label="下一部" data-hero-next><i class="bi bi-chevron-right" aria-hidden="true"></i></button>
+                </div>
+            </div>
+        {% endif %}
+    </section>
+{% endmacro %}
 {% block main %}
-    <section class="library-section library-section--first mb-5" aria-labelledby="recent-watch-heading">
+    {% if page.featured %}{{ featured_hero(page.featured) }}{% endif %}
+    <section class="library-section library-section--first{% if page.featured %} library-section--after-hero{% endif %} mb-5" aria-labelledby="recent-watch-heading">
         {{ section_header('最近观看', heading_id='recent-watch-heading') }}
         {% if page.recent_watch %}
             {{ media_rail(page.recent_watch, 6, '最近观看', 'backdrop') }}
@@ -91,4 +153,13 @@
             {{ empty_state('目前没有满足条件的电影。') }}
         {% endif %}
     </section>
+{% endblock %}
+
+{% block scripts %}
+    {% if page.featured|length > 1 %}
+        <script src="{{ url_for('static', filename='vendor/embla-carousel.umd.js') }}" defer></script>
+        <script src="{{ url_for('static', filename='vendor/embla-carousel-autoplay.umd.js') }}" defer></script>
+        <script src="{{ url_for('static', filename='vendor/embla-carousel-fade.umd.js') }}" defer></script>
+        <script src="{{ url_for('static', filename='home.js') }}" defer></script>
+    {% endif %}
 {% endblock %}

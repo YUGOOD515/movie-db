@@ -5,6 +5,8 @@
 
 {% block title %} - {{ media.name }}{% endblock %}
 
+{% block html_attrs %}{% set hero_tone = media.hero_image|image_tone %}{% if hero_tone %} data-ambient style="--ambient-tone: {{ hero_tone.color }}"{% endif %}{% endblock %}
+
 {% block main_class %}detail-main p-0{% endblock %}
 
 {% block main %}
