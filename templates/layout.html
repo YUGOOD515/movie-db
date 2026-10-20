@@ -16,6 +16,18 @@
                 try {
                     document.documentElement.dataset.bsTheme = localStorage.getItem("media-theme") || "dark";
                 } catch {}
+                // 从卡片进入时开启共享元素转场（见 effects.js / style.css 的 data-vt-from）
+                try {
+                    const handoff = JSON.parse(sessionStorage.getItem("media-vt") || "null");
+                    sessionStorage.removeItem("media-vt");
+                    if (handoff && handoff.path === location.pathname && Date.now() - handoff.at < 8000) {
+                        document.documentElement.dataset.vtFrom = handoff.from;
+                        const clear = () => delete document.documentElement.dataset.vtFrom;
+                        addEventListener("pagereveal", (event) => {
+                            event.viewTransition ? event.viewTransition.finished.finally(clear) : clear();
+                        }, { once: true });
+                    }
+                } catch {}
                 // 入场动画：先隐藏待动画的列表，effects.js 加载失败时 3 秒后恢复显示。
                 if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
                     document.documentElement.classList.add("motion-reveal");

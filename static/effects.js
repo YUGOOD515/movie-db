@@ -146,8 +146,26 @@ function bindTransitions() {
             }
             clearTransitionNames();
             const card = link.closest(".poster-card, .continue-card, .ranked-feature, .home-hero-slide");
-            nameForTransition(card?.querySelector(".home-hero-backdrop, img.media-cover"), "media-hero");
-            nameForTransition(card?.querySelector("[data-transition-logo]"), "media-logo");
+            if (!card) {
+                return;
+            }
+            const fromHero = card.classList.contains("home-hero-slide");
+            // 倾斜中的海报先复位，避免快照带着旋转与放大
+            const tilted = card.querySelector("[data-tilt-bound]");
+            if (tilted) {
+                tilted.vanillaTilt?.reset();
+                tilted.style.transition = "none";
+                tilted.style.transform = "none";
+            }
+            nameForTransition(card.querySelector(fromHero ? ".home-hero-media" : "img.media-cover"), "media-hero");
+            nameForTransition(card.querySelector("[data-transition-logo]"), "media-logo");
+            // 告诉详情页本次来自哪类卡片（layout.html 读取后设置 data-vt-from）
+            try {
+                sessionStorage.setItem(
+                    "media-vt",
+                    JSON.stringify({ from: fromHero ? "hero" : "card", path: new URL(link.href).pathname, at: Date.now() }),
+                );
+            } catch {}
         },
         true,
     );

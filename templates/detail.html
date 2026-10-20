@@ -12,13 +12,15 @@
 {% block main %}
     <article class="detail-page"{% if media.media_type == "tv" %} data-episode-browser{% endif %}>
         <section class="detail-hero" aria-labelledby="detail-title">
-            <div class="detail-backdrop-stage" data-backdrop-stage>
-                {% if media.hero_image %}
-                    <img class="detail-backdrop detail-backdrop--active" src="{{ url_for('static', filename=media.hero_image) }}" alt="" width="1920" height="1080" data-media-image data-detail-backdrop>
-                {% endif %}
+            <div class="detail-hero-media">
+                <div class="detail-backdrop-stage" data-backdrop-stage>
+                    {% if media.hero_image %}
+                        <img class="detail-backdrop detail-backdrop--active" src="{{ url_for('static', filename=media.hero_image) }}" alt="" width="1920" height="1080" data-media-image data-detail-backdrop>
+                    {% endif %}
+                </div>
+                <span class="image-fallback detail-backdrop-fallback align-items-center justify-content-center display-1 text-body-secondary{% if media.hero_image %} d-none{% endif %}" aria-hidden="true"><i class="bi bi-film"></i></span>
+                <span class="detail-scrim" aria-hidden="true"></span>
             </div>
-            <span class="image-fallback detail-backdrop-fallback align-items-center justify-content-center display-1 text-body-secondary{% if media.hero_image %} d-none{% endif %}" aria-hidden="true"><i class="bi bi-film"></i></span>
-            <span class="detail-scrim" aria-hidden="true"></span>
 
             <div class="detail-content container-xl">
                 <div class="detail-hero-grid d-flex flex-column flex-md-row align-items-md-end gap-3 w-100">

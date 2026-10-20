@@ -48,8 +48,8 @@
                     <article class="home-hero-slide{% if loop.first %} is-selected{% endif %}" aria-roledescription="slide" aria-label="{{ loop.index }} / {{ loop.length }}：{{ item.title }}"{% if tone %} data-tone="{{ tone.color }}"{% endif %}>
                         <div class="home-hero-media"{{ tone_attrs(item.backdrop) }}>
                             <img class="home-hero-backdrop media-cover" src="{{ url_for('static', filename=item.backdrop) }}" alt="" width="1920" height="1080"{% if loop.first %} fetchpriority="high"{% else %} loading="lazy"{% endif %} data-media-image>
+                            <span class="home-hero-scrim" aria-hidden="true"></span>
                         </div>
-                        <span class="home-hero-scrim" aria-hidden="true"></span>
                         <div class="home-hero-content container-xl">
                             <div class="home-hero-copy" data-hero-copy>
                                 <p class="home-hero-eyebrow small text-uppercase fw-semibold mb-3">最新入库 · {{ item.type_label }}</p>
