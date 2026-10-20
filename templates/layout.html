@@ -21,7 +21,7 @@
 
         <title>Media{% block title %}{% endblock %}</title>
     </head>
-    <body>
+    <body{% if read_only %} data-read-only{% endif %}>
         {# 导航分组：(标题, [(端点, 名称, 同样高亮该项的其他端点)]) #}
         {% set nav_groups = [
             ("浏览", [
@@ -61,8 +61,13 @@
                     </div>
                 {% endfor %}
 
-                <div class="mt-auto d-flex align-items-center">
-                    <button class="sidebar-theme-toggle icon-btn" id="theme-toggle" type="button" aria-label="切换明暗主题" title="切换外观主题">
+                <div class="mt-auto d-flex align-items-center gap-2">
+                    {% if read_only %}
+                        <span class="read-only-badge small text-body-secondary" title="本地 MovieDB 未连接，修改操作暂不可用">
+                            <i class="bi bi-cloud-slash me-1" aria-hidden="true"></i>只读快照{% if snapshot_at %} · {{ snapshot_at }}{% endif %}
+                        </span>
+                    {% endif %}
+                    <button class="sidebar-theme-toggle icon-btn ms-auto" id="theme-toggle" type="button" aria-label="切换明暗主题" title="切换外观主题">
                         <i class="bi bi-moon-stars-fill" aria-hidden="true"></i>
                     </button>
                 </div>

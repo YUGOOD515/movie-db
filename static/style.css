@@ -1908,3 +1908,15 @@ body.rating-progress-active .save-toast,
 body.discovery-progress-active .save-toast {
     bottom: 6.75rem;
 }
+
+/* Read-only snapshot */
+.read-only-badge {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.read-only-disabled {
+    cursor: not-allowed;
+    pointer-events: auto;
+}

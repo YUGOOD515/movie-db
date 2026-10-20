@@ -152,3 +152,35 @@
         showAppToast(message.textContent.trim(), message.dataset.category);
     });
 })();
+
+// Read-only snapshot (cloud copy while the local app is offline): write
+// controls stay visible but are disabled, and any submission explains why.
+(() => {
+    if (!document.body.hasAttribute("data-read-only")) {
+        return;
+    }
+    const message = "本地 MovieDB 未连接，当前为只读快照。";
+    const writeControls = [
+        "form[method='post' i] button",
+        "form[method='post' i] input",
+        "[data-start-url]",
+        "[data-title-delete-open]",
+    ].join(",");
+
+    document.querySelectorAll(writeControls).forEach((control) => {
+        if (control.type === "hidden") {
+            return;
+        }
+        control.disabled = true;
+        control.classList.add("read-only-disabled");
+        control.setAttribute("title", message);
+    });
+    document.addEventListener("submit", (event) => {
+        if ((event.target.method || "").toLowerCase() !== "post") {
+            return;
+        }
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        window.showAppToast?.(message, "warning");
+    }, true);
+})();

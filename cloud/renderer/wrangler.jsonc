@@ -1,0 +1,11 @@
+{
+  // 只读渲染 Worker（Python）。源码由 build.py 从仓库根目录复制到 build/。
+  "name": "moviedb-renderer",
+  "main": "build/worker.py",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["python_workers"],
+  "workers_dev": false,
+  // 排除未使用的二进制文件（markupsafe 会回退到纯 Python 实现），部署包保持纯文本。
+  "python_modules": { "exclude": ["**/*.pyc", "**/*.so", "**/*.png", "**/*.c"] },
+  "r2_buckets": [{ "binding": "SNAPSHOT", "bucket_name": "moviedb-snapshot" }]
+}

@@ -1,0 +1,8 @@
+{
+  "name": "moviedb-cloud",
+  "private": true,
+  "description": "MovieDB 云端只读快照：入口 Worker 与 Python 渲染 Worker",
+  "devDependencies": {
+    "wrangler": "^4.151.2"
+  }
+}

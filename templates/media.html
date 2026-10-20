@@ -145,6 +145,9 @@
 
         {% else %}
             <!-- ================= 关联板块 (Association) ================= -->
+            {% if read_only %}
+            {{ empty_state("本地 MovieDB 未连接，关联与录入暂不可用。", "cloud-slash", "电脑上的 MovieDB 与 Tunnel 在线后，刷新页面即可恢复完整功能。") }}
+            {% else %}
             {% include "_association_flow.html" %}
             <details class="association-section" aria-labelledby="associate-heading">
                 <summary class="small text-body-secondary mb-3" id="associate-heading">手动录入 / JSON 导入</summary>
@@ -265,13 +268,14 @@
                         </div>
                     </div>
                 </div>
+            {% endif %}
         {% endif %}
     </div>
 {% endblock %}
 
 {% block scripts %}
     <script src="{{ url_for('static', filename='manager.js') }}"></script>
-    {% if active_tab == 'associate' %}
+    {% if active_tab == 'associate' and not read_only %}
     <script src="{{ url_for('static', filename='title-search.js') }}" defer></script>
     <script src="{{ url_for('static', filename='filename-rules.js') }}" defer></script>
     <script src="{{ url_for('static', filename='media-association.js') }}" defer></script>

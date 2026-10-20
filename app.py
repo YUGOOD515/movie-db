@@ -1,14 +1,12 @@
+import importlib
 import json
 import os
 import secrets
 import sqlite3
 from pathlib import Path
 
-import requests
-
 from flask import abort, Flask, flash, g, jsonify, redirect, render_template, request, url_for
 
-from connectors import alist, player, tmdb
 from models.database import get_db, init_app as init_database
 from models.library import (
     save_library_playback_progress,
@@ -29,22 +27,8 @@ from queries.title import (
     get_title_id_by_tmdb,
     query_title,
 )
-from services.alist_process import start_configured_alist
-from services.media_import import (
-    import_media_batch as import_media_batch_service,
-    MediaImportError,
-    import_media as import_media_service,
-    normalize_batch_import_items,
-)
 from services.playback import is_effectively_completed
-from services.rating_sync import get_rating_refresh_status, start_rating_refresh
 from services.thumbnails import get_card_image_path
-from services.title_search import search_titles, select_title
-from services.media_discovery import start_scan, scan_status
-from services.media_association import title_metadata, check_association, complete_association
-from services.title_deletion import DeletionChanged, preview_title_deletion, execute_title_deletion
-from viewmodels.title_search import build_search_viewmodel, build_selection_viewmodel
-from viewmodels.deletion import build_deletion_viewmodel
 from viewmodels.catalog import (
     build_catalog_viewmodel,
     build_library_viewmodel,
@@ -55,12 +39,76 @@ from viewmodels.home import build_home_viewmodel
 from viewmodels.manager import build_manager_viewmodel
 from viewmodels.title import build_title_viewmodel
 
+# 外部接口与写入服务（requests、Pillow、GuessIt 等）在首次使用时才导入，
+# 使只读快照与云端渲染只依赖 Flask。
+
+
+class _LazyModule:
+    def __init__(self, name: str):
+        self._name = name
+
+    def __getattr__(self, attribute: str):
+        return getattr(importlib.import_module(self._name), attribute)
+
+
+def _lazy(module: str, name: str):
+    def call(*args, **kwargs):
+        return getattr(importlib.import_module(module), name)(*args, **kwargs)
+
+    call.__name__ = name
+    return call
+
+
+requests = _LazyModule("requests")
+alist = _LazyModule("connectors.alist")
+player = _LazyModule("connectors.player")
+tmdb = _LazyModule("connectors.tmdb")
+_media_import = _LazyModule("services.media_import")
+_title_deletion = _LazyModule("services.title_deletion")
+
+import_media_batch_service = _lazy("services.media_import", "import_media_batch")
+import_media_service = _lazy("services.media_import", "import_media")
+normalize_batch_import_items = _lazy("services.media_import", "normalize_batch_import_items")
+get_rating_refresh_status = _lazy("services.rating_sync", "get_rating_refresh_status")
+start_rating_refresh = _lazy("services.rating_sync", "start_rating_refresh")
+search_titles = _lazy("services.title_search", "search_titles")
+select_title = _lazy("services.title_search", "select_title")
+start_scan = _lazy("services.media_discovery", "start_scan")
+scan_status = _lazy("services.media_discovery", "scan_status")
+title_metadata = _lazy("services.media_association", "title_metadata")
+check_association = _lazy("services.media_association", "check_association")
+complete_association = _lazy("services.media_association", "complete_association")
+preview_title_deletion = _lazy("services.title_deletion", "preview_title_deletion")
+execute_title_deletion = _lazy("services.title_deletion", "execute_title_deletion")
+build_search_viewmodel = _lazy("viewmodels.title_search", "build_search_viewmodel")
+build_selection_viewmodel = _lazy("viewmodels.title_search", "build_selection_viewmodel")
+build_deletion_viewmodel = _lazy("viewmodels.deletion", "build_deletion_viewmodel")
+
 
 BASE_DIR = Path(__file__).resolve().parent
-DATABASE_PATH = BASE_DIR / "library.db"
+DATABASE_PATH = Path(os.environ.get("MOVIEDB_DATABASE") or BASE_DIR / "library.db")
 IMDB_DATABASE_PATH = BASE_DIR / "imdb.db"
 IMAGE_ROOT = BASE_DIR / "static" / "images"
 MAX_BATCH_JSON_BYTES = 1024 * 1024
+READ_ONLY = os.environ.get("MOVIEDB_READ_ONLY", "").strip() == "1"
+READ_ONLY_MESSAGE = "本地 MovieDB 未连接，当前为只读快照。"
+# 只读模式下仍可访问的 GET 端点；其余端点会调用外部接口或修改数据。
+READ_ONLY_ENDPOINTS = {
+    "static",
+    "index",
+    "recent_added_library",
+    "unwatched_library",
+    "top_rated_library",
+    "catalog",
+    "movie_genres_library",
+    "favorites_library",
+    "collection_detail",
+    "title_detail",
+    "episode_panel",
+    "movie_detail",
+    "tv_detail",
+    "media",
+}
 
 app = Flask(__name__)
 app.config.update(
@@ -68,18 +116,57 @@ app.config.update(
     IMDB_DATABASE=IMDB_DATABASE_PATH,
     IMAGE_ROOT=IMAGE_ROOT,
     SECRET_KEY=os.environ.get("FLASK_SECRET_KEY") or secrets.token_hex(32),
+    READ_ONLY=READ_ONLY,
+    # 只读快照的元数据：同步时间、AList 地址与已生成的缩略图清单。
+    SNAPSHOT_AT=os.environ.get("MOVIEDB_SNAPSHOT_AT", ""),
+    ALIST_ORIGIN=os.environ.get("ALIST_ORIGIN", "http://127.0.0.1:5244").rstrip("/"),
+    THUMBNAIL_INDEX=None,
 )
 init_database(app)
-start_configured_alist()
+if not READ_ONLY:
+    from services.alist_process import start_configured_alist
+    from services import cloud_sync
+
+    start_configured_alist()
+    cloud_sync.init_app(app)
+
+
+@app.context_processor
+def inject_read_only():
+    return {
+        "read_only": app.config["READ_ONLY"],
+        "snapshot_at": app.config["SNAPSHOT_AT"],
+    }
+
+
+@app.before_request
+def guard_read_only():
+    if not app.config["READ_ONLY"]:
+        return None
+    if request.method in ("GET", "HEAD") and request.endpoint in READ_ONLY_ENDPOINTS:
+        return None
+    if request.endpoint is None:
+        return None
+    if request.accept_mimetypes.accept_html and not request.accept_mimetypes.accept_json:
+        return render_template("read_only.html"), 503
+    return jsonify(error=READ_ONLY_MESSAGE, read_only=True), 503
+
+
+@app.after_request
+def mark_origin(response):
+    # 云端 Worker 根据该标记区分本地应用响应与 Tunnel 离线错误。
+    response.headers["X-MovieDB-Origin"] = "snapshot" if app.config["READ_ONLY"] else "local"
+    return response
+
 
 @app.template_filter("card_image")
 def card_image(path: str | None) -> str | None:
     cache = g.setdefault("card_image_paths", {})
     if path not in cache:
-        cache[path] = get_card_image_path(
-            path,
-            static_root=app.static_folder or BASE_DIR / "static",
-        )
+        options = {"static_root": app.static_folder or BASE_DIR / "static"}
+        if app.config["THUMBNAIL_INDEX"] is not None:
+            options["thumbnail_index"] = app.config["THUMBNAIL_INDEX"]
+        cache[path] = get_card_image_path(path, **options)
     return cache[path]
 
 
@@ -266,7 +353,7 @@ def media():
         "media.html",
         active_tab=active_tab,
         overview=page,
-        alist_origin=alist.get_origin(),
+        alist_origin=app.config["ALIST_ORIGIN"],
     )
 
 
@@ -372,7 +459,7 @@ def import_media():
             episode_number=request.form.get("episode_number", ""),
             alist_url=request.form.get("alist_url", ""),
         )
-    except MediaImportError as error:
+    except _media_import.MediaImportError as error:
         flash(str(error), "danger")
         return redirect(url_for("media", tab="associate"))
 
@@ -399,7 +486,7 @@ def import_media_batch():
             image_root=app.config["IMAGE_ROOT"],
             items=items,
         )
-    except MediaImportError as error:
+    except _media_import.MediaImportError as error:
         flash(str(error), "danger")
         return redirect(url_for("media", tab="associate"))
 
@@ -426,18 +513,18 @@ def _read_batch_import_items() -> list[dict]:
     if upload is not None and upload.filename:
         raw = upload.stream.read(MAX_BATCH_JSON_BYTES + 1)
         if len(raw) > MAX_BATCH_JSON_BYTES:
-            raise MediaImportError("JSON 文件不能超过 1 MiB。")
+            raise _media_import.MediaImportError("JSON 文件不能超过 1 MiB。")
         try:
             payload = json.loads(raw.decode("utf-8-sig"))
         except (UnicodeDecodeError, json.JSONDecodeError) as error:
-            raise MediaImportError("JSON 文件不是有效的 UTF-8 JSON 数据。") from error
+            raise _media_import.MediaImportError("JSON 文件不是有效的 UTF-8 JSON 数据。") from error
         return normalize_batch_import_items(payload)
 
     fields = ("title_id", "season_number", "episode_number", "alist_url")
     values = {field: request.form.getlist(field) for field in fields}
     counts = {len(entries) for entries in values.values()}
     if len(counts) != 1:
-        raise MediaImportError("批量表单字段数量不一致，请刷新页面后重试。")
+        raise _media_import.MediaImportError("批量表单字段数量不一致，请刷新页面后重试。")
     row_count = counts.pop() if counts else 0
     payload = {
         "items": [
@@ -520,7 +607,7 @@ def remove_title(title_id: str):
             app.config["DATABASE"], app.config["IMAGE_ROOT"], title_id,
             payload.get("token"), app.secret_key
         )
-    except DeletionChanged as error:
+    except _title_deletion.DeletionChanged as error:
         return jsonify(error=str(error)), 409
     except ValueError as error:
         return jsonify(error=str(error)), 404

@@ -6,7 +6,7 @@
 
 ## 本地配置
 
-项目不会自动读取 `.env`。启动前请在 PowerShell 中设置环境变量；变量名可参考 `.env.example`：
+`uv run flask --app app run` 会通过 python-dotenv 自动读取项目根目录的 `.env`（变量名参考 `.env.example`）；也可以在 PowerShell 中直接设置环境变量：
 
 ```powershell
 $env:FLASK_SECRET_KEY = "生成的随机密钥"
@@ -95,6 +95,35 @@ Tunnel 凭据保存在用户目录中，不得复制到项目或提交到 Git：
 %USERPROFILE%\.cloudflared-yu2yu2\
 ```
 
+
+## 云端只读快照
+
+本机离线（电脑关机、Flask 或 Tunnel 未运行）时，`library.yu2yu2.dpdns.org` 自动切换为云端只读快照，界面与本地一致；修改类按钮置灰，写请求返回 503。本机在线时所有请求原样转发到本机，读写和播放都与原来相同。全部使用 Cloudflare 免费额度，仍由 Cloudflare Access 保护。
+
+- `cloud/router/`：入口 Worker（JavaScript），挂载在 `library.yu2yu2.dpdns.org/*`。先请求 Tunnel；本机响应带 `X-MovieDB-Origin` 标记，没有标记的 5xx 或连接失败视为离线。
+- `cloud/renderer/`：只读渲染 Worker（Python Workers + Flask），复用 `app.py`、`queries/`、`viewmodels/` 和 `templates/`，渲染快照中没有预生成的页面组合。
+- R2 存储桶 `moviedb-snapshot`：预渲染页面、`static/` 文件和 `library.db` 只读副本。
+- `scripts/publish_snapshot.py`：备份 `library.db`，以只读模式抓取全部页面，增量上传变化的文件。
+- `services/cloud_sync.py`：`.env` 设置 `MOVIEDB_SYNC_TOKEN` 后，应用启动时同步一次，之后 `library.db` 变化并稳定 1 分钟后自动同步（两次同步至少间隔 2 分钟）。
+
+手动同步或预览：
+
+```powershell
+uv run python scripts/publish_snapshot.py            # 立即同步
+uv run python scripts/publish_snapshot.py --dry-run  # 只生成，不上传
+```
+
+[https://readonly-v1.yu2yu2.dpdns.org](https://readonly-v1.yu2yu2.dpdns.org) 始终显示快照（同样受 Cloudflare Access 保护），可在本机在线时检查离线效果。
+
+离线时视频播放依赖本机 AList，因此不可用；在线时可远程播放。修改 `templates/`、`app.py` 等代码后需重新部署渲染 Worker，`.github/workflows/deploy-cloud.yml` 会在推送到 `main` 时自动部署（需在仓库 Secrets 配置 `CLOUDFLARE_API_TOKEN`，权限：Workers Scripts 编辑、Workers Routes 编辑、Workers R2 Storage 编辑）。手动部署：
+
+```powershell
+cd cloud; npm install
+cd renderer; uv run python build.py; uv run pywrangler deploy
+cd ..\router; npx wrangler deploy
+```
+
+关闭云端快照：在 Cloudflare 删除 `library.yu2yu2.dpdns.org/*` Worker 路由即可恢复为纯 Tunnel 访问。
 
 <!-- archive-preparation:2026-10-14:start -->
 ## 使用与归档说明（2026-10-14）

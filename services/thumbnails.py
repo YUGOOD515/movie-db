@@ -11,7 +11,6 @@ import os
 import stat
 import uuid
 from pathlib import Path, PurePosixPath
-from PIL import Image, ImageOps
 
 logger = logging.getLogger(__name__)
 
@@ -67,11 +66,13 @@ def _file_stat(path: Path):
 def get_card_image_path(
     local_path: str | None,
     static_root: str | Path | None = None,
+    thumbnail_index: frozenset[str] | set[str] | None = None,
 ) -> str | None:
     """Resolve the static relative path to use for a card image.
 
     Returns 'thumbnails/<local_path>' if valid thumbnail exists,
     otherwise gracefully falls back to '<local_path>'.
+    thumbnail_index（只读快照提供的有效缩略图清单）存在时不访问文件系统。
     """
     if not local_path:
         return local_path
@@ -85,6 +86,8 @@ def get_card_image_path(
     if relative is None:
         return local_path
     thumb_rel = f"thumbnails/{relative.as_posix()}"
+    if thumbnail_index is not None:
+        return thumb_rel if thumb_rel in thumbnail_index else local_path
     thumb_path = root / "thumbnails" / Path(*relative.parts)
     orig_path = root / Path(*relative.parts)
 
@@ -112,6 +115,8 @@ def generate_thumbnail(
     - Handles EXIF orientation.
     - Uses temporary file + atomic rename to prevent partial writes.
     """
+    from PIL import Image, ImageOps
+
     try:
         source_path = Path(source_path)
         target_path = Path(target_path)
