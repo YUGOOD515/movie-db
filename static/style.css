@@ -2032,6 +2032,13 @@ html[data-ambient] {
     opacity: 1 !important;
 }
 
+/* Only the artwork lingers: text and buttons of other slides fade out at once. */
+.home-hero-slide:not(.is-selected) .home-hero-content {
+    opacity: 0;
+    visibility: hidden;
+    transition: opacity 0.2s ease, visibility 0s linear 0.2s;
+}
+
 .home-hero-slide.is-selected .home-hero-backdrop,
 .home-hero-slide.is-leaving .home-hero-backdrop {
     animation: hero-drift 16s ease-out both;
