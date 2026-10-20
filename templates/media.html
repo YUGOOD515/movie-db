@@ -154,21 +154,22 @@
             {{ empty_state("本地 MovieDB 未连接，关联与录入暂不可用。", "cloud-slash", "电脑上的 MovieDB 与 Tunnel 在线后，刷新页面即可恢复完整功能。") }}
             {% else %}
             {% include "_association_flow.html" %}
-            <details class="association-section" aria-labelledby="associate-heading">
-                <summary class="small text-body-secondary mb-3" id="associate-heading">手动录入 / JSON 导入</summary>
-                <div class="d-flex flex-wrap align-items-end justify-content-between gap-3 mb-4">
-                    <div>
-                        <h2 class="h6 mb-1">录入与关联</h2>
-                    </div>
+            <section class="association-section d-none" data-manual-panel aria-labelledby="associate-heading">
+                <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
+                    <nav class="association-crumbs mb-0" aria-label="位置">
+                        <button type="button" class="btn btn-link association-crumb" data-manual-close><i class="bi bi-chevron-left" aria-hidden="true"></i>待关联</button>
+                        <span class="association-crumb-sep" aria-hidden="true">/</span>
+                        <h2 class="h6 mb-0" id="associate-heading">手动录入</h2>
+                    </nav>
                     <div class="d-flex flex-wrap align-items-center gap-2">
-                        <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="modal" data-bs-target="#title-picker">
-                            <i class="bi bi-search me-1" aria-hidden="true"></i>通过 TMDB 搜索添加
+                        <button class="btn btn-sm chip-btn" type="button" data-bs-toggle="modal" data-bs-target="#title-picker">
+                            <i class="bi bi-search" aria-hidden="true"></i>通过 TMDB 搜索添加
                         </button>
-                        <label class="btn btn-sm btn-outline-secondary mb-0" for="batch-json-file">
-                            <i class="bi bi-upload me-1" aria-hidden="true"></i>上传 JSON
+                        <label class="btn btn-sm chip-btn mb-0" for="batch-json-file">
+                            <i class="bi bi-upload" aria-hidden="true"></i>上传 JSON
                         </label>
-                        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('static', filename='templates/media_import_template.json') }}" download>
-                            <i class="bi bi-download me-1" aria-hidden="true"></i>JSON 模板
+                        <a class="btn btn-sm chip-btn" href="{{ url_for('static', filename='templates/media_import_template.json') }}" download>
+                            <i class="bi bi-download" aria-hidden="true"></i>JSON 模板
                         </a>
                     </div>
                 </div>
@@ -196,7 +197,7 @@
                     {{ batch_import_row() }}
                 </template>
 
-            </details>
+            </section>
                 <div class="modal fade" id="title-picker" tabindex="-1" aria-labelledby="title-picker-heading" aria-hidden="true"
                      data-search-url="{{ url_for('search_import_titles') }}" data-select-url="{{ url_for('select_import_title') }}">
                     <div class="modal-dialog modal-lg modal-dialog-scrollable">

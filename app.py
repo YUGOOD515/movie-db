@@ -424,7 +424,8 @@ def select_import_title():
         return jsonify(error="TMDB 尚未配置，请手动填写 IMDb ID。"), 503
     except ValueError as error:
         return jsonify(error=str(error)), 400
-    return jsonify(build_selection_viewmodel(title))
+    selection = build_selection_viewmodel(title)
+    return jsonify({**selection, "tmdb_id": selection["tmdb_id"] or int(request.args["tmdb_id"])})
 
 
 @app.get("/manager/titles/poster")

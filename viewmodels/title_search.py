@@ -33,4 +33,5 @@ def build_selection_viewmodel(title: dict) -> dict:
         "name": title["display_title"],
         "year": title["start_year"],
         "media_type": "movie" if title["title_type"] == "movie" else "tv",
+        "tmdb_id": title.get("tmdb_id"),
     }

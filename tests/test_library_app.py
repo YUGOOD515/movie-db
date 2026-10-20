@@ -156,7 +156,7 @@ class LibraryIntegrationTest(unittest.TestCase):
             self.assertEqual(self.client.get(url).get_json(), data)
             selected = self.client.get("/manager/titles/select?type=movie&tmdb_id=9001")
             self.assertEqual(selected.status_code, 200)
-            self.assertEqual(selected.json, {"title_id": "tt9000001", "name": "导入电影", "year": 2026, "media_type": "movie"})
+            self.assertEqual(selected.json, {"title_id": "tt9000001", "name": "导入电影", "year": 2026, "media_type": "movie", "tmdb_id": 9001})
             self.assertEqual(tmdb.find_media(Mock(), "tt9000001"), ("movie", {"id": 9001}))
             self.assertEqual(fetch.call_count, 2)
         self.assertEqual(before, self.database_path.read_bytes())
