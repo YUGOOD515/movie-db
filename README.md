@@ -2,7 +2,9 @@
 
 本地 Flask 影视资源管理网页。页面查询只读 `library.db`，写操作集中在 `models/library.py`；TMDB、AList、ffprobe 与 MPC-HC 接口位于 `connectors/`。
 
-媒体管理页支持使用 IMDb Title ID 录入电影或单集。Series Title ID 需要同时提供季号和集号；Episode Title ID 会自动解析父剧集。IMDb 提供身份、层级、标题及评分，TMDB 补充简介、标语、原始语言、演员和图片。
+媒体管理页支持使用 IMDb Title ID 录入电影或单集。Series Title ID 需要同时提供季号和集号；Episode Title ID 会自动解析父剧集。TMDB 提供标题、年份、分类、季集结构与单集 IMDb ID、简介、演员和图片；IMDb 评分取自官方评分文件 `title.ratings.tsv.gz`（约 9 MB，首次录入时自动下载到 `imdb/`，超过一天自动更新，可用 `IMDB_RATINGS_PATH` 指定位置）。媒体管理页的“刷新评分”同时用该文件更新全部作品和单集的 IMDb 评分。不再需要本地 `imdb.db`。
+
+中文名按 TMDB zh-CN → zh-TW → zh-HK 回退；分类转换为原有的 IMDb 英文分类（如 Sci-Fi & Fantasy → Sci-Fi, Fantasy）。TMDB 上没有 IMDb ID 的单集无法录入。重新录入已有作品时，库内已有的名称、分类和季集关系保持不变（只替换“第 N 集”这类占位名），评分取不到时保留旧值。
 
 ## 本地配置
 
@@ -31,11 +33,11 @@ TMDB 与 AList 凭据不得写入源码或提交到 Git。曾经进入 Git 历�
 
 ## 按名称关联媒体
 
-关联页保留手动逐条填写 IMDb ID、季集号及 AList 链接，以及 JSON 上传两种方式。“手动录入 / JSON 导入”中的“通过 TMDB 搜索添加”提供另一条完整流程：输入名称搜索 → 选择电影或剧集 → 剧集按行输入季号、集号并填写 AList 视频直链，可增删多条单集 → 全部添加到待导入列表。电影仍填写一条链接后添加。季号、集号使用与手动录入一致的数字输入框，导入时沿用本地 IMDb 校验。添加仅生成页面记录，不覆盖已有内容；首次添加会替换唯一的全空占位行，最后统一点击“校验并批量录入”。
+关联页保留手动逐条填写 IMDb ID、季集号及 AList 链接，以及 JSON 上传两种方式。“手动录入 / JSON 导入”中的“通过 TMDB 搜索添加”提供另一条完整流程：输入名称搜索 → 选择电影或剧集 → 剧集按行输入季号、集号并填写 AList 视频直链，可增删多条单集 → 全部添加到待导入列表。电影仍填写一条链接后添加。季号、集号使用与手动录入一致的数字输入框，导入时按 TMDB 季集校验。添加仅生成页面记录，不覆盖已有内容；首次添加会替换唯一的全空占位行，最后统一点击“校验并批量录入”。
 
-待关联内容在匹配界面通过任务标题旁的“重新搜索匹配”更换作品。作品卡片按季横向列出 IMDb 集名，文件名规则支持拖动匹配块排序，也可聚焦匹配块后按 Alt 加左右方向键调整。扫描、检查和完成关联的结果统一使用底部提示，成功、警告和失败以颜色区分。
+待关联内容在匹配界面通过任务标题旁的“重新搜索匹配”更换作品。作品卡片按季横向列出集名，文件名规则支持拖动匹配块排序，也可聚焦匹配块后按 Alt 加左右方向键调整。扫描、检查和完成关联的结果统一使用底部提示，成功、警告和失败以颜色区分。
 
-详情页底部提供“删除作品”：打开弹窗后检查并展示作品简介、评分、全部季集、本地图片和观看记录，用户确认后执行。图片与演员照片支持横向浏览，以标签区分删除与共用保留；观看记录显示观看时间、播放位置与文件总时长，无记录时隐藏。AList 原视频、IMDb 主数据库和收藏夹本身保留。确认范围变化或超过五分钟时需要重新检查；删除成功后返回媒体资源管理页，并显示底部提醒。
+详情页底部提供“删除作品”：打开弹窗后检查并展示作品简介、评分、全部季集、本地图片和观看记录，用户确认后执行。图片与演员照片支持横向浏览，以标签区分删除与共用保留；观看记录显示观看时间、播放位置与文件总时长，无记录时隐藏。AList 原视频和收藏夹本身保留。确认范围变化或超过五分钟时需要重新检查；删除成功后返回媒体资源管理页，并显示底部提醒。
 
 搜索及 IMDb 映射在进程内缓存 10 分钟（最多 128 项），相同并发请求合并。选中的对应关系可在导入时复用，缓存过期或进程重启后按原流程重新查询。演员和正式图片在导入时才获取；候选海报通过浏览器按需加载。TMDB 不可用时可直接填写 IMDb ID；缺少 IMDb 映射或本地数据时会提示原因。原有 JSON 导入及整批失败回滚行为保持不变。
 
@@ -43,7 +45,7 @@ TMDB 与 AList 凭据不得写入源码或提交到 Git。曾经进入 Git 历�
 
 本地回放服务器只提供《绝命毒师》（IMDb `tt0903747` / TMDb `1396`）的中文 TMDb 数据和 MDBList 评分。搜索支持简繁中文、英文及部分名称；支持详情、`append_to_response`、季集资料、IMDb 映射，以及当前搜索和导入使用的图片。未收录的内容返回空结果或 404，服务器不请求远程 API。
 
-快照位于 `local-test-data/breaking-bad/`，独立于业务库和 `static/images`，删除网站里的作品不会删除快照。包含真实 API 响应、当前相关的 IMDb/业务库记录、已有剧照/海报/背景/标志/演员照片，以及图片 URL 映射和 SHA-256 清单。单集 find 和 external_ids 响应由保存的 TMDb 季资料与本地 IMDb 对应关系组合。仅保存当前搜索、导入使用的图片及原有文件；不复制 AList 视频。该目录被 Git 忽略。
+快照位于 `local-test-data/breaking-bad/`，独立于业务库和 `static/images`，删除网站里的作品不会删除快照。包含真实 API 响应、当前相关的业务库记录、已有剧照/海报/背景/标志/演员照片，以及图片 URL 映射和 SHA-256 清单。单集 find 响应由保存的 TMDb 季资料与单集 external_ids 组合；旧快照没有译名时按“无译名”回放。仅保存当前搜索、导入使用的图片及原有文件；不复制 AList 视频。该目录被 Git 忽略。
 
 先在一个 PowerShell 窗口运行本地 API：
 
@@ -60,7 +62,7 @@ $env:MDBLIST_API_URL = "http://127.0.0.1:5001/mdblist/api/"
 uv run flask --app app run --host 127.0.0.1 --port 5000
 ```
 
-原有 Token/API Key 可保留；本地服务器忽略凭据。没有凭据时可将 `TMDB_TOKEN` 和 `MDBLIST_APIKEY` 设为 `local-test`。AList 和本地 IMDb 流程照常运行。环境变量需要设置在实际启动 MovieDB 的进程中，配置后须重启应用以清空旧缓存；只编辑 `.env` 不会替换 TMDb URL。恢复远程服务时移除这三个环境变量并重启应用。
+原有 Token/API Key 可保留；本地服务器忽略凭据。没有凭据时可将 `TMDB_TOKEN` 和 `MDBLIST_APIKEY` 设为 `local-test`。AList 流程照常运行；IMDb 评分文件仍从官方地址下载。环境变量需要设置在实际启动 MovieDB 的进程中，配置后须重启应用以清空旧缓存；只编辑 `.env` 不会替换 TMDb URL。恢复远程服务时移除这三个环境变量并重启应用。
 
 如需重新抓取，执行 `uv run python scripts/capture_breaking_bad.py --output local-test-data/breaking-bad-new`，再用 `--data local-test-data/breaking-bad-new` 启动回放服务器。抓取会访问远程 API，但不会写业务库；已有快照目录禁止覆盖。
 
@@ -135,7 +137,7 @@ cd ..\router; npx wrangler deploy
 
 ## 使用与归档说明（2026-10-14）
 
-Flask + Jinja 影视库：IMDb 主数据、TMDB 补充数据、AList 媒体来源及 MPC-HC 播放。读查询、写模型、连接器、服务编排和页面 ViewModel 分层保存。
+Flask + Jinja 影视库：TMDB 主数据、IMDb / MDBList 评分、AList 媒体来源及 MPC-HC 播放。读查询、写模型、连接器、服务编排和页面 ViewModel 分层保存。
 
 ### 结构与入口
 
@@ -144,22 +146,21 @@ Flask + Jinja 影视库：IMDb 主数据、TMDB 补充数据、AList 媒体来�
 - [models/library.py](models/library.py)：业务写操作。
 - [connectors](connectors)：外部接口与本地播放器。
 - [services](services)：导入、关联、播放和删除业务。
-- [scripts/import_imdb.py](scripts/import_imdb.py)：IMDb 本地数据导入。
 - [pyproject.toml](pyproject.toml)：Python 3.13+ 依赖。
 
 ### 使用前提
 
-先阅读原 README 的配置与数据准备，执行 uv sync 后，在自己的本地环境启动 uv run flask --app app run --host 127.0.0.1 --port 5000。需要自己的 IMDb 输入数据、业务库、TMDB / AList 配置，播放器和 ffprobe 按功能选配。仅克隆源码不等于获得作者的数据库或媒体。
+先阅读原 README 的配置与数据准备，执行 uv sync 后，在自己的本地环境启动 uv run flask --app app run --host 127.0.0.1 --port 5000。需要自己的业务库、TMDB / AList 配置，播放器和 ffprobe 按功能选配。仅克隆源码不等于获得作者的数据库或媒体。
 
 ### 归档分工
 
 **GitHub：** 当前源码、迁移、测试、锁文件、脱敏示例和运行必需图标；优先从当前工作树生成经审核的干净代码快照，避免直接推送含历史凭据 / 数据的旧仓库。
 
-**夸克网盘：** library.db、个人图片、备份与媒体清单只作一致性、加密私人备份。imdb.db 由使用者从 IMDb 官方数据自行重建，不通过 GitHub 或网盘分享。
+**夸克网盘：** library.db、个人图片、备份与媒体清单只作一致性、加密私人备份。IMDb 评分文件由程序从官方地址自动下载，不需要备份或分享。
 
 ### 当前限制
 
-imdb.db 约 1782.5 MiB；旧 helpers.py 的历史抽样仍命中凭据模式，library.db 出现在历史；data/white_album_2_import.json 和 static/templates/media_import_template.json 含签名 URL，发布前必须替换为虚构链接。
+旧 helpers.py 的历史抽样仍命中凭据模式，library.db 出现在历史；data/white_album_2_import.json 和 static/templates/media_import_template.json 含签名 URL，发布前必须替换为虚构链接。
 
 本次仅完成本地结构、关键入口与依赖检查，以及 README 准备，未验证全部运行功能。本轮未创建 GitHub 仓库或夸克分享链接，也未上传本次归档；后续归档须经目录所有者批准。
 

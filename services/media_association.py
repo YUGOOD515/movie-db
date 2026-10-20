@@ -5,22 +5,22 @@ from contextlib import closing
 from pathlib import PurePosixPath
 
 from connectors import alist
-from models.database import connect_database, connect_imdb
+from connectors import tmdb
+from models.database import connect_database
 from queries.association import get_associated_paths
-from queries.imdb import get_imdb_title, get_series_episodes
 from services.media_discovery import canonical_path, scan_status
-from services.media_import import MAX_BATCH_ITEMS, import_media_batch
+from services.media_import import MAX_BATCH_ITEMS, import_media_batch, load_title_catalog
 from viewmodels.title_search import build_selection_viewmodel
 
 
-def title_metadata(imdb_database, title_id):
+def title_metadata(library_database, title_id):
     if not isinstance(title_id, str) or not re.fullmatch(r"tt[0-9]+", title_id):
         raise ValueError("IMDb ID 无效。")
-    with closing(connect_imdb(imdb_database)) as db:
-        title = get_imdb_title(db, title_id)
-        if not title or title["title_type"] not in ("movie", "series"):
-            raise ValueError("本地 IMDb 中没有可关联的电影或剧集。")
-        episodes = get_series_episodes(db, title_id) if title["title_type"] == "series" else []
+    if tmdb.identify_title(title_id)["title_type"] == "episode":
+        raise ValueError("请填写电影或剧集的 IMDb ID，不要填写单集 ID。")
+    with closing(connect_database(library_database)) as db:
+        catalog = load_title_catalog(db, title_id)
+    title, episodes = catalog["root"], catalog["episodes"]
     return {**build_selection_viewmodel(title), "episodes": [
         {"title_id": episode["title_id"], "name": episode["display_title"],
          "season_number": episode["season_number"], "episode_number": episode["episode_number"]}
@@ -35,13 +35,13 @@ def _position(value, minimum):
     return number if number >= minimum else None
 
 
-def check_association(library_database, imdb_database, payload):
+def check_association(library_database, payload):
     if not isinstance(payload, dict):
         raise ValueError("关联数据必须是 JSON 对象。")
     items = payload.get("items")
     if not isinstance(items, list) or not 1 <= len(items) <= MAX_BATCH_ITEMS:
         raise ValueError(f"请选择 1–{MAX_BATCH_ITEMS} 个视频。")
-    title = title_metadata(imdb_database, payload.get("title_id"))
+    title = title_metadata(library_database, payload.get("title_id"))
     discovered = {item["path"] for record in scan_status(library_database)["records"] for item in record["files"]}
     with closing(connect_database(library_database)) as db:
         associated = get_associated_paths(db)
@@ -69,9 +69,9 @@ def check_association(library_database, imdb_database, payload):
             if season is None or episode is None:
                 error = "请填写有效季号和集号。"
             elif not matches:
-                error = f"IMDb 中没有 S{season:02d} E{episode:02d}，请选择可用季集。"
+                error = f"TMDB 中没有 S{season:02d} E{episode:02d}（或该集没有 IMDb ID），请选择可用季集。"
             elif len(matches) > 1:
-                error = "IMDb 中该季集位置存在多条记录，暂无法唯一关联。"
+                error = "该季集位置存在多条记录，暂无法唯一关联。"
             elif position in seen_positions:
                 error = "多个文件对应同一季集，请检查或取消选择。"
             else:
@@ -85,8 +85,8 @@ def check_association(library_database, imdb_database, payload):
     return {"title": title, "rows": rows, "valid": all(not row["error"] for row in rows)}
 
 
-def complete_association(*, library_database, imdb_database, image_root, payload):
-    checked = check_association(library_database, imdb_database, payload)
+def complete_association(*, library_database, image_root, payload):
+    checked = check_association(library_database, payload)
     if not checked["valid"]:
         return checked
     token = alist.configured_token()
@@ -102,8 +102,7 @@ def complete_association(*, library_database, imdb_database, image_root, payload
         items.append({"title_id": checked["title"]["title_id"], "alist_url": link,
                       "season_number": str(row["season_number"]) if is_series else "",
                       "episode_number": str(row["episode_number"]) if is_series else ""})
-    result = import_media_batch(library_database=library_database, imdb_database=imdb_database,
-                                image_root=image_root, items=items)
+    result = import_media_batch(library_database=library_database, image_root=image_root, items=items)
     for failure in result["failures"]:
         index = failure["index"] - 1
         if 0 <= index < len(checked["rows"]):

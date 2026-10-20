@@ -88,7 +88,6 @@ build_deletion_viewmodel = _lazy("viewmodels.deletion", "build_deletion_viewmode
 
 BASE_DIR = Path(__file__).resolve().parent
 DATABASE_PATH = Path(os.environ.get("MOVIEDB_DATABASE") or BASE_DIR / "library.db")
-IMDB_DATABASE_PATH = BASE_DIR / "imdb.db"
 IMAGE_ROOT = BASE_DIR / "static" / "images"
 MAX_BATCH_JSON_BYTES = 1024 * 1024
 READ_ONLY = os.environ.get("MOVIEDB_READ_ONLY", "").strip() == "1"
@@ -114,7 +113,6 @@ READ_ONLY_ENDPOINTS = {
 app = Flask(__name__)
 app.config.update(
     DATABASE=DATABASE_PATH,
-    IMDB_DATABASE=IMDB_DATABASE_PATH,
     IMAGE_ROOT=IMAGE_ROOT,
     SECRET_KEY=os.environ.get("FLASK_SECRET_KEY") or secrets.token_hex(32),
     READ_ONLY=READ_ONLY,
@@ -398,7 +396,6 @@ def search_import_titles():
 def select_import_title():
     try:
         title = select_title(
-            app.config["IMDB_DATABASE"],
             request.args.get("type", "movie"),
             request.args.get("tmdb_id", ""),
         )
@@ -406,8 +403,6 @@ def select_import_title():
         return jsonify(error="无法获取 IMDb 映射，请稍后重试。"), 502
     except RuntimeError:
         return jsonify(error="TMDB 尚未配置，请手动填写 IMDb ID。"), 503
-    except sqlite3.Error:
-        return jsonify(error="本地 IMDb 数据库暂时不可用。"), 503
     except ValueError as error:
         return jsonify(error=str(error)), 400
     return jsonify(build_selection_viewmodel(title))
@@ -440,11 +435,13 @@ def discover_import_media():
 @app.get("/manager/titles/episodes")
 def import_title_metadata():
     try:
-        return jsonify(title_metadata(app.config["IMDB_DATABASE"], request.args.get("title_id", "")))
+        return jsonify(title_metadata(app.config["DATABASE"], request.args.get("title_id", "")))
     except ValueError as error:
         return jsonify(error=str(error)), 400
-    except sqlite3.Error:
-        return jsonify(error="本地 IMDb 数据库暂时不可用。"), 503
+    except requests.RequestException:
+        return jsonify(error="TMDB 暂时无法访问，请稍后重试。"), 502
+    except RuntimeError:
+        return jsonify(error="TMDB 尚未配置。"), 503
 
 
 @app.post("/manager/association/<action>")
@@ -455,8 +452,7 @@ def associate_discovered_media(action):
         return jsonify(error="关联数据过大。"), 413
     payload = request.get_json(silent=True)
     try:
-        arguments = dict(library_database=app.config["DATABASE"],
-                         imdb_database=app.config["IMDB_DATABASE"], payload=payload)
+        arguments = dict(library_database=app.config["DATABASE"], payload=payload)
         if action == "complete":
             result = complete_association(**arguments, image_root=app.config["IMAGE_ROOT"])
         else:
@@ -473,7 +469,6 @@ def import_media():
     try:
         result = import_media_service(
             library_database=app.config["DATABASE"],
-            imdb_database=app.config["IMDB_DATABASE"],
             image_root=app.config["IMAGE_ROOT"],
             title_id=request.form.get("title_id", ""),
             season_number=request.form.get("season_number", ""),
@@ -503,7 +498,6 @@ def import_media_batch():
         items = _read_batch_import_items()
         result = import_media_batch_service(
             library_database=app.config["DATABASE"],
-            imdb_database=app.config["IMDB_DATABASE"],
             image_root=app.config["IMAGE_ROOT"],
             items=items,
         )

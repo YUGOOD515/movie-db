@@ -60,6 +60,10 @@ def create_app(data_root=DEFAULT_DATA):
         result = deepcopy(resources[endpoint])
         for resource in filter(None, request.args.get("append_to_response", "").split(",")):
             key = f"{endpoint}/{resource}"
+            if key not in resources and resource == "translations":
+                # 旧快照未保存译名，按"无译名"回放。
+                result[resource] = {"id": result.get("id"), "translations": []}
+                continue
             if key not in resources:
                 abort(404, description="Requested resource is not in the snapshot.")
             result[resource] = deepcopy(resources[key])

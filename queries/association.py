@@ -15,3 +15,18 @@ def get_associated_paths(db) -> dict[str, dict]:
           LEFT JOIN title_basic AS series ON series.title_id = relation.series_id
     """).fetchall()
     return {row["alist_path"]: dict(row) for row in rows}
+
+
+def get_series_episodes(db, series_id: str) -> list[dict]:
+    """库内已有的单集季集关系，录入时优先沿用。"""
+    rows = db.execute("""
+        SELECT relation.episode_id AS title_id,
+               relation.season_number,
+               relation.episode_number,
+               title.display_title
+          FROM title_relation AS relation
+          JOIN title_basic AS title ON title.title_id = relation.episode_id
+         WHERE relation.series_id = ?
+         ORDER BY relation.season_number, relation.episode_number
+    """, (series_id,)).fetchall()
+    return [dict(row) for row in rows]

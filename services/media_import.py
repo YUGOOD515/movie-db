@@ -7,20 +7,15 @@ import sqlite3
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import requests
 
-from connectors import alist, media_probe, tmdb
-from models.database import connect_database, connect_imdb, connect_writable
+from connectors import alist, imdb_ratings, media_probe, tmdb
+from models.database import connect_database, connect_writable
 from models.library import import_media_bundle
-from queries.imdb import (
-    get_episode_by_position,
-    get_episode_relation,
-    get_imdb_title,
-    get_series_episodes,
-)
+from queries.association import get_series_episodes
 from services.rating_sync import fetch_title_rating
 from services.image_tones import ensure_tones
 from services.thumbnails import ensure_thumbnail, normalize_image_path
@@ -53,102 +48,33 @@ def _validate_episode_position(season_value: str, episode_value: str, episode: d
             raise MediaImportError("填写的季集号与 Episode Title ID 不一致。")
 
 
-def _resolve_target(
-    imdb_db,
-    title_id: str,
-    season_value: str,
-    episode_value: str,
-) -> dict:
-    title = get_imdb_title(imdb_db, title_id)
-    if title is None or not title["title_type"]:
-        raise MediaImportError("本地 IMDb 数据库中不存在可录入的 Title ID。")
+def load_title_catalog(library_db: sqlite3.Connection, title_id: str) -> dict:
+    """电影或剧集的完整元数据：TMDB 为主，库内已有的季集关系优先沿用。
 
-    if title["title_type"] == "movie":
-        if season_value.strip() or episode_value.strip():
-            raise MediaImportError("Movie Title ID 不需要填写季号和集号。")
-        return {"root": title, "target": title}
-
-    if title["title_type"] == "series":
-        season_number, episode_number = _parse_position(
-            season_value, episode_value
-        )
-        relation = get_episode_by_position(
-            imdb_db,
-            title_id,
-            season_number,
-            episode_number,
-        )
-        if relation is None:
-            raise MediaImportError("本地 IMDb 数据库中不存在指定的剧集单集。")
-        target = get_imdb_title(imdb_db, relation["episode_id"])
-        return {"root": title, "target": target}
-
-    if title["title_type"] == "episode":
-        relation = get_episode_relation(imdb_db, title_id)
-        if relation is None:
-            raise MediaImportError("本地 IMDb 数据库中缺少该单集的父剧集关系。")
-        _validate_episode_position(season_value, episode_value, relation)
-        root = get_imdb_title(imdb_db, relation["series_id"])
-        if root is None or root["title_type"] != "series":
-            raise MediaImportError("本地 IMDb 数据库中缺少该单集的父剧集。")
-        return {"root": root, "target": title}
-
-    raise MediaImportError("仅支持 movie、series 和 episode 类型的 Title ID。")
-
-
-def _library_title(imdb_title: dict, supplement: dict | None = None) -> dict:
-    supplement = supplement or {}
-    return {
-        "title_id": imdb_title["title_id"],
-        "tmdb_id": supplement.get("tmdb_id"),
-        "title_type": imdb_title["title_type"],
-        "primary_title": imdb_title.get("primary_title"),
-        "original_title": imdb_title.get("original_title"),
-        "original_language": supplement.get("original_language"),
-        "display_title": imdb_title["display_title"],
-        "is_adult": int(imdb_title.get("is_adult") or 0),
-        "start_year": imdb_title.get("start_year"),
-        "end_year": imdb_title.get("end_year"),
-        "runtime_minutes": imdb_title.get("runtime_minutes"),
-        "genres": imdb_title.get("genres"),
-        "overview": supplement.get("overview"),
-        "tagline": supplement.get("tagline"),
-        "average_rating": imdb_title.get("average_rating"),
-        "num_votes": imdb_title.get("num_votes"),
-    }
-
-
-def _build_bundle(imdb_db, root: dict, metadata: dict) -> tuple[list, list, list, list, list]:
-    titles = [_library_title(root, metadata.get("title_basic"))]
-    relations = []
-    artwork = list(metadata.get("title_artwork") or [])
-    cast = list(metadata.get("title_cast") or [])
-    episodes_list = []
-
-    if root["title_type"] != "series":
-        return titles, relations, artwork, cast, episodes_list
-
-    metadata_by_position = {
-        (item.get("season_number"), item.get("episode_number")): item
+    返回 metadata（TMDB 原样结构）与 episodes（可录入单集，按季集排序；
+    TMDB 已没有、但库里已有的单集也保留为可选目标，只是不重写其资料）。
+    """
+    known = get_series_episodes(library_db, title_id)
+    metadata = tmdb.build_media_metadata(
+        title_id,
+        known_episode_ids={
+            (row["season_number"], row["episode_number"]): row["title_id"] for row in known
+        },
+    )
+    root = metadata.get("title_basic") or {}
+    if root.get("title_id") != title_id or root.get("title_type") not in ("movie", "series"):
+        raise MediaImportError("TMDB 中没有可录入的电影或剧集。")
+    episodes = {
+        (item["season_number"], item["episode_number"]): {
+            **item["title_basic"],
+            "season_number": item["season_number"],
+            "episode_number": item["episode_number"],
+        }
         for item in metadata.get("episodes") or []
     }
-    episodes_list = get_series_episodes(imdb_db, root["title_id"])
-    for episode in episodes_list:
-        position = (episode["season_number"], episode["episode_number"])
-        episode_metadata = metadata_by_position.get(position) or {}
-        titles.append(_library_title(episode, episode_metadata.get("title_basic")))
-        relations.append(
-            {
-                "episode_id": episode["title_id"],
-                "series_id": root["title_id"],
-                "season_number": episode["season_number"],
-                "episode_number": episode["episode_number"],
-            }
-        )
-        for image in episode_metadata.get("title_artwork") or []:
-            if image.get("title_id") == episode["title_id"]:
-                artwork.append(image)
-    return titles, relations, artwork, cast, episodes_list
+    for row in known:
+        episodes.setdefault((row["season_number"], row["episode_number"]), row)
+    return {"metadata": metadata, "root": root, "episodes": [episodes[key] for key in sorted(episodes)]}
 
 
 def _new_artwork(db: sqlite3.Connection, artwork: list[dict]) -> list[dict]:
@@ -260,20 +186,18 @@ def _remove_moved_files(paths: list[Path]) -> None:
 
 
 @dataclass
-class ImportBundle:
+class ImportContext:
+    """同一作品在一个批次内共用的元数据，只构建和写入一次。"""
+
     root: dict
     titles: list[dict]
     relations: list[dict]
     artwork: list[dict]
     cast: list[dict]
     rating_result: dict
-    staged_files: list[tuple[Path, Path]]
-
-
-@dataclass
-class SeriesImportContext(ImportBundle):
-    episodes_by_position: dict[tuple[int, int], dict]
-    episodes_by_id: dict[str, dict]
+    episodes_by_position: dict[tuple[int, int], dict] = field(default_factory=dict)
+    episodes_by_id: dict[str, dict] = field(default_factory=dict)
+    staged_files: list[tuple[Path, Path]] = field(default_factory=list)
     images_prepared: bool = False
 
 
@@ -284,7 +208,7 @@ class PreparedMediaImport:
     target: dict
     alist_path: str
     probe: dict
-    bundle: ImportBundle
+    bundle: ImportContext
 
 
 class _PersistenceError(MediaImportError):
@@ -294,55 +218,98 @@ class _PersistenceError(MediaImportError):
         self.title_id = prepared.input_title_id if prepared else ""
 
 
-def _build_series_context(imdb_db, root_title: dict) -> SeriesImportContext:
-    root_title_id = root_title["title_id"]
+def _build_context(library_db: sqlite3.Connection, root_title_id: str) -> ImportContext:
     with ThreadPoolExecutor(max_workers=1) as executor:
         rating_future = executor.submit(fetch_title_rating, root_title_id)
-        metadata = tmdb.build_media_metadata(root_title_id)
-        titles, relations, artwork, cast, episodes_list = _build_bundle(
-            imdb_db, root_title, metadata
-        )
+        catalog = load_title_catalog(library_db, root_title_id)
         rating_result = rating_future.result()
 
-    episodes_by_position = {}
-    episodes_by_id = {}
-    for episode in episodes_list:
-        pos = (episode["season_number"], episode["episode_number"])
-        episodes_by_position[pos] = episode
-        episodes_by_id[episode["title_id"]] = episode
+    metadata = catalog["metadata"]
+    root = catalog["root"]
+    titles = [root]
+    relations = []
+    artwork = list(metadata.get("title_artwork") or [])
+    for item in metadata.get("episodes") or []:
+        episode = item["title_basic"]
+        titles.append(episode)
+        relations.append(
+            {
+                "episode_id": episode["title_id"],
+                "series_id": root["title_id"],
+                "season_number": item["season_number"],
+                "episode_number": item["episode_number"],
+            }
+        )
+        artwork.extend(item.get("title_artwork") or [])
 
-    return SeriesImportContext(
-        root=root_title,
+    return ImportContext(
+        root=root,
         titles=titles,
         relations=relations,
         artwork=artwork,
-        cast=cast,
+        cast=list(metadata.get("title_cast") or []),
         rating_result=rating_result,
-        staged_files=[],
-        episodes_by_position=episodes_by_position,
-        episodes_by_id=episodes_by_id,
+        episodes_by_position={
+            (episode["season_number"], episode["episode_number"]): episode
+            for episode in catalog["episodes"]
+        },
+        episodes_by_id={episode["title_id"]: episode for episode in catalog["episodes"]},
     )
 
 
 def _resolve_target_from_context(
-    context: SeriesImportContext,
+    context: ImportContext,
     title_id: str,
     season_value: str,
     episode_value: str,
 ) -> dict:
     if title_id == context.root["title_id"]:
+        if context.root["title_type"] == "movie":
+            if season_value.strip() or episode_value.strip():
+                raise MediaImportError("Movie Title ID 不需要填写季号和集号。")
+            return context.root
         season_number, episode_number = _parse_position(season_value, episode_value)
         target = context.episodes_by_position.get((season_number, episode_number))
         if target is None:
-            raise MediaImportError("本地 IMDb 数据库中不存在指定的剧集单集。")
-        return {"root": context.root, "target": target}
+            raise MediaImportError(
+                f"TMDB 中没有 S{season_number:02d} E{episode_number:02d}，或该单集没有 IMDb ID。"
+            )
+        return target
 
     if title_id in context.episodes_by_id:
         target = context.episodes_by_id[title_id]
         _validate_episode_position(season_value, episode_value, target)
-        return {"root": context.root, "target": target}
+        return target
 
     raise MediaImportError("指定的 Title ID 不属于当前剧集上下文。")
+
+
+def _resolve_item(
+    library_db: sqlite3.Connection,
+    contexts: dict[str, ImportContext],
+    title_id: str,
+    season_value: str,
+    episode_value: str,
+) -> tuple[ImportContext, dict]:
+    """解析一条录入：同一作品（含其单集 ID）复用已构建的上下文。"""
+    context = contexts.get(title_id)
+    if context is None:
+        identity = tmdb.identify_title(title_id)
+        # 先校验季集号，避免无效输入触发整部作品的元数据请求。
+        if identity["title_type"] == "series":
+            _parse_position(season_value, episode_value)
+        elif identity["title_type"] == "movie" and (season_value.strip() or episode_value.strip()):
+            raise MediaImportError("Movie Title ID 不需要填写季号和集号。")
+        root_id = identity["root_id"]
+        context = contexts.get(root_id)
+        if context is None:
+            context = _build_context(library_db, root_id)
+            contexts[root_id] = context
+            for episode_id in context.episodes_by_id:
+                contexts.setdefault(episode_id, context)
+        if identity["title_type"] == "episode" and title_id not in context.episodes_by_id:
+            raise MediaImportError("TMDB 中该单集缺少季集信息，无法录入。")
+    return context, _resolve_target_from_context(context, title_id, season_value, episode_value)
 
 
 def _validate_title_id(title_id: str) -> str:
@@ -354,12 +321,11 @@ def _validate_title_id(title_id: str) -> str:
 
 def _prepare_file(
     library_db: sqlite3.Connection,
-    resolved: dict,
+    target_title_id: str,
     alist_url: str,
     seen_alist_paths: set[str] | None = None,
 ) -> tuple[str, dict]:
     alist_path = alist.parse_alist_url(alist_url)
-    target_title_id = resolved["target"]["title_id"]
 
     if seen_alist_paths is not None:
         if alist_path in seen_alist_paths:
@@ -378,8 +344,8 @@ def _prepare_file(
     return alist_path, media_probe.probe_video(video_url)
 
 
-def _prepare_series_images(
-    context: SeriesImportContext,
+def _prepare_context_images(
+    context: ImportContext,
     library_db: sqlite3.Connection,
     image_root: Path,
     staging_root: Path,
@@ -401,94 +367,57 @@ def _prepare_series_images(
     context.images_prepared = True
 
 
-def _prepare_import(
-    *,
-    index: int,
-    title_id: str,
-    resolved: dict,
+def _prepare_items(
     library_db: sqlite3.Connection,
-    imdb_db: sqlite3.Connection,
     image_root: Path,
     staging_root: Path,
-    alist_url: str,
-    seen_alist_paths: set[str] | None = None,
-    series_context: SeriesImportContext | None = None,
-) -> PreparedMediaImport:
-    alist_path, probe = _prepare_file(
-        library_db,
-        resolved,
-        alist_url,
-        seen_alist_paths,
-    )
-
-    if series_context is not None:
-        _prepare_series_images(
-            series_context,
+    items: list[dict],
+    progress: dict,
+) -> list[PreparedMediaImport]:
+    """联网解析、探测并暂存图片；全部完成后才进入写事务。progress 记录当前条目供报错。"""
+    contexts: dict[str, ImportContext] = {}
+    seen_alist_paths: set[str] = set()
+    prepared_items = []
+    for index, item in enumerate(items, start=1):
+        progress.update(index=index, title_id="")
+        title_id = _validate_title_id(item.get("title_id") or "")
+        progress["title_id"] = title_id
+        context, target = _resolve_item(
             library_db,
-            image_root,
-            staging_root,
+            contexts,
+            title_id,
+            item.get("season_number", ""),
+            item.get("episode_number", ""),
         )
-        return PreparedMediaImport(
-            index=index,
-            input_title_id=title_id,
-            target=resolved["target"],
-            alist_path=alist_path,
-            probe=probe,
-            bundle=series_context,
+        alist_path, probe = _prepare_file(
+            library_db,
+            target["title_id"],
+            item.get("alist_url", ""),
+            seen_alist_paths,
         )
-
-    root_title_id = resolved["root"]["title_id"]
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        rating_future = executor.submit(fetch_title_rating, root_title_id)
-        metadata = tmdb.build_media_metadata(root_title_id)
-        titles, relations, artwork, cast, _ = _build_bundle(
-            imdb_db,
-            resolved["root"],
-            metadata,
+        _prepare_context_images(context, library_db, image_root, staging_root)
+        prepared_items.append(
+            PreparedMediaImport(
+                index=index,
+                input_title_id=title_id,
+                target=target,
+                alist_path=alist_path,
+                probe=probe,
+                bundle=context,
+            )
         )
-        rating_result = rating_future.result()
-
-    artwork = _new_artwork(library_db, artwork)
-    artwork, staged_files = _stage_new_artwork(
-        artwork,
-        image_root,
-        staging_root,
-    )
-    cast, cast_files = _stage_cast_images(
-        cast,
-        image_root,
-        staging_root,
-    )
-    return PreparedMediaImport(
-        index=index,
-        input_title_id=title_id,
-        target=resolved["target"],
-        alist_path=alist_path,
-        probe=probe,
-        bundle=ImportBundle(
-            root=resolved["root"],
-            titles=titles,
-            relations=relations,
-            artwork=artwork,
-            cast=cast,
-            rating_result=rating_result,
-            staged_files=staged_files + cast_files,
-        ),
-    )
+    return prepared_items
 
 
 def _write_prepared_import(
     db: sqlite3.Connection,
     prepared: PreparedMediaImport,
-    written_series_ids: set[str],
+    written_root_ids: set[str],
     published_files: list[Path],
 ) -> int:
     bundle = prepared.bundle
-    is_shared_series = isinstance(bundle, SeriesImportContext)
     root_title_id = bundle.root["title_id"]
-    write_bundle = (
-        not is_shared_series or root_title_id not in written_series_ids
-    )
+    write_bundle = root_title_id not in written_root_ids
     if write_bundle:
         _publish_staged_files(bundle.staged_files, published_files)
 
@@ -508,8 +437,7 @@ def _write_prepared_import(
         ),
         db=db,
     )
-    if is_shared_series:
-        written_series_ids.add(root_title_id)
+    written_root_ids.add(root_title_id)
     return file_id
 
 
@@ -527,13 +455,31 @@ def _result(prepared: PreparedMediaImport, file_id: int) -> dict:
     }
 
 
+def _apply_imdb_ratings(prepared_items: list[PreparedMediaImport]) -> None:
+    """从 IMDb 评分文件填入 average_rating / num_votes；不可用时保留库内旧值。"""
+    titles = {
+        title["title_id"]: title
+        for prepared in prepared_items
+        for title in prepared.bundle.titles
+    }
+    try:
+        ratings = imdb_ratings.lookup_ratings(titles)
+    except (OSError, ValueError, EOFError) as error:
+        logger.warning("IMDb 评分文件读取失败：%s", error)
+        return
+    for title_id, (rating, votes) in ratings.items():
+        titles[title_id]["average_rating"] = rating
+        titles[title_id]["num_votes"] = votes
+
+
 def _persist_prepared_imports(
     database_path: Path,
     image_root: Path,
     prepared_items: list[PreparedMediaImport],
 ) -> list[dict]:
+    _apply_imdb_ratings(prepared_items)
     published_files = []
-    written_series_ids = set()
+    written_root_ids = set()
     current = None
     try:
         with closing(connect_writable(database_path)) as db, db:
@@ -542,7 +488,7 @@ def _persist_prepared_imports(
                 file_id = _write_prepared_import(
                     db,
                     current,
-                    written_series_ids,
+                    written_root_ids,
                     published_files,
                 )
                 results.append(_result(current, file_id))
@@ -567,72 +513,59 @@ def _persist_prepared_imports(
     return results
 
 
+IMPORT_ERRORS = (
+    OSError,
+    RuntimeError,
+    ValueError,
+    sqlite3.Error,
+    requests.RequestException,
+)
+
+
+def _run_import(library_database, image_root, items: list[dict], progress: dict) -> list[dict]:
+    library_database = Path(library_database)
+    image_root = Path(image_root)
+    image_root.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(
+        prefix=".media-import-",
+        dir=image_root.parent,
+    ) as temporary_directory, closing(
+        connect_database(library_database)
+    ) as library_db:
+        prepared_items = _prepare_items(
+            library_db,
+            image_root,
+            Path(temporary_directory),
+            items,
+            progress,
+        )
+        results = _persist_prepared_imports(library_database, image_root, prepared_items)
+    return [{"index": prepared.index, **result} for prepared, result in zip(prepared_items, results)]
+
+
 def import_media(
     *,
     library_database: str | Path,
-    imdb_database: str | Path,
     image_root: str | Path,
     title_id: str,
     season_number: str = "",
     episode_number: str = "",
     alist_url: str,
 ) -> dict:
-    title_id = _validate_title_id(title_id)
-
-    library_database = Path(library_database)
-    image_root = Path(image_root)
-    image_root.parent.mkdir(parents=True, exist_ok=True)
+    item = {
+        "title_id": title_id,
+        "season_number": season_number,
+        "episode_number": episode_number,
+        "alist_url": alist_url,
+    }
     try:
-        with tempfile.TemporaryDirectory(
-            prefix=".media-import-",
-            dir=image_root.parent,
-        ) as temporary_directory, closing(
-            connect_imdb(imdb_database)
-        ) as imdb_db, closing(
-            connect_database(library_database)
-        ) as library_db:
-            staging_root = Path(temporary_directory)
-            resolved = _resolve_target(
-                imdb_db,
-                title_id,
-                season_number,
-                episode_number,
-            )
-            context = None
-            if resolved["root"]["title_type"] == "series":
-                context = _build_series_context(imdb_db, resolved["root"])
-                resolved = _resolve_target_from_context(
-                    context,
-                    title_id,
-                    season_number,
-                    episode_number,
-                )
-            prepared = _prepare_import(
-                index=1,
-                title_id=title_id,
-                resolved=resolved,
-                library_db=library_db,
-                imdb_db=imdb_db,
-                image_root=image_root,
-                staging_root=staging_root,
-                alist_url=alist_url,
-                series_context=context,
-            )
-            return _persist_prepared_imports(
-                library_database,
-                image_root,
-                [prepared],
-            )[0]
+        result = _run_import(library_database, image_root, [item], {})[0]
     except MediaImportError:
         raise
-    except (
-        OSError,
-        RuntimeError,
-        ValueError,
-        sqlite3.Error,
-        requests.RequestException,
-    ) as error:
+    except IMPORT_ERRORS as error:
         raise MediaImportError(str(error)) from error
+    result.pop("index")
+    return result
 
 
 def normalize_batch_import_items(payload) -> list[dict]:
@@ -673,117 +606,16 @@ def _normalize_batch_value(value, index: int, field: str) -> str:
 def import_media_batch(
     *,
     library_database: str | Path,
-    imdb_database: str | Path,
     image_root: str | Path,
     items: list[dict],
 ) -> dict:
-    library_database = Path(library_database)
-    image_root = Path(image_root)
-    image_root.parent.mkdir(parents=True, exist_ok=True)
-    prepared_items = []
-    contexts_by_title: dict[str, SeriesImportContext] = {}
-    seen_alist_paths: set[str] = set()
-    current_index = 0
-    current_title_id = ""
-
+    progress = {"index": 0, "title_id": ""}
     try:
-        with tempfile.TemporaryDirectory(
-            prefix=".media-import-",
-            dir=image_root.parent,
-        ) as temporary_directory, closing(
-            connect_imdb(imdb_database)
-        ) as imdb_db, closing(
-            connect_database(library_database)
-        ) as library_db:
-            staging_root = Path(temporary_directory)
-            for current_index, item in enumerate(items, start=1):
-                current_title_id = _validate_title_id(item.get("title_id") or "")
-                context = contexts_by_title.get(current_title_id)
-                if context is not None:
-                    resolved = _resolve_target_from_context(
-                        context,
-                        current_title_id,
-                        item.get("season_number", ""),
-                        item.get("episode_number", ""),
-                    )
-                else:
-                    resolved = _resolve_target(
-                        imdb_db,
-                        current_title_id,
-                        item.get("season_number", ""),
-                        item.get("episode_number", ""),
-                    )
-                    if resolved["root"]["title_type"] == "series":
-                        root_id = resolved["root"]["title_id"]
-                        context = contexts_by_title.get(root_id)
-                        if context is None:
-                            context = _build_series_context(
-                                imdb_db,
-                                resolved["root"],
-                            )
-                            contexts_by_title[root_id] = context
-                            for episode_id in context.episodes_by_id:
-                                contexts_by_title[episode_id] = context
-                        resolved = _resolve_target_from_context(
-                            context,
-                            current_title_id,
-                            item.get("season_number", ""),
-                            item.get("episode_number", ""),
-                        )
-
-                prepared_items.append(
-                    _prepare_import(
-                        index=current_index,
-                        title_id=current_title_id,
-                        resolved=resolved,
-                        library_db=library_db,
-                        imdb_db=imdb_db,
-                        image_root=image_root,
-                        staging_root=staging_root,
-                        alist_url=item.get("alist_url", ""),
-                        seen_alist_paths=seen_alist_paths,
-                        series_context=context,
-                    )
-                )
-
-            results = _persist_prepared_imports(
-                library_database,
-                image_root,
-                prepared_items,
-            )
+        successes = _run_import(library_database, image_root, items, progress)
     except _PersistenceError as error:
-        return {
-            "successes": [],
-            "failures": [
-                {
-                    "index": error.index,
-                    "title_id": error.title_id,
-                    "message": str(error),
-                }
-            ],
-        }
-    except (
-        OSError,
-        RuntimeError,
-        ValueError,
-        sqlite3.Error,
-        requests.RequestException,
-    ) as error:
-        return {
-            "successes": [],
-            "failures": [
-                {
-                    "index": current_index,
-                    "title_id": current_title_id,
-                    "message": str(error),
-                }
-            ],
-        }
-
-    return {
-        "successes": [
-            {"index": prepared.index, **result}
-            for prepared, result in zip(prepared_items, results)
-        ],
-        "failures": [],
-    }
+        failure = {"index": error.index, "title_id": error.title_id, "message": str(error)}
+    except IMPORT_ERRORS as error:
+        failure = {**progress, "message": str(error)}
+    else:
+        return {"successes": successes, "failures": []}
+    return {"successes": [], "failures": [failure]}
