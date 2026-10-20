@@ -1,0 +1,19 @@
+{
+  // 云端入口 Worker（JavaScript）。部署后在 library.yu2yu2.dpdns.org/* 挂载路由。
+  "name": "moviedb-router",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-01",
+  "workers_dev": true,
+  "routes": [
+    { "pattern": "library.yu2yu2.dpdns.org/*", "zone_name": "yu2yu2.dpdns.org" },
+    { "pattern": "readonly-v1.yu2yu2.dpdns.org/*", "zone_name": "yu2yu2.dpdns.org" }
+  ],
+  "r2_buckets": [{ "binding": "SNAPSHOT", "bucket_name": "moviedb-snapshot" }],
+  "services": [{ "binding": "RENDERER", "service": "moviedb-renderer" }],
+  // 同步令牌只保存 SHA-256 摘要（公开无妨）；明文令牌仅在本机 .env 的 MOVIEDB_SYNC_TOKEN 中。
+  // 更换令牌：生成新令牌写入 .env，再把摘要填到这里并重新部署。
+  "vars": {
+    "SNAPSHOT_HOSTS": "readonly-v1.yu2yu2.dpdns.org",
+    "SYNC_TOKEN_SHA256": "b9f5e2593d92afa079c1644fe7a01dc3e04ab320ced81342ce603d36325247d4"
+  }
+}

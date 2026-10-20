@@ -1,0 +1,49 @@
+name: Deploy cloud snapshot
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - app.py
+      - models/**
+      - queries/**
+      - viewmodels/**
+      - templates/**
+      - services/playback.py
+      - services/thumbnails.py
+      - cloud/**
+  workflow_dispatch:
+
+concurrency: deploy-cloud
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+    steps:
+      - name: Skip without Cloudflare token
+        if: env.CLOUDFLARE_API_TOKEN == ''
+        run: echo "::notice::未配置 CLOUDFLARE_API_TOKEN，跳过云端部署"
+      - uses: actions/checkout@v4
+        if: env.CLOUDFLARE_API_TOKEN != ''
+      - uses: actions/setup-node@v4
+        if: env.CLOUDFLARE_API_TOKEN != ''
+        with:
+          node-version: 24
+      - uses: astral-sh/setup-uv@v6
+        if: env.CLOUDFLARE_API_TOKEN != ''
+      - name: Install wrangler
+        if: env.CLOUDFLARE_API_TOKEN != ''
+        working-directory: cloud
+        run: npm install --no-audit --no-fund
+      - name: Deploy renderer
+        if: env.CLOUDFLARE_API_TOKEN != ''
+        working-directory: cloud/renderer
+        run: |
+          uv run python build.py
+          uv run pywrangler deploy
+      - name: Deploy router
+        if: env.CLOUDFLARE_API_TOKEN != ''
+        working-directory: cloud/router
+        run: npx wrangler deploy
