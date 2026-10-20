@@ -42,7 +42,7 @@ def check_association(library_database, payload):
     if not isinstance(items, list) or not 1 <= len(items) <= MAX_BATCH_ITEMS:
         raise ValueError(f"请选择 1–{MAX_BATCH_ITEMS} 个视频。")
     title = title_metadata(library_database, payload.get("title_id"))
-    discovered = {item["path"] for record in scan_status(library_database)["records"] for item in record["files"]}
+    discovered = {item["path"] for record in scan_status(library_database, prune=False)["records"] for item in record["files"]}
     with closing(connect_database(library_database)) as db:
         associated = get_associated_paths(db)
     positions = {}
@@ -85,6 +85,20 @@ def check_association(library_database, payload):
     return {"title": title, "rows": rows, "valid": all(not row["error"] for row in rows)}
 
 
+def _learn_alias(library_database, source_name, title):
+    """记住“乱码目录名 → 作品”的人工确认结果，下次同名目录直接识别。"""
+    from models import discovery_store as store
+    from services.recognition import alias_key
+
+    key = alias_key(source_name)
+    if key:
+        try:
+            store.save_alias(library_database, key, {name: title.get(name) for name in
+                                                     ("title_id", "name", "year", "media_type")})
+        except Exception:
+            pass
+
+
 def complete_association(*, library_database, image_root, payload):
     checked = check_association(library_database, payload)
     if not checked["valid"]:
@@ -108,6 +122,9 @@ def complete_association(*, library_database, image_root, payload):
         if 0 <= index < len(checked["rows"]):
             # Connector exceptions can contain signed URLs: keep the browser error safe.
             checked["rows"][index]["error"] = "导入失败，请检查视频可访问性和元数据服务后重试。"
+    source = payload.get("source_name")
+    if not result["failures"] and isinstance(source, str) and source.strip():
+        _learn_alias(library_database, source, checked["title"])
     return {**checked, "valid": not result["failures"],
             "imported": len(result["successes"]),
             "error": "批量导入失败，全部内容均未写入。" if result["failures"] else ""}

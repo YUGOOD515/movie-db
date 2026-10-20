@@ -76,6 +76,13 @@ search_titles = _lazy("services.title_search", "search_titles")
 select_title = _lazy("services.title_search", "select_title")
 start_scan = _lazy("services.media_discovery", "start_scan")
 scan_status = _lazy("services.media_discovery", "scan_status")
+set_ignored = _lazy("services.media_discovery", "set_ignored")
+find_record = _lazy("services.media_discovery", "find_record")
+discovery_path = _lazy("services.media_discovery", "canonical_path")
+browse_alist = _lazy("services.media_discovery", "browse")
+_discovery_store = _LazyModule("models.discovery_store")
+_recognition = _LazyModule("services.recognition")
+missing_by_title = _lazy("services.media_health", "missing_by_title")
 title_metadata = _lazy("services.media_association", "title_metadata")
 check_association = _lazy("services.media_association", "check_association")
 complete_association = _lazy("services.media_association", "complete_association")
@@ -134,6 +141,10 @@ if not READ_ONLY:
         from services.image_tones import start_backfill
 
         start_backfill(DATABASE_PATH, app.static_folder)
+    if not os.environ.get("MOVIEDB_AUTOSCAN_DISABLED"):
+        from services.media_discovery import start_autoscan
+
+        start_autoscan(DATABASE_PATH)
 
 
 @app.context_processor
@@ -363,15 +374,23 @@ def media():
     active_tab = (
         "associate" if request.args.get("tab") == "associate" else "overview"
     )
+    missing = {} if app.config["READ_ONLY"] else missing_by_title(app.config["DATABASE"])
+    health = "missing" if request.args.get("health") == "missing" and missing else ""
+    if health:
+        raw = {**raw, "titles": [title for title in raw["titles"] if title["title_id"] in missing]}
     page = build_manager_viewmodel(
         raw,
         active_tab=active_tab,
         return_to=request.full_path,
     )
+    for item in page["media_items"]:
+        item["missing"] = missing.get(item["title_id"], 0)
     return render_template(
         "media.html",
         active_tab=active_tab,
         overview=page,
+        missing_total=sum(missing.values()),
+        health=health,
         alist_origin=app.config["ALIST_ORIGIN"],
     )
 
@@ -430,6 +449,70 @@ def discover_import_media():
     if request.method == "POST":
         start_scan(app.config["DATABASE"], refresh=request.args.get("refresh") == "1")
     return jsonify(scan_status(app.config["DATABASE"]))
+
+
+def _discovery_payload():
+    payload = request.get_json(silent=True)
+    if not isinstance(payload, dict):
+        raise ValueError("请求数据必须是 JSON 对象。")
+    path = payload.get("path")
+    if path != "/":
+        path = discovery_path(path)
+    return payload, path
+
+
+@app.post("/manager/discovery/roots")
+def update_discovery_roots():
+    try:
+        payload, path = _discovery_payload()
+        if payload.get("action") == "remove":
+            _discovery_store.remove_root(app.config["DATABASE"], path)
+        elif path == "/":
+            raise ValueError("请选择具体的目录。")
+        else:
+            _discovery_store.add_root(app.config["DATABASE"], path)
+    except ValueError as error:
+        return jsonify(error=str(error)), 400
+    return jsonify(roots=_discovery_store.list_roots(app.config["DATABASE"]))
+
+
+@app.get("/manager/discovery/browse")
+def browse_discovery_folders():
+    try:
+        return jsonify(browse_alist(request.args.get("path") or "/", alist.configured_token()))
+    except ValueError as error:
+        return jsonify(error=str(error)), 400
+    except (RuntimeError, requests.RequestException):
+        return jsonify(error="无法读取 AList，请检查服务和账号。"), 503
+
+
+@app.post("/manager/discovery/ignore")
+def ignore_discovery_record():
+    try:
+        payload, path = _discovery_payload()
+        set_ignored(app.config["DATABASE"], path, str(payload.get("name") or path)[:300],
+                    payload.get("ignored", True) is not False)
+    except ValueError as error:
+        return jsonify(error=str(error)), 400
+    return jsonify(ok=True)
+
+
+@app.post("/manager/discovery/recognize")
+def recognize_discovery_record():
+    try:
+        _, path = _discovery_payload()
+        record = find_record(app.config["DATABASE"], path)
+        if record is None:
+            raise ValueError("该内容不在本次扫描结果中，请刷新。")
+        result = _recognition.recognize(app.config["DATABASE"], record)
+    except ValueError as error:
+        return jsonify(error=str(error)), 400
+    except requests.RequestException:
+        return jsonify(error="TMDB 或 AI 服务暂时无法访问，请稍后重试。"), 502
+    except RuntimeError:
+        return jsonify(error="TMDB 尚未配置。"), 503
+    _discovery_store.save_recognition(app.config["DATABASE"], path, _recognition.signature(record), result)
+    return jsonify(result)
 
 
 @app.get("/manager/titles/episodes")

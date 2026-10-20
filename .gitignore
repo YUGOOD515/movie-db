@@ -27,6 +27,7 @@ flask_session/
 imdb/
 imdb.db
 library.db
+discovery.db
 
 # Scratch & agent workdir
 scratch/

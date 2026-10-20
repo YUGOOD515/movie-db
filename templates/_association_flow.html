@@ -2,24 +2,47 @@
          data-discovery-url="{{ url_for('discover_import_media') }}"
          data-metadata-url="{{ url_for('import_title_metadata') }}"
          data-check-url="{{ url_for('associate_discovered_media', action='check') }}"
-         data-complete-url="{{ url_for('associate_discovered_media', action='complete') }}">
+         data-complete-url="{{ url_for('associate_discovered_media', action='complete') }}"
+         data-roots-url="{{ url_for('update_discovery_roots') }}"
+         data-browse-url="{{ url_for('browse_discovery_folders') }}"
+         data-ignore-url="{{ url_for('ignore_discovery_record') }}"
+         data-recognize-url="{{ url_for('recognize_discovery_record') }}"
+         data-poster-url="{{ url_for('import_title_poster') }}">
     <div data-discovery-panel>
-        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
-            <div>
-                <h2 class="h5 mb-1">待关联内容 <span class="small text-body-secondary" data-discovery-count></span></h2>
-                <span class="small text-body-secondary" data-discovery-root>来自：分享</span>
+        <div class="discovery-toolbar d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
+            <h2 class="h5 mb-0 d-flex align-items-center gap-2">待关联<span class="discovery-count" data-discovery-count></span></h2>
+            <div class="d-flex align-items-center gap-2">
+                <a class="btn btn-sm chip-btn health-chip d-none" href="{{ url_for('media', tab='overview', health='missing') }}" data-discovery-missing><i class="bi bi-exclamation-triangle-fill me-1" aria-hidden="true"></i><span></span></a>
+                <button type="button" class="btn icon-btn discovery-icon-btn" data-discovery-refresh aria-label="重新扫描" title="重新扫描"><i class="bi bi-arrow-clockwise" aria-hidden="true"></i></button>
             </div>
-            <button type="button" class="btn btn-sm btn-outline-secondary" data-discovery-refresh><i class="bi bi-arrow-clockwise me-1" aria-hidden="true"></i><span data-discovery-refresh-label>刷新</span></button>
         </div>
-        <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
-            <input class="form-control form-control-sm discovery-filter" type="search" placeholder="筛选文件或文件夹" aria-label="筛选待关联内容" data-discovery-filter>
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-4">
+            <div class="d-flex flex-wrap align-items-center gap-2" data-discovery-roots aria-label="扫描目录">
+                <button type="button" class="btn btn-sm chip-btn root-add" data-root-add aria-label="添加扫描目录" title="添加扫描目录"><i class="bi bi-plus-lg" aria-hidden="true"></i></button>
+            </div>
+            <input class="form-control form-control-sm bg-body-tertiary discovery-filter" type="search" placeholder="筛选" aria-label="筛选待关联内容" data-discovery-filter>
         </div>
-        <div class="table-responsive squircle-card border">
-            <table class="table table-hover align-middle mb-0 discovery-table">
-                <thead class="small text-body-secondary"><tr><th scope="col" class="ps-3">新增内容</th><th scope="col">视频</th><th scope="col">新增时间</th><th scope="col"><span class="visually-hidden">操作</span></th></tr></thead>
-                <tbody data-discovery-rows></tbody>
-            </table>
-            <p class="text-body-secondary text-center p-4 mb-0 d-none" data-discovery-empty>没有待关联的视频</p>
+        <div class="d-flex flex-column gap-4" data-discovery-groups></div>
+        <div class="discovery-empty text-center text-body-secondary d-none" data-discovery-empty>
+            <i class="bi bi-check2-circle d-block mb-2" aria-hidden="true"></i><span></span>
+        </div>
+    </div>
+
+    <div class="modal fade" id="root-browser" tabindex="-1" aria-labelledby="root-browser-heading" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content squircle-card">
+                <div class="modal-header border-0 pb-2">
+                    <h2 class="modal-title fs-5" id="root-browser-heading">扫描目录</h2>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+                </div>
+                <nav class="px-3 pb-2" aria-label="当前位置"><ol class="root-crumbs d-flex flex-wrap align-items-center gap-1 list-unstyled mb-0 small" data-root-crumbs></ol></nav>
+                <div class="modal-body pt-0">
+                    <ul class="root-folders list-unstyled mb-0" data-root-folders></ul>
+                </div>
+                <div class="modal-footer border-0">
+                    <button type="button" class="btn btn-sm media-primary-action px-4" data-root-choose>添加此目录</button>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -32,11 +55,11 @@
                 </div>
                 <p class="small text-body-secondary mb-0" data-task-path></p>
             </div>
-            <button class="btn btn-sm btn-outline-secondary" type="button" data-task-close>返回待关联</button>
+            <button class="btn btn-sm btn-outline-secondary" type="button" data-task-close><i class="bi bi-chevron-left me-1" aria-hidden="true"></i>待关联</button>
         </div>
         <div class="squircle-card border p-3 mb-4">
             <div class="d-flex align-items-start justify-content-between gap-3">
-                <div class="min-w-0"><h3 class="h6 mb-1" data-task-title>选择电影或剧集</h3><span class="small text-body-secondary" data-task-title-meta></span></div>
+                <div class="min-w-0"><h3 class="h6 mb-1 d-flex align-items-center gap-2"><span data-task-title>选择电影或剧集</span><i class="bi bi-stars text-body-secondary d-none" data-task-ai title="AI 识别" aria-label="AI 识别"></i></h3><span class="small text-body-secondary" data-task-title-meta></span></div>
                 <img class="flex-shrink-0" src="{{ url_for('static', filename='imdb.png') }}" alt="IMDb" height="20">
             </div>
             <section class="d-none mt-3 pt-3 border-top" data-available-panel aria-label="IMDb 可用季集">

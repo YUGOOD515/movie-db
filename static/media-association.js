@@ -19,7 +19,7 @@
     const picker = document.getElementById("title-picker");
     const correction = document.getElementById("episode-correction");
     let records = [], files = [], title = null, task = null, blocks = [], waitingForTitle = false;
-    let busy = false, reviewed = false, taskVersion = 0, pollTimer = null;
+    let useGuess = false, busy = false, reviewed = false, taskVersion = 0, pollTimer = null;
     let discoveryNotice = "";
     let blockDragActive = false;
 
@@ -35,92 +35,361 @@
 
     const feedback = (text, category = "info") => window.showAppToast?.(text, category);
 
-    function discoveryRows() {
-        const query = $("[data-discovery-filter]").value.trim().toLowerCase();
-        const visible = records.filter(item => `${item.name} ${item.path}`.toLowerCase().includes(query));
-        const rows = $("[data-discovery-rows]");
-        rows.replaceChildren();
-        for (const item of visible) {
-            const row = el("tr");
-            const name = el("td", "ps-3");
-            const heading = el("div", "d-flex align-items-center gap-2");
-            heading.append(el("i", `bi ${item.kind === "folder" ? "bi-folder2" : "bi-file-earmark-play"} text-body-secondary`));
-            heading.append(button(item.name, () => openTask(item), "btn btn-link text-body text-start text-break p-0 text-decoration-none"));
-            name.append(heading);
-            if (item.kind === "update") name.append(el("div", "small text-body-secondary mt-1", `待更新${item.suggestion ? ` · ${item.suggestion.name}` : ""}`));
-            const date = el("td", "small text-body-secondary text-nowrap");
-            date.textContent = item.added ? new Date(item.added).toLocaleDateString("zh-CN") : "时间未知";
-            date.title = item.time_source === "modified" ? "AList 未提供新增时间，使用修改时间" : item.added;
-            const action = el("td", "text-end pe-3");
-            action.append(button("关联", () => openTask(item)));
-            row.append(name, el("td", "small text-nowrap", String(item.files.length)), date, action);
-            rows.append(row);
+    let ignored = [], roots = [], scan = {}, confirming = false, watching = false;
+    const browser = document.getElementById("root-browser");
+    const GROUPS = [["ready", "可直接确认"], ["review", "待核对"], ["unknown", "未识别"]];
+    const scanning = () => ["running", "recognizing"].includes(scan.status);
+    const stateOf = item => item.recognition?.status || "unknown";
+    const icon = (name, classes = "") => { const node = el("i", `bi bi-${name} ${classes}`.trim()); node.setAttribute("aria-hidden", "true"); return node; };
+
+    function poster(item) {
+        const frame = el("span", "discovery-poster");
+        const found = item.recognition?.title;
+        frame.append(icon(found ? (found.media_type === "tv" ? "tv" : "film") : item.kind === "folder" ? "folder2" : "file-earmark-play"));
+        if (found?.tmdb_id) {
+            const image = el("img");
+            image.alt = ""; image.loading = "lazy"; image.decoding = "async";
+            image.src = `${root.dataset.posterUrl}?${new URLSearchParams({ type: found.media_type, tmdb_id: found.tmdb_id })}`;
+            image.addEventListener("error", () => image.remove());
+            frame.append(image);
         }
-        $("[data-discovery-count]").textContent = `${records.length} 项`;
-        $("[data-discovery-empty]").textContent = query ? "没有匹配的内容" : "没有待关联的视频";
-        show($("[data-discovery-empty]"), !visible.length);
+        return frame;
     }
 
-    function scanProgress(data = null) {
-        const refresh = $("[data-discovery-refresh]");
-        const running = data?.status === "running";
-        refresh.disabled = running;
-        refresh.classList.toggle("is-scanning", running);
-        refresh.setAttribute("aria-busy", String(running));
-        document.body.classList.toggle("discovery-progress-active", running);
+    function confidence(value) {
+        const level = value >= 0.9 ? 3 : value >= 0.75 ? 2 : 1;
+        const node = el("span", "match-dots");
+        node.dataset.level = String(level);
+        node.title = `匹配度 ${Math.round(value * 100)}%`;
+        node.setAttribute("role", "img"); node.setAttribute("aria-label", node.title);
+        for (let index = 0; index < 3; index++) node.append(el("i"));
+        return node;
+    }
+
+    function rowMenu(item) {
+        const dropdown = el("div", "dropdown");
+        const toggle = el("button", "btn icon-btn discovery-icon-btn");
+        toggle.type = "button"; toggle.dataset.bsToggle = "dropdown";
+        toggle.setAttribute("aria-expanded", "false"); toggle.setAttribute("aria-label", `${item.name} 更多操作`);
+        toggle.append(icon("three-dots"));
+        const menu = el("ul", "dropdown-menu dropdown-menu-end media-menu");
+        const entry = (label, symbol, action) => {
+            const option = button("", action, "dropdown-item d-flex align-items-center gap-2");
+            option.append(icon(symbol), el("span", "", label));
+            const line = el("li"); line.append(option); menu.append(line);
+        };
+        entry(item.recognition?.title ? "更换作品" : "手动关联", "search", () => openTask(item, true));
+        entry("重新识别", "arrow-repeat", () => recognizeAgain(item));
+        const divider = el("li"); divider.append(el("hr", "dropdown-divider")); menu.append(divider);
+        entry("忽略", "eye-slash", () => setIgnored(item, true));
+        dropdown.append(toggle, menu);
+        return dropdown;
+    }
+
+    function recordRow(item) {
+        const found = item.recognition?.title, state = stateOf(item);
+        const pending = !item.recognition && scanning();
+        const row = el("li", "discovery-item");
+        row.dataset.state = state;
+        if (item.busy) row.classList.add("is-busy");
+        const main = button("", () => openTask(item), "discovery-main btn text-start");
+        main.setAttribute("aria-label", `${found ? found.name : item.name}：${state === "ready" ? "查看" : "关联"}`);
+        const text = el("span", "discovery-text");
+        const heading = el("span", "discovery-title");
+        heading.append(el("span", "text-truncate", found ? found.name : item.recognition?.query || item.name));
+        if (found?.year) heading.append(el("span", "discovery-year", String(found.year)));
+        const meta = el("span", "discovery-meta");
+        const count = item.files.length;
+        const facts = [];
+        const coverage = item.recognition?.coverage;
+        const episodes = item.recognition?.episodes ?? count;
+        if (found?.media_type === "tv") facts.push(coverage != null && coverage < 1 ? `${Math.round(coverage * count)}/${count} 已匹配` : `${episodes} 集`);
+        else if (!found || count > 1) facts.push(`${count} 个视频`);
+        if (item.recognition?.versions > 1) facts.push(`${item.recognition.versions} 个版本`);
+        if (item.kind === "update") facts.push("更新");
+        for (const fact of facts) meta.append(el("span", "discovery-fact", fact));
+        if (found || (item.recognition?.query || item.name) !== item.name) meta.append(el("span", "discovery-source text-truncate", item.name));
+        text.append(heading, meta);
+        main.append(poster(item), text);
+        const side = el("div", "discovery-side");
+        if (item.recognition?.method === "ai") {
+            const ai = icon("stars", "discovery-ai");
+            ai.removeAttribute("aria-hidden"); ai.setAttribute("role", "img");
+            ai.title = "AI 识别"; ai.setAttribute("aria-label", "AI 识别");
+            side.append(ai);
+        }
+        if (item.recognition?.not_media) {
+            const other = icon("slash-circle", "text-body-secondary");
+            other.title = "可能不是影视内容"; other.removeAttribute("aria-hidden"); other.setAttribute("role", "img"); other.setAttribute("aria-label", other.title);
+            side.append(other);
+        }
+        if (found) side.append(confidence(item.recognition.confidence));
+        if (pending || item.busy) side.append(el("span", "spinner-border spinner-border-sm text-body-secondary"));
+        const action = state === "ready"
+            ? button("确认", () => confirm([item]), "btn btn-sm media-primary-action discovery-action")
+            : item.recognition?.not_media && !found
+                ? button("忽略", () => setIgnored(item, true), "btn btn-sm chip-btn discovery-action")
+                : button(found ? "核对" : "关联", () => openTask(item), "btn btn-sm chip-btn discovery-action");
+        action.disabled = confirming || item.busy;
+        side.append(action, rowMenu(item));
+        row.append(main, side);
+        return row;
+    }
+
+    function ignoredGroup(query) {
+        const visible = ignored.filter(item => item.name.toLowerCase().includes(query));
+        if (!visible.length) return null;
+        const details = el("details", "discovery-ignored");
+        const summary = el("summary", "small text-body-secondary d-inline-flex align-items-center gap-2");
+        summary.append(icon("eye-slash"), el("span", "", `已忽略 ${visible.length}`));
+        const list = el("ul", "discovery-list list-unstyled mb-0 mt-2 squircle-card");
+        for (const item of visible) {
+            const row = el("li", "discovery-item");
+            const label = el("span", "discovery-main text-body-secondary");
+            label.append(el("span", "text-truncate", item.name));
+            const side = el("div", "discovery-side");
+            side.append(button("恢复", () => setIgnored(item, false), "btn btn-sm chip-btn discovery-action"));
+            row.append(label, side); list.append(row);
+        }
+        details.append(summary, list);
+        details.open = !!ignoredGroup.open;
+        details.addEventListener("toggle", () => { ignoredGroup.open = details.open; });
+        return details;
+    }
+
+    function discoveryRows() {
+        const query = $("[data-discovery-filter]").value.trim().toLowerCase();
+        const visible = records.filter(item => `${item.name} ${item.path} ${item.recognition?.title?.name || ""}`.toLowerCase().includes(query));
+        const container = $("[data-discovery-groups]");
+        container.replaceChildren();
+        for (const [key, label] of GROUPS) {
+            const items = visible.filter(item => stateOf(item) === key);
+            if (!items.length) continue;
+            const section = el("section", "discovery-group");
+            section.dataset.group = key;
+            const header = el("header", "discovery-group-header");
+            const heading = el("h3", "discovery-group-title");
+            heading.append(el("span", "group-dot"), el("span", "", label), el("span", "discovery-count", String(items.length)));
+            header.append(heading);
+            if (key === "ready" && items.length > 1) {
+                const all = button("全部确认", () => confirm(items), "btn btn-sm media-primary-action px-3");
+                all.prepend(icon("check2-all", "me-1"));
+                all.disabled = confirming;
+                header.append(all);
+            }
+            const list = el("ul", "discovery-list list-unstyled mb-0 squircle-card");
+            for (const item of items) list.append(recordRow(item));
+            section.append(header, list);
+            container.append(section);
+        }
+        const hidden = ignoredGroup(query);
+        if (hidden) container.append(hidden);
+        $("[data-discovery-count]").textContent = records.length ? String(records.length) : "";
+        const empty = $("[data-discovery-empty]");
+        empty.querySelector("span").textContent = query ? "没有匹配的内容" : scanning() && !records.length ? "正在扫描…" : "全部已关联";
+        show(empty, !visible.length);
+        const missing = $("[data-discovery-missing]");
+        missing.querySelector("span").textContent = `失效 ${scan.missing || 0}`;
+        missing.title = `${scan.missing || 0} 个已入库视频在 AList 中找不到`;
+        show(missing, scan.missing > 0);
+    }
+
+    function renderRoots() {
+        const box = $("[data-discovery-roots]"), add = $("[data-root-add]");
+        box.querySelectorAll(".root-chip").forEach(node => node.remove());
+        for (const item of roots) {
+            const chip = el("span", "root-chip");
+            chip.title = item.auto ? `${item.path}（自动）` : item.path;
+            chip.append(icon(item.auto ? "magic" : "folder2"), el("span", "text-truncate", item.path.split("/").filter(Boolean).pop() || "/"));
+            if (!item.auto) {
+                const remove = button("", () => updateRoot(item.path, "remove"), "root-remove");
+                remove.setAttribute("aria-label", `移除 ${item.path}`);
+                remove.append(icon("x"));
+                chip.append(remove);
+            }
+            box.insertBefore(chip, add);
+        }
+    }
+
+    function progressToast(label = "", percent = 0) {
+        document.body.classList.toggle("discovery-progress-active", !!label);
         let toast = document.querySelector("[data-discovery-progress-toast]");
-        if (!running) { toast?.classList.remove("rating-progress-toast--show"); return; }
+        if (!label) { toast?.classList.remove("rating-progress-toast--show"); return; }
         if (!toast) {
             toast = el("div", "rating-progress-toast");
             toast.dataset.discoveryProgressToast = "";
             toast.setAttribute("role", "status"); toast.setAttribute("aria-live", "polite");
             const header = el("div", "d-flex align-items-center justify-content-between gap-3 mb-2");
-            header.append(el("span", "small fw-semibold", "正在扫描 AList"));
+            const title = el("span", "small fw-semibold"); title.dataset.progressLabel = "";
             const count = el("span", "small text-body-secondary"); count.dataset.scanCount = "";
-            header.append(count);
+            header.append(title, count);
             const progress = el("div", "progress");
-            progress.setAttribute("role", "progressbar"); progress.setAttribute("aria-label", "AList 扫描进度");
-            progress.setAttribute("aria-valuemin", "0"); progress.setAttribute("aria-valuemax", "100");
+            progress.setAttribute("role", "progressbar"); progress.setAttribute("aria-valuemin", "0"); progress.setAttribute("aria-valuemax", "100");
             progress.append(el("div", "progress-bar"));
             toast.append(header, progress); document.body.append(toast);
         }
-        const total = Number(data.total) || 0, done = Number(data.done) || 0;
-        const percent = total > 0 ? Math.max(0, Math.min(100, Math.round(done / total * 100))) : 0;
+        percent = Math.max(0, Math.min(100, Math.round(percent)));
+        toast.querySelector("[data-progress-label]").textContent = label;
         toast.querySelector("[data-scan-count]").textContent = `${percent}%`;
         const bar = toast.querySelector(".progress-bar");
         bar.style.width = `${percent}%`;
-        const progress = bar.parentElement;
-        progress.setAttribute("aria-valuenow", String(percent));
+        bar.parentElement.setAttribute("aria-valuenow", String(percent));
+        bar.parentElement.setAttribute("aria-label", label);
         toast.classList.add("rating-progress-toast--show");
+    }
+
+    function scanProgress() {
+        const refresh = $("[data-discovery-refresh]");
+        const running = scanning();
+        refresh.disabled = running;
+        refresh.classList.toggle("is-scanning", running);
+        refresh.setAttribute("aria-busy", String(running));
+        if (confirming) return;
+        if (scan.status === "running") progressToast("正在扫描", scan.total ? scan.done / scan.total * 100 : 0);
+        else if (scan.status === "recognizing") progressToast("正在识别", scan.to_recognize ? scan.recognized / scan.to_recognize * 100 : 100);
+        else progressToast();
     }
 
     async function discover(start = false, refresh = false) {
         clearTimeout(pollTimer);
-        if (refresh) discoveryNotice = "";
-        if (start) scanProgress({ status: "running" });
+        if (start) { watching = true; scan = { ...scan, status: "running", done: 0, total: 0 }; scanProgress(); }
         try {
             const data = await json(root.dataset.discoveryUrl + (refresh ? "?refresh=1" : ""), start ? {} : undefined);
-            records = data.records;
-            discoveryRows();
-            $("[data-discovery-root]").textContent = data.root || "来自：分享";
-            if (data.status === "running") {
-                scanProgress(data);
-                pollTimer = setTimeout(() => discover(), 1500);
-            } else {
-                scanProgress();
-                const notice = JSON.stringify([data.status, data.records, data.error, data.warnings]);
-                if (notice !== discoveryNotice) {
-                    discoveryNotice = notice;
-                    const warnings = data.warnings || [];
-                    const message = data.status === "error" ? data.error || "AList 扫描失败，请重试。"
-                        : `扫描完成 · ${records.length} 项待关联内容${warnings.length ? ` · ${warnings.length} 项扫描警告：${warnings.join("；")}` : ""}`;
-                    feedback(message, data.status === "error" ? "danger" : warnings.length ? "warning" : "success");
-                }
+            const busyPaths = new Set(records.filter(item => item.busy).map(item => item.path));
+            scan = data; roots = data.roots || []; ignored = data.ignored || [];
+            records = data.records.map(item => busyPaths.has(item.path) ? { ...item, busy: true } : item);
+            renderRoots(); discoveryRows(); scanProgress();
+            if (scanning()) { watching = true; pollTimer = setTimeout(() => discover(), 1500); }
+            else if (watching || data.status === "error") {
+                watching = false;
+                const warnings = data.warnings || [];
+                const ready = records.filter(item => stateOf(item) === "ready").length;
+                const message = data.status === "error" ? data.error || "AList 扫描失败，请重试。"
+                    : `扫描完成 · ${records.length} 项${ready ? ` · ${ready} 项可直接确认` : ""}${warnings.length ? ` · ${warnings.length} 项警告：${warnings.join("；")}` : ""}`;
+                feedback(message, data.status === "error" ? "danger" : warnings.length ? "warning" : "success");
             }
+            return data;
         } catch (error) {
             feedback(error.message, "danger");
-            scanProgress();
+            scan = { ...scan, status: "error" }; scanProgress();
+            return null;
         }
+    }
+
+    // 同一集的多个版本不能放在同一批，按季集拆成若干轮依次关联。
+    function confirmBatches(item) {
+        const positions = item.recognition?.positions || {}, rounds = [];
+        for (const file of item.files) {
+            const [season = "", episode = ""] = positions[file.path] || [];
+            const key = item.recognition?.title?.media_type === "tv" ? `${season}:${episode}` : file.path;
+            let round = rounds.find(entry => !entry.keys.has(key));
+            if (!round) { round = { keys: new Set(), items: [] }; rounds.push(round); }
+            round.keys.add(key);
+            round.items.push({ path: file.path, season_number: season ?? "", episode_number: episode ?? "" });
+        }
+        return rounds.flatMap(round => Array.from({ length: Math.ceil(round.items.length / 100) }, (_, index) => round.items.slice(index * 100, index * 100 + 100)));
+    }
+
+    async function confirm(list) {
+        if (confirming || !list.length) return;
+        confirming = true; discoveryRows();
+        let finished = 0, videos = 0;
+        const failed = [];
+        progressToast("正在关联", 0);
+        for (const item of list) {
+            const imported = new Set();
+            try {
+                for (const items of confirmBatches(item)) {
+                    const data = await json(root.dataset.completeUrl, { title_id: item.recognition.title.title_id, source_name: item.name, items });
+                    if (!data.valid) throw new Error(data.error || "需核对");
+                    items.forEach(entry => imported.add(entry.path));
+                    videos += data.imported;
+                }
+            } catch { failed.push(item); }
+            records = records.flatMap(record => {
+                if (record !== item) return [record];
+                const files = record.files.filter(file => !imported.has(file.path));
+                if (!files.length) return [];
+                return [{ ...record, files, recognition: { ...record.recognition, status: "review" } }];
+            });
+            finished++;
+            progressToast("正在关联", finished / list.length * 100);
+        }
+        confirming = false;
+        progressToast(); discoveryRows();
+        const done = list.length - failed.length;
+        feedback(`已关联 ${done} 项 · ${videos} 个视频${failed.length ? ` · ${failed.length} 项移至待核对` : ""}`, failed.length ? "warning" : "success");
+    }
+
+    async function recognizeAgain(item) {
+        item.busy = true; discoveryRows();
+        try {
+            const result = await json(root.dataset.recognizeUrl, { path: item.path });
+            records = records.map(record => record.path === item.path ? { ...record, recognition: result, busy: false } : record);
+            feedback(result.title ? `识别为 ${result.title.name}` : "仍未识别，可手动关联", result.title ? "success" : "warning");
+        } catch (error) {
+            feedback(error.message, "danger");
+        } finally {
+            item.busy = false;
+            records = records.map(record => record.path === item.path ? { ...record, busy: false } : record);
+            discoveryRows();
+        }
+    }
+
+    async function setIgnored(item, value) {
+        try {
+            await json(root.dataset.ignoreUrl, { path: item.path, name: item.name, ignored: value });
+        } catch (error) { feedback(error.message, "danger"); return; }
+        if (value) {
+            records = records.filter(record => record.path !== item.path);
+            ignored = [{ path: item.path, name: item.name, count: item.files.length }, ...ignored];
+            discoveryRows();
+            window.showAppToast?.(`已忽略 ${item.name}`, "info");
+        } else {
+            ignored = ignored.filter(entry => entry.path !== item.path);
+            discover(true);
+        }
+    }
+
+    async function updateRoot(path, action) {
+        try {
+            await json(root.dataset.rootsUrl, { path, action });
+        } catch (error) { feedback(error.message, "danger"); return; }
+        bootstrap.Modal.getInstance(browser)?.hide();
+        discover(true);
+    }
+
+    async function browse(path) {
+        const crumbs = $("[data-root-crumbs]"), folders = $("[data-root-folders]"), choose = $("[data-root-choose]");
+        choose.disabled = true;
+        folders.replaceChildren(el("li", "root-folders-status", "读取中…"));
+        let data;
+        try { data = await json(`${root.dataset.browseUrl}?${new URLSearchParams({ path })}`); }
+        catch (error) { folders.replaceChildren(el("li", "root-folders-status", error.message)); return; }
+        browser.dataset.path = data.path;
+        crumbs.replaceChildren();
+        const parts = data.path.split("/").filter(Boolean);
+        const crumb = (label, target, current) => {
+            const item = el("li", "d-flex align-items-center gap-1");
+            if (target !== "/") item.append(icon("chevron-right", "root-crumb-sep"));
+            const node = button(label, () => browse(target), "btn btn-link root-crumb p-0");
+            if (target === "/") { node.textContent = ""; node.append(icon("hdd-network")); node.setAttribute("aria-label", "根目录"); }
+            if (current) node.setAttribute("aria-current", "location");
+            item.append(node); crumbs.append(item);
+        };
+        crumb("/", "/", !parts.length);
+        parts.forEach((part, index) => crumb(part, `/${parts.slice(0, index + 1).join("/")}`, index === parts.length - 1));
+        folders.replaceChildren();
+        for (const folder of data.folders) {
+            const item = el("li");
+            const node = button("", () => browse(folder.path), "root-folder btn text-start");
+            node.append(icon("folder2"), el("span", "text-truncate flex-grow-1", folder.name), icon("chevron-right", "text-body-secondary"));
+            item.append(node); folders.append(item);
+        }
+        if (!data.folders.length) folders.append(el("li", "root-folders-status", "没有子目录"));
+        const added = roots.some(item => !item.auto && item.path === data.path);
+        choose.disabled = data.path === "/" || added;
+        choose.textContent = added ? "已添加" : "添加此目录";
     }
 
     function invalidate() {
@@ -136,13 +405,16 @@
         return match ? match[1] : $("[data-default-season]").value;
     }
 
-    function applyRule() {
+    // 识别阶段已推测出季集时优先采用；用户改动匹配规则后改用规则结果。
+    function applyRule(fromRule = true) {
+        if (fromRule === true) useGuess = false;
         invalidate();
         for (const file of files) {
             file.match = rules.parse(file.name, blocks);
             if (!file.manual) {
-                file.season = file.match?.season ?? suggestSeason(file);
-                file.episode = file.match?.episode ?? "";
+                const guess = useGuess ? file.guess : null;
+                file.season = guess?.[0] ?? file.match?.season ?? suggestSeason(file);
+                file.episode = guess?.[1] ?? file.match?.episode ?? "";
             }
         }
         renderFiles();
@@ -388,7 +660,7 @@
             const statusLine = el("div", "d-flex align-items-center gap-2");
             if (!file.included) statusLine.append(el("span", "text-body-secondary", "未选择"));
             else if (file.error) {
-                const label = file.serverError ? "需检查" : "未匹配";
+                const label = file.serverError ? "需检查" : file.error === "重复季集" ? "重复" : "未匹配";
                 const status = title?.media_type === "tv" && !reviewed
                     ? button(label, () => correctTarget(file), "btn btn-link text-body-secondary text-start text-truncate file-status-label p-0")
                     : el("span", "text-body-secondary", label);
@@ -500,7 +772,8 @@
             });
             setPreset(best);
             blocks = structuredClone(rules.presets[best].blocks);
-            renderBlocks(); applyRule();
+            useGuess = files.some(file => file.guess?.[1] != null);
+            renderBlocks(); applyRule(false);
         } catch (error) {
             if (version === taskVersion) feedback(error.message, "danger");
         } finally {
@@ -512,17 +785,19 @@
         waitingForTitle = true;
         document.getElementById("title-picker-heading").textContent = "重新搜索匹配";
         const query = picker.querySelector("[data-title-search-query]");
-        query.value = task.name.replace(/\.[a-z0-9]{2,5}$/i, "").replace(/[._]/g, " ").slice(0, 100);
+        query.value = (task.recognition?.query || task.name.replace(/\.[a-z0-9]{2,5}$/i, "").replace(/[._]/g, " ")).slice(0, 100);
         query.dispatchEvent(new Event("input"));
-        const type = title?.media_type || (task.suggestion || files.some(file => /S\d+E\d+|\d+x\d+|第\d+集|EP\d+/i.test(file.name)) || files.length > 1 ? "tv" : "movie");
+        const type = title?.media_type || task.recognition?.media_type || (task.suggestion || files.some(file => /S\d+E\d+|\d+x\d+|第\d+集|EP\d+/i.test(file.name)) || files.length > 1 ? "tv" : "movie");
         picker.querySelector(`[name="search_type"][value="${type}"]`).checked = true;
         bootstrap.Modal.getOrCreateInstance(picker).show();
     }
 
-    function openTask(item) {
+    function openTask(item, search = false) {
         taskVersion++;
-        task = item; title = null; busy = false;
-        files = [...item.files].sort((a, b) => a.path.localeCompare(b.path, "zh-CN", { numeric: true })).map(file => ({ ...file, included: true, season: "", episode: "", manual: false }));
+        task = item; title = null; busy = false; useGuess = false;
+        const positions = item.recognition?.positions || {};
+        files = [...item.files].sort((a, b) => a.path.localeCompare(b.path, "zh-CN", { numeric: true })).map(file => ({ ...file, included: true, season: "", episode: "", manual: false, guess: positions[file.path] || null }));
+        show($("[data-task-ai]"), item.recognition?.method === "ai");
         $("[data-task-name]").textContent = item.name;
         $("[data-task-path]").textContent = item.kind === "update" ? "已有内容更新" : `${files.length} 个视频`;
         $("[data-task-title]").textContent = "选择电影或剧集";
@@ -534,8 +809,10 @@
         show($("[data-available-panel]"), false);
         show($("[data-discovery-panel]"), false); show($("[data-association-editor]"), true);
         invalidate(); renderFiles();
-        if (item.suggestion) chooseTitle(item.suggestion);
+        const found = item.recognition?.title || item.suggestion;
+        if (found && !search) chooseTitle(found);
         else pickTitle();
+        window.scrollTo({ top: 0, behavior: "smooth" });
     }
 
     function lockEditor(value) {
@@ -546,7 +823,7 @@
 
     async function submit(complete = false) {
         if (busy || !title || complete && !reviewed) return;
-        const payload = { title_id: title.title_id, items: files.filter(file => file.included).map(file => ({ path: file.path, season_number: file.season, episode_number: file.episode })) };
+        const payload = { title_id: title.title_id, source_name: task.name, items: files.filter(file => file.included).map(file => ({ path: file.path, season_number: file.season, episode_number: file.episode })) };
         lockEditor(true);
         const action = $(complete ? "[data-task-complete]" : "[data-task-check]");
         action.textContent = complete ? "关联中…" : "检查中…";
@@ -566,6 +843,7 @@
                     const remaining = record.files.filter(file => !imported.has(file.path));
                     return remaining.length ? [{ ...record, files: remaining }] : [];
                 });
+                task = records.find(record => record.path === task.path) || task;
                 reviewed = false;
                 feedback(`已关联 ${data.imported} 个视频${files.length ? `，剩余 ${files.length} 个视频可继续处理。` : "。"}`, "success");
                 discoveryRows();
@@ -607,8 +885,8 @@
             renderBlocks(); applyRule();
         }));
     }
-    $("[data-default-season]").addEventListener("input", applyRule);
-    $("[data-rule-reset]").addEventListener("click", () => { files.forEach(file => { file.manual = false; }); applyRule(); });
+    $("[data-default-season]").addEventListener("input", () => applyRule());
+    $("[data-rule-reset]").addEventListener("click", () => { files.forEach(file => { file.manual = false; }); applyRule(false); });
     $("[data-files-all]").addEventListener("change", event => { files.forEach(file => { file.included = event.target.checked; }); invalidate(); renderFiles(); });
     $("[data-files-errors]").addEventListener("change", updateFileStates);
     $("[data-task-pick]").addEventListener("click", pickTitle);
@@ -616,7 +894,7 @@
         taskVersion++; waitingForTitle = false;
         window.setAppToastStatus?.();
         show($("[data-association-editor]"), false); show($("[data-discovery-panel]"), true);
-        discover(true);
+        discoveryRows();
     });
     $("[data-task-check]").addEventListener("click", () => submit());
     $("[data-task-complete]").addEventListener("click", () => submit(true));
@@ -637,7 +915,14 @@
     });
     correction.addEventListener("hidden.bs.modal", () => bootstrap.Dropdown.getInstance($("#correction-target"))?.dispose());
     $("[data-discovery-refresh]").addEventListener("click", () => discover(true, true));
+    $("[data-root-add]").addEventListener("click", () => {
+        const first = roots.find(item => !item.auto) || roots[0];
+        bootstrap.Modal.getOrCreateInstance(browser).show();
+        browse(first ? first.path.split("/").slice(0, -1).join("/") || "/" : "/");
+    });
+    $("[data-root-choose]").addEventListener("click", () => updateRoot(browser.dataset.path, "add"));
     $("[data-discovery-filter]").addEventListener("input", discoveryRows);
     window.addEventListener("beforeunload", event => { if (busy) { event.preventDefault(); event.returnValue = ""; } });
-    discover(true);
+    // 打开页面先显示已有结果（启动时的后台扫描或上次快照），没有结果时才开始扫描。
+    discover().then(data => { if (data && (data.status === "idle" || data.restored)) discover(true); });
 })();

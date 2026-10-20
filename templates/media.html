@@ -117,6 +117,11 @@
                 <div class="overview-header d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
                     <h2 class="h5 mb-0" id="overview-list-heading">媒体列表</h2>
                     <div class="d-flex align-items-center gap-3">
+                        {% if missing_total %}
+                        <a class="btn btn-sm chip-btn health-chip{{ ' active' if health }}" href="{{ url_for('media', tab='overview', health=None if health else 'missing', q=overview.query or None, type=None if overview.media_type == 'all' else overview.media_type) }}"{% if health %} aria-pressed="true"{% endif %}>
+                            <i class="bi bi-exclamation-triangle-fill me-1" aria-hidden="true"></i>失效 {{ missing_total }}{% if health %}<i class="bi bi-x ms-1" aria-hidden="true"></i>{% endif %}
+                        </a>
+                        {% endif %}
                         <span class="small text-body-secondary" id="overview-count-label">共 {{ overview.media_items|length }} 部作品</span>
                         <button
                             class="btn btn-sm btn-outline-secondary"
