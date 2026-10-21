@@ -4001,7 +4001,8 @@ html[data-vt-from="card"]::view-transition-image-pair(media-hero) {
     position: relative;
     aspect-ratio: 2 / 3;
     overflow: hidden;
-    border-radius: var(--radius-item);
+    border-radius: var(--radius-card);
+    corner-shape: squircle;
     background: var(--onboard-tile-bg);
     opacity: 0.6;
     transition: opacity 0.7s var(--ease-out) calc(var(--i) * 14ms), background-color 0.7s ease;
@@ -4060,7 +4061,7 @@ html[data-vt-from="card"]::view-transition-image-pair(media-hero) {
     display: flex;
     flex-direction: column;
     min-width: 0;
-    padding: 48px 32px 48px 64px;
+    padding: 40px 32px 32px 64px;
 }
 
 .onboard-top {
@@ -4109,13 +4110,13 @@ html[data-vt-from="card"]::view-transition-image-pair(media-hero) {
     color: var(--bs-warning-text-emphasis);
 }
 
+/* 内容从固定高度开始排（不垂直居中），每一步的标题位置一致，检测结果出现时不会把标题顶上去 */
 .onboard-form {
     display: flex;
     flex: 1;
     flex-direction: column;
-    justify-content: center;
     max-width: 30rem;
-    padding: 48px 0;
+    padding: clamp(24px, 18vh - 64px, 112px) 0 32px;
 }
 
 .onboard-scene.is-entering {
@@ -4298,6 +4299,35 @@ html[data-vt-from="card"]::view-transition-image-pair(media-hero) {
     padding-inline: 24px;
 }
 
+/* 忙碌态在按钮内切换：两种内容叠在同一格里，按钮宽度取较大者，状态切换时不抖动 */
+.onboard-actions .onboard-btn,
+.onboard-btn {
+    display: inline-grid;
+    justify-content: center;
+}
+
+.onboard-btn-idle,
+.onboard-btn-busy {
+    display: inline-flex;
+    grid-area: 1 / 1;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.onboard-btn-busy,
+.onboard-btn[aria-busy] .onboard-btn-idle {
+    visibility: hidden;
+}
+
+.onboard-btn[aria-busy] .onboard-btn-busy {
+    visibility: visible;
+}
+
+.onboard-btn[aria-busy]:disabled {
+    opacity: 1;
+}
+
 .onboard-link {
     min-height: 44px;
     border: 0;
@@ -4321,8 +4351,15 @@ html[data-vt-from="card"]::view-transition-image-pair(media-hero) {
     display: none;
 }
 
+/* 状态行：始终占一行高度（空着也占位），多行提示只向下展开 */
 .onboard-scene > .onboard-result {
-    margin-top: 24px;
+    display: block;
+    min-height: 32px;
+    margin-top: 16px;
+}
+
+.onboard-scene > .onboard-result + .onboard-actions {
+    margin-top: 16px;
 }
 
 .onboard-result-head,
@@ -4376,15 +4413,11 @@ html[data-vt-from="card"]::view-transition-image-pair(media-hero) {
     text-underline-offset: 0.2em;
 }
 
-/* ---------- 加点料：细线分隔的开关行 ---------- */
-
-.onboard-options {
-    border-top: 1px solid var(--media-card-border);
-}
+/* ---------- AI 识别 / 评分：细线分隔的开关行 ---------- */
 
 .onboard-option {
     padding: 16px 0;
-    border-bottom: 1px solid var(--media-card-border);
+    border-block: 1px solid var(--media-card-border);
 }
 
 .onboard-option-head {
@@ -4418,6 +4451,35 @@ html[data-vt-from="card"]::view-transition-image-pair(media-hero) {
 
 .onboard-option-body[hidden] {
     display: none;
+}
+
+.onboard-more-hint {
+    margin-left: 8px;
+    color: var(--bs-tertiary-color);
+}
+
+.onboard-more-hint:empty {
+    display: none;
+}
+
+.onboard-more-hint::before {
+    content: "· ";
+}
+
+/* 字段标签行右侧放“获取”链接，不额外占一行 */
+.onboard-field-label {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.onboard-field-label > a {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    font-size: 0.8125rem;
+    color: var(--bs-secondary-color) !important;
 }
 
 .onboard-test {
