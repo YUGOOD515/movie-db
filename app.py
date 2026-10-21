@@ -1,11 +1,13 @@
 import importlib
 import json
 import os
+import queue
 import secrets
 import sqlite3
+import threading
 from pathlib import Path
 
-from flask import abort, Flask, flash, g, jsonify, redirect, render_template, request, url_for
+from flask import abort, Flask, flash, g, jsonify, redirect, render_template, request, Response, url_for
 
 from models.database import get_db, init_app as init_database
 from models.library import (
@@ -535,6 +537,8 @@ def associate_discovered_media(action):
     if request.content_length and request.content_length > MAX_BATCH_JSON_BYTES:
         return jsonify(error="关联数据过大。"), 413
     payload = request.get_json(silent=True)
+    if action == "complete" and request.args.get("stream") == "1":
+        return _stream_association(payload)
     try:
         arguments = dict(library_database=app.config["DATABASE"], payload=payload)
         if action == "complete":
@@ -546,6 +550,40 @@ def associate_discovered_media(action):
     except (OSError, RuntimeError, requests.RequestException, sqlite3.Error):
         return jsonify(error="关联服务暂时不可用，请检查 AList 和数据库后重试。"), 503
     return jsonify(result), 200 if result["valid"] else 422
+
+
+def _stream_association(payload):
+    """逐行返回 NDJSON：{"progress": {phase, done, total}} …，最后一行为 {"result": …} 或 {"error": …}。
+
+    导入在后台线程里完成，浏览器断开也不会中途停下，整批写入仍是全有或全无。
+    """
+    events = queue.Queue()
+    arguments = dict(library_database=app.config["DATABASE"], image_root=app.config["IMAGE_ROOT"], payload=payload)
+
+    def progress(phase, done, total):
+        events.put({"progress": {"phase": phase, "done": done, "total": total}})
+
+    def work():
+        try:
+            events.put({"result": complete_association(**arguments, on_progress=progress)})
+        except ValueError as error:
+            events.put({"error": str(error)})
+        except (OSError, RuntimeError, requests.RequestException, sqlite3.Error):
+            events.put({"error": "关联服务暂时不可用，请检查 AList 和数据库后重试。"})
+        except Exception:
+            app.logger.exception("Association import failed")
+            events.put({"error": "关联失败，请稍后重试。"})
+        finally:
+            events.put(None)
+
+    threading.Thread(target=work, name="association-import", daemon=True).start()
+
+    def generate():
+        while (event := events.get()) is not None:
+            yield json.dumps(event, ensure_ascii=False) + "\n"
+
+    return Response(generate(), mimetype="application/x-ndjson",
+                    headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
 
 
 @app.post("/manager/import")

@@ -99,14 +99,18 @@ def _learn_alias(library_database, source_name, title):
             pass
 
 
-def complete_association(*, library_database, image_root, payload):
+def complete_association(*, library_database, image_root, payload, on_progress=None):
+    """校验后整批导入。on_progress(phase, done, total)：link 取直链、probe 读取媒体信息、write 写入。"""
+    report = on_progress or (lambda *_: None)
     checked = check_association(library_database, payload)
     if not checked["valid"]:
         return checked
     token = alist.configured_token()
     items = []
     is_series = checked["title"]["media_type"] == "tv"
-    for row in checked["rows"]:
+    total = len(checked["rows"])
+    report("link", 0, total)
+    for done, row in enumerate(checked["rows"], 1):
         try:
             link = alist.get_signed_url(row["path"], token)
         except Exception:
@@ -116,7 +120,9 @@ def complete_association(*, library_database, image_root, payload):
         items.append({"title_id": checked["title"]["title_id"], "alist_url": link,
                       "season_number": str(row["season_number"]) if is_series else "",
                       "episode_number": str(row["episode_number"]) if is_series else ""})
-    result = import_media_batch(library_database=library_database, image_root=image_root, items=items)
+        report("link", done, total)
+    result = import_media_batch(library_database=library_database, image_root=image_root, items=items,
+                                on_progress=on_progress)
     for failure in result["failures"]:
         index = failure["index"] - 1
         if 0 <= index < len(checked["rows"]):

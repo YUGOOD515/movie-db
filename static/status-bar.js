@@ -107,9 +107,12 @@
         bar.classList.remove("is-leaving");
         const focused = bar.contains(document.activeElement) ? document.activeElement.dataset.statusRole : null;
         bar.className = `status-bar${fresh ? " is-entering" : ""}${spec.tone ? ` is-${spec.tone}` : ""}`;
+        // 进度频繁刷新时沿用旧的转圈与进度条节点：转圈不重新开始，进度条宽度平滑过渡。
+        const oldSpinner = spec.icon === "spinner" ? bar.querySelector(":scope > .status-bar-lead:has(.spinner-border)") : null;
+        const oldTrack = typeof spec.progress === "number" ? bar.querySelector(":scope > .status-bar-progress:not(.is-indeterminate)") : null;
         bar.replaceChildren();
 
-        const front = lead(spec);
+        const front = oldSpinner || lead(spec);
         if (front) bar.append(front);
         const body = el("div", "status-bar-body");
         const text = el("span", "status-bar-text", spec.text || "");
@@ -143,7 +146,7 @@
         }
 
         if (spec.progress != null) {
-            const track = el("span", `status-bar-progress${spec.progress === "indeterminate" ? " is-indeterminate" : ""}`);
+            const track = oldTrack || el("span", `status-bar-progress${spec.progress === "indeterminate" ? " is-indeterminate" : ""}`);
             track.setAttribute("role", "progressbar");
             track.setAttribute("aria-label", spec.text || "进度");
             track.setAttribute("aria-valuemin", "0");

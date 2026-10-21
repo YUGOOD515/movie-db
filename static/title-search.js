@@ -83,7 +83,7 @@
         overview.textContent = item.overview.length > 160 ? `${item.overview.slice(0, 160)}…` : item.overview;
         const choose = document.createElement("button");
         choose.type = "button";
-        choose.className = "btn btn-sm btn-outline-secondary";
+        choose.className = "btn btn-sm chip-btn";
         choose.textContent = "选择此作品";
         choose.setAttribute("aria-label", `选择 ${item.name} ${item.year}`);
         choose.addEventListener("click", () => select(item, mediaType));
@@ -232,7 +232,7 @@
             results.replaceChildren();
             more.classList.add("d-none");
             search = null;
-            message("输入名称后点击搜索。");
+            message("输入名称后按回车搜索。");
         });
     }
     more.addEventListener("click", () => runSearch(true));
@@ -241,9 +241,13 @@
         selectedTitle = null;
         recordForm.classList.add("d-none");
         searchStep.classList.remove("d-none");
-        message(results.children.length ? (event.relatedTarget ? "选择作品后填写季集和视频链接。" : "选择作品后匹配待关联的视频。") : "输入名称后点击搜索。");
+        message(results.children.length ? (event.relatedTarget ? "选择作品后填写季集和视频链接。" : "选择作品后匹配待关联的视频。") : "输入名称后按回车搜索。");
     });
-    picker.addEventListener("shown.bs.modal", () => query.focus());
+    picker.addEventListener("shown.bs.modal", () => {
+        query.focus();
+        // 从待关联打开时已预填名称：直接搜索，省去一次点击。
+        if (query.value.trim() && !search && !results.children.length) runSearch();
+    });
     picker.addEventListener("hide.bs.modal", cancelPending);
 
 })();

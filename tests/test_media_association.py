@@ -1,3 +1,4 @@
+import json
 import os
 import unittest
 from contextlib import closing
@@ -137,3 +138,26 @@ class AssociationIntegrationTest(unittest.TestCase):
         self.assertTrue(response.json["rows"][1]["error"])
         self.assertNotIn("secret", response.get_data(as_text=True))
         self.assertEqual(before, self.database_path.read_bytes())
+
+    def test_streamed_import_reports_each_file(self):
+        paths = ["/share/S01E01.mkv", "/share/S01E02.mkv"]
+        self.seed_discovery(paths)
+        with patch.object(alist, "configured_token", return_value="test"), \
+             patch.object(alist, "get_signed_url", side_effect=lambda path, token: alist.get_origin() + "/d" + path + "?sign=secret"), \
+             patch.object(alist, "validate_alist_video_url"), \
+             patch.object(alist, "get_video_link", return_value="https://video.test/file.mkv"), \
+             patch.object(media_probe, "probe_video", return_value={"duration_ms": 1000}), \
+             patch.object(media_import, "fetch_title_rating", return_value={"status": "unavailable"}):
+            payload = {"title_id": "tt9000002", "items": [{"path": path, "season_number": 1, "episode_number": index} for index, path in enumerate(paths, 1)]}
+            response = self.client.post("/manager/association/complete?stream=1", json=payload)
+            self.assertEqual(response.mimetype, "application/x-ndjson")
+            lines = [json.loads(line) for line in response.get_data(as_text=True).splitlines()]
+            # 重复提交同一批文件：流里只有校验结果，没有进度。
+            again = [json.loads(line) for line in self.client.post("/manager/association/complete?stream=1", json=payload).get_data(as_text=True).splitlines()]
+        steps = [(line["progress"]["phase"], line["progress"]["done"]) for line in lines if "progress" in line]
+        self.assertEqual(steps, [("link", 0), ("link", 1), ("link", 2), ("probe", 1), ("probe", 2), ("write", 0)])
+        self.assertEqual(lines[-1]["result"]["imported"], 2)
+        self.assertNotIn("secret", "".join(map(json.dumps, lines)))
+        self.assertEqual(len(again), 1)
+        self.assertFalse(again[0]["result"]["valid"])
+        self.assertIn("error", self.client.post("/manager/association/complete?stream=1", json={"items": []}).get_data(as_text=True))

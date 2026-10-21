@@ -32,7 +32,7 @@
     let useGuess = false, busy = false, taskVersion = 0, onlyErrors = false, ruleOpen = false, progress = null;
     let blockDragActive = false;
     // 识别规则：季号来源、各文件夹的季号与集号偏移、当前样例。
-    let seasonSource = "file", sampleIndex = 0, pendingMarks = null, advancedOpen = false, suggestion = null;
+    let seasonSource = "file", sampleIndex = 0, pendingMarks = null, suggestion = null;
     const adjust = new Map();
 
     async function json(url, payload) {
@@ -45,6 +45,60 @@
         return data;
     }
     const feedback = (text, category = "info") => window.showAppToast?.(text, category);
+
+    // 关联导入：服务端逐行返回 NDJSON 进度（取直链 → 读取媒体信息 → 写入），最后一行是结果。
+    async function completeStream(payload, onStep) {
+        const response = await fetch(`${root.dataset.completeUrl}?stream=1`, {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+        });
+        if (!response.body || !(response.headers.get("Content-Type") || "").includes("ndjson")) {
+            let data;
+            try { data = await response.json(); } catch { throw new Error("服务未返回有效数据，请稍后重试。"); }
+            if (!response.ok && !data.rows) throw new Error(data.error || "请求失败，请重试。");
+            return data;
+        }
+        const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+        let buffer = "", result = null, failure = "";
+        const handle = line => {
+            if (!line.trim()) return;
+            let message;
+            try { message = JSON.parse(line); } catch { return; }
+            if (message.progress) onStep(message.progress);
+            else if (message.result) result = message.result;
+            else if (message.error) failure = message.error;
+        };
+        for (;;) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buffer += value;
+            const lines = buffer.split("\n");
+            buffer = lines.pop();
+            lines.forEach(handle);
+        }
+        handle(buffer);
+        if (failure) throw new Error(failure);
+        if (!result) throw new Error("连接中断，结果未知：请刷新待关联列表确认是否已关联。");
+        return result;
+    }
+
+    // 进度换算：一组文件里取直链约占 15%，逐个读取媒体信息占 80%，写入媒体库占 5%。
+    const PHASE_TEXT = { link: "正在获取视频直链", probe: "正在读取媒体信息", write: "正在写入媒体库" };
+    function progressSpec(state) {
+        const step = state.step, size = state.size || 0;
+        let part = 0, count = 0;
+        if (step?.total) {
+            if (step.phase === "link") part = 0.15 * step.done / step.total;
+            else if (step.phase === "probe") { part = 0.15 + 0.8 * step.done / step.total; count = step.done; }
+            else { part = 0.95; count = step.total; }
+        }
+        const text = (step ? PHASE_TEXT[step.phase] : "正在校验") || "正在关联视频";
+        return {
+            text: state.label ? `${text} · ${state.label}` : text,
+            detail: `${Math.min(state.base + count, state.total)}/${state.total}`,
+            done: state.base + part * size,
+            total: state.total,
+        };
+    }
 
     const TABS = [["ready", "可确认"], ["review", "待核对"], ["unknown", "未识别"], ["ignored", "已忽略"]];
     const scanning = () => ["running", "recognizing"].includes(scan.status);
@@ -289,7 +343,7 @@
     function renderBar() {
         if (currentView() !== "list") return;
         if (confirming) {
-            bar.progress("association", { text: "正在关联视频", done: confirming.done, total: confirming.total });
+            bar.progress("association", progressSpec(confirming));
             return;
         }
         if (tab === "ready") {
@@ -404,18 +458,23 @@
     async function confirm(list) {
         if (confirming || !list.length) return;
         // 进度按视频数计算：多来源合并的一行包含多个记录，按视频数才与“已选”提示一致。
-        confirming = { done: 0, total: list.reduce((sum, item) => sum + item.files.length, 0) };
+        confirming = { base: 0, size: 0, step: null, label: "", total: list.reduce((sum, item) => sum + item.files.length, 0) };
         renderList();
-        let videos = 0;
+        let videos = 0, processed = 0;
         const failed = [];
         for (const item of list) {
             const imported = new Set();
             try {
                 for (const items of confirmBatches(item)) {
-                    const data = await json(root.dataset.completeUrl, { title_id: item.recognition.title.title_id, source_name: item.name, items });
+                    Object.assign(confirming, { size: items.length, step: null, label: item.recognition.title.name });
+                    renderBar();
+                    const data = await completeStream({ title_id: item.recognition.title.title_id, source_name: item.name, items }, step => {
+                        confirming.step = step; renderBar();
+                    });
                     if (!data.valid) throw new Error(data.error || "需核对");
                     items.forEach(entry => imported.add(entry.path));
                     videos += data.imported;
+                    confirming.base += items.length;
                 }
             } catch { failed.push(item); }
             records = records.flatMap(record => {
@@ -424,7 +483,9 @@
                 if (!remaining.length) return [];
                 return [{ ...record, files: remaining, recognition: { ...record.recognition, status: "review" } }];
             });
-            confirming.done += item.files.length;
+            // 失败的条目也计入已处理，进度只往前走。
+            confirming.base = Math.max(confirming.base, processed += item.files.length);
+            confirming.size = 0; confirming.step = null;
             renderList();
         }
         confirming = null;
@@ -482,7 +543,9 @@
     async function browse(path) {
         const crumbs = $("[data-root-crumbs]"), folders = $("[data-root-folders]"), choose = $("[data-root-choose]");
         choose.disabled = true;
-        folders.replaceChildren(el("li", "root-folders-status", "读取中…"));
+        const loading = el("li", "root-folders-status");
+        loading.append(spinner(), el("span", "ms-2", "读取中…"));
+        folders.replaceChildren(loading);
         let data;
         try { data = await json(`${root.dataset.browseUrl}?${new URLSearchParams({ path })}`); }
         catch (error) { folders.replaceChildren(el("li", "root-folders-status", error.message)); return; }
@@ -510,6 +573,7 @@
         const added = roots.some(item => !item.auto && item.path === data.path);
         choose.disabled = data.path === "/" || added;
         choose.textContent = added ? "已添加" : "添加此目录";
+        $("[data-root-target]").textContent = data.path === "/" ? "进入一个目录后添加" : added ? "这个目录已在扫描列表中" : `将扫描 ${parts[parts.length - 1]} 及其子目录`;
     }
 
     // ---- 单项匹配 --------------------------------------------------------
@@ -572,7 +636,7 @@
     function setPreset(value) {
         const control = $("[data-rule-preset]");
         control.dataset.value = String(value);
-        control.textContent = value === "custom" ? "常用格式" : rules.presets[Number(value)].name;
+        control.replaceChildren(document.createTextNode(value === "custom" ? "常用格式" : rules.presets[Number(value)].name), icon("chevron-down"));
         $("[data-rule-presets]").querySelectorAll("button").forEach(node => {
             const active = node.dataset.value === String(value);
             node.classList.toggle("active", active);
@@ -580,135 +644,274 @@
         });
     }
 
-    function bindBlockDrag(chip) {
-        const container = $("[data-rule-blocks]");
-        let drag = null;
+    // 规则片段：规则摘要本身就是编辑器。点片段改类型 / 文字 / 位置，拖动排序，末尾“+”添加。
+    const PIECE_TEXT = { any: "…", digits: "数字", separator: "分隔符", letters: "文字", space: "空格", season: "季", episode: "集" };
+    const PIECE_TYPES = ["season", "episode", "literal", "digits", "letters", "separator", "space", "any"];
+    const PIECE_HINT = { any: "任意长度的任意字符", digits: "一段数字（不作季集）", literal: "必须原样出现的文字", separator: "空格、点、下划线或横线", season: "读作季号的数字", episode: "读作集号的数字", letters: "字母或汉字", space: "空白" };
+    let patternKey = "";
+
+    const pieceText = block => block.type === "literal" ? (block.value.replace(/ /g, "␣") || "（空）") : PIECE_TEXT[block.type];
+    const patternBox = () => $("[data-rule-pattern]");
+    const pieceNodes = () => [...patternBox().querySelectorAll(":scope > .rule-piece-wrap")];
+
+    function changeBlocks(next, focusIndex = null, openMenu = false) {
+        blocks = next;
+        setPreset(rules.presetIndex(blocks) >= 0 ? rules.presetIndex(blocks) : "custom");
+        pendingMarks = null;
+        renderBlocks(); applyRule();
+        if (focusIndex == null) return;
+        const piece = patternBox().querySelector(`.rule-piece[data-block="${focusIndex}"]`);
+        if (!piece) return;
+        piece.focus({ preventScroll: true });
+        // 等本次点击冒泡完（Bootstrap 会在 document 上收起其他菜单）再打开新片段的菜单。
+        if (openMenu) setTimeout(() => {
+            if (!piece.isConnected) return;
+            bootstrap.Dropdown.getOrCreateInstance(piece, fixedPopper).show();
+            piece.parentElement.querySelector(".rule-piece-literal input")?.focus();
+        }, 0);
+    }
+
+    function pieceIssue() {
+        const count = type => blocks.filter(block => block.type === type).length;
+        if (!count("episode")) return "规则里需要一个“集”";
+        if (count("episode") > 1) return "只能有一个“集”";
+        if (count("season") > 1) return "只能有一个“季”";
+        return "";
+    }
+
+    function typeOptions(menu, current, pick) {
+        const taken = type => (type === "season" || type === "episode") && blocks.some((block, index) => block.type === type && index !== current);
+        const head = el("li"); head.append(el("h6", "dropdown-header", current == null ? "添加片段" : "类型"));
+        menu.append(head);
+        for (const type of PIECE_TYPES) {
+            if (current == null && taken(type)) continue;
+            const active = current != null && blocks[current].type === type;
+            const option = button("", () => pick(type), `dropdown-item rule-piece-option${active ? " active" : ""}`);
+            option.disabled = taken(type);
+            if (option.disabled) option.title = `已有${rules.labels[type]}`;
+            option.setAttribute("aria-pressed", String(active));
+            const sample = el("span", `rule-piece-sample${type === "season" || type === "episode" ? ` rule-${type}` : type === "literal" ? " is-literal" : type === "any" ? " is-any" : ""}`, type === "literal" ? "Aa" : PIECE_TEXT[type]);
+            const label = el("span", "rule-piece-option-text");
+            label.append(el("span", "", rules.labels[type]), el("small", "", PIECE_HINT[type]));
+            option.append(sample, label);
+            if (active) option.append(icon("check2", "ms-auto"));
+            const line = el("li"); line.append(option); menu.append(line);
+        }
+    }
+
+    function pieceMenu(index) {
+        const block = blocks[index];
+        const menu = el("ul", "dropdown-menu media-menu rule-piece-menu");
+        // 顶部一行：位置与删除；固定文字在下面直接改；再往下是类型。
+        const tools = el("li", "rule-piece-tools");
+        const tool = (label, symbol, action, disabled = false, classes = "") => {
+            const node = button("", action, `btn icon-btn rule-piece-tool ${classes}`.trim());
+            node.append(icon(symbol));
+            node.setAttribute("aria-label", label);
+            node.title = label;
+            node.disabled = disabled;
+            return node;
+        };
+        const swap = step => () => {
+            const next = blocks.slice();
+            [next[index], next[index + step]] = [next[index + step], next[index]];
+            changeBlocks(next, index + step, true);
+        };
+        tools.append(
+            el("span", "rule-piece-tools-label", `第 ${index + 1} 段`),
+            tool("左移", "arrow-left", swap(-1), index === 0),
+            tool("右移", "arrow-right", swap(1), index === blocks.length - 1),
+            tool("删除", "trash3", () => changeBlocks(blocks.filter((_, i) => i !== index), Math.min(index, blocks.length - 2)), false, "is-danger"),
+        );
+        menu.append(tools);
+        if (block.type === "literal") {
+            const line = el("li", "rule-piece-literal");
+            const input = el("input", "form-control form-control-sm");
+            input.value = block.value;
+            input.maxLength = 64;
+            input.placeholder = "要匹配的文字";
+            input.setAttribute("aria-label", `第 ${index + 1} 段固定文字`);
+            input.addEventListener("input", () => { block.value = input.value; setPreset(rules.presetIndex(blocks) >= 0 ? rules.presetIndex(blocks) : "custom"); applyRule(); });
+            input.addEventListener("keydown", event => {
+                if (event.key === "Enter") { event.preventDefault(); bootstrap.Dropdown.getInstance(menu.previousElementSibling)?.hide(); }
+            });
+            line.append(input); menu.append(line);
+        }
+        const divider = el("li"); divider.append(el("hr", "dropdown-divider")); menu.append(divider);
+        typeOptions(menu, index, type => {
+            if (type === block.type) return;
+            const next = blocks.slice();
+            next[index] = { type, value: type === "literal" ? (block.value || "") : "" };
+            changeBlocks(next, index, type === "literal");
+        });
+        return menu;
+    }
+
+    function renderPattern(force = false) {
+        const box = patternBox();
+        const key = JSON.stringify([busy, blocks.map(block => block.type)]);
+        // 结构不变时只更新文字：打开的菜单与输入框保持不动。
+        if (!force && key === patternKey && box.children.length) {
+            pieceNodes().forEach((wrap, index) => {
+                const piece = wrap.querySelector(".rule-piece"), block = blocks[index];
+                if (piece && block) { piece.textContent = pieceText(block); piece.classList.toggle("is-empty", block.type === "literal" && !block.value); }
+            });
+        } else {
+            patternKey = key;
+            box.replaceChildren();
+            blocks.forEach((block, index) => {
+                const wrap = el("span", "dropdown rule-piece-wrap");
+                wrap.dataset.blockIndex = index;
+                const kind = block.type === "season" || block.type === "episode" ? ` rule-${block.type}` : block.type === "literal" ? " is-literal" : block.type === "any" ? " is-any" : "";
+                const piece = el("button", `rule-piece${kind}${block.type === "literal" && !block.value ? " is-empty" : ""}`, pieceText(block));
+                piece.type = "button";
+                piece.disabled = busy;
+                piece.dataset.block = index;
+                piece.dataset.bsToggle = "dropdown";
+                piece.setAttribute("aria-expanded", "false");
+                piece.setAttribute("aria-label", `第 ${index + 1} 段：${rules.labels[block.type]}${block.type === "literal" ? `“${block.value}”` : ""}，点击修改`);
+                piece.setAttribute("aria-describedby", "rule-drag-help");
+                piece.setAttribute("aria-keyshortcuts", "Alt+ArrowLeft Alt+ArrowRight");
+                piece.title = `${rules.labels[block.type]}${block.type === "literal" ? `：${block.value}` : ""} · 点击修改，拖动排序`;
+                piece.addEventListener("pointerenter", () => linkBlock(index, true));
+                piece.addEventListener("pointerleave", () => linkBlock(index, false));
+                wrap.append(piece, pieceMenu(index));
+                bootstrap.Dropdown.getOrCreateInstance(piece, fixedPopper);
+                box.append(wrap);
+                bindPieceDrag(wrap);
+            });
+            const addWrap = el("span", "dropdown rule-piece-add-wrap");
+            const add = el("button", "rule-piece-add");
+            add.type = "button";
+            add.disabled = busy || blocks.length >= 16;
+            add.dataset.bsToggle = "dropdown";
+            add.setAttribute("aria-expanded", "false");
+            add.setAttribute("aria-label", "添加片段");
+            add.title = blocks.length >= 16 ? "最多 16 段" : "添加片段";
+            add.append(icon("plus-lg"));
+            const menu = el("ul", "dropdown-menu media-menu rule-piece-menu");
+            typeOptions(menu, null, type => changeBlocks([...blocks, { type, value: "" }], blocks.length, type === "literal"));
+            addWrap.append(add, menu);
+            bootstrap.Dropdown.getOrCreateInstance(add, fixedPopper);
+            box.append(addWrap);
+            const warn = el("span", "rule-pattern-warn d-none");
+            warn.append(icon("exclamation-triangle-fill"), el("span"));
+            box.append(warn, el("span", "rule-pattern-tip", "点片段可修改，按住拖动调整顺序"));
+        }
+        const issue = pieceIssue(), warn = box.querySelector(".rule-pattern-warn");
+        if (warn) { warn.lastChild.textContent = issue; show(warn, !!issue); show(box.querySelector(".rule-pattern-tip"), !issue); }
+        box.setAttribute("aria-label", `当前规则：${blocks.map(block => block.type === "literal" ? block.value : rules.labels[block.type]).join(" ")}`);
+    }
+
+    function renderBlocks() { renderPattern(true); }
+
+    // 拖动排序：按下后移动超过 5px 才进入拖动，否则仍是普通点击（打开菜单）。
+    function bindPieceDrag(wrap) {
+        const container = patternBox();
+        const piece = wrap.querySelector(".rule-piece");
+        let drag = null, press = null;
         const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+        const addSlot = () => container.querySelector(".rule-piece-add-wrap");
         const reorder = reference => {
-            if (reference === chip || chip.nextSibling === reference) return;
-            const positions = new Map([...container.children].map(node => [node, node.getBoundingClientRect()]));
-            container.insertBefore(chip, reference);
-            for (const node of container.children) {
+            if (reference === wrap || wrap.nextSibling === reference) return;
+            const nodes = pieceNodes();
+            const positions = new Map(nodes.map(node => [node, node.getBoundingClientRect()]));
+            container.insertBefore(wrap, reference);
+            for (const node of nodes) {
                 node.getAnimations().forEach(animation => animation.cancel());
-                if (node === chip || reducedMotion()) continue;
+                if (node === wrap || reducedMotion()) continue;
                 const before = positions.get(node), after = node.getBoundingClientRect();
                 const dx = before.left - after.left, dy = before.top - after.top;
-                if (dx || dy) node.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "translate(0, 0)" }], {
-                    duration: 190, easing: "cubic-bezier(.2,.8,.2,1)",
-                });
+                if (dx || dy) node.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "translate(0, 0)" }], { duration: 190, easing: "cubic-bezier(.2,.8,.2,1)" });
             }
         };
-        const finish = event => {
-            if (!drag || event.pointerId !== drag.id) return;
-            const state = drag;
-            const changed = state.moved && event.type === "pointerup";
-            drag = null;
-            container.removeEventListener("pointermove", move);
-            container.removeEventListener("pointerup", finish);
-            container.removeEventListener("pointercancel", finish);
-            container.removeEventListener("lostpointercapture", finish);
+        const stopListening = () => {
+            document.removeEventListener("pointermove", move);
+            document.removeEventListener("pointerup", finish);
+            document.removeEventListener("pointercancel", finish);
             document.removeEventListener("keydown", cancel);
-            if (container.hasPointerCapture(event.pointerId)) container.releasePointerCapture(event.pointerId);
-            if (!changed) for (const node of state.order) container.append(node);
-            if (changed) {
-                blocks = [...container.children].map(node => blocks[Number(node.dataset.blockIndex)]);
-                setPreset("custom");
-                applyRule();
+        };
+        const begin = event => {
+            const rect = wrap.getBoundingClientRect(), ghost = wrap.cloneNode(true);
+            ghost.querySelector(".dropdown-menu")?.remove();
+            ghost.classList.add("rule-piece--floating");
+            ghost.inert = true;
+            ghost.setAttribute("aria-hidden", "true");
+            Object.assign(ghost.style, { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px` });
+            document.body.append(ghost);
+            bootstrap.Dropdown.getInstance(piece)?.hide();
+            drag = { ...press, rect, ghost, order: pieceNodes(), block: blocks[Number(wrap.dataset.blockIndex)] };
+            blockDragActive = true;
+            wrap.classList.add("rule-piece--placeholder");
+            container.classList.add("is-dragging");
+            move(event);
+        };
+        const move = event => {
+            if (!press || event.pointerId !== press.id) return;
+            if (!drag) {
+                if (Math.hypot(event.clientX - press.x, event.clientY - press.y) < 5) return;
+                begin(event);
+                return;
             }
-            const target = chip.getBoundingClientRect();
+            event.preventDefault();
+            drag.ghost.style.transform = `translate(${event.clientX - drag.x}px, ${event.clientY - drag.y - 4}px) scale(1.06)`;
+            const target = pieceNodes().find(node => {
+                const box = node.getBoundingClientRect();
+                return event.clientX >= box.left && event.clientX <= box.right && event.clientY >= box.top - 4 && event.clientY <= box.bottom + 4;
+            });
+            if (!target || target === wrap) return;
+            const box = target.getBoundingClientRect();
+            reorder(event.clientX < box.left + box.width / 2 ? target : target.nextSibling);
+        };
+        const finish = event => {
+            if (!press || event.pointerId !== press.id) return;
+            press = null;
+            stopListening();
+            const state = drag;
+            drag = null;
+            if (!state) return;
+            const changed = event.type === "pointerup";
+            if (!changed) for (const node of state.order) container.insertBefore(node, addSlot());
+            // 拖动结束后浏览器还会补发一次 click，吞掉它，避免顺手打开菜单。
+            container.addEventListener("click", swallow => { swallow.stopPropagation(); swallow.preventDefault(); }, { capture: true, once: true });
+            setTimeout(() => container.dispatchEvent(new Event("click")), 0);
+            const target = wrap.getBoundingClientRect();
             const cleanup = () => {
                 state.ghost.remove();
                 container.classList.remove("is-dragging");
+                wrap.classList.remove("rule-piece--placeholder");
                 blockDragActive = false;
-                renderBlocks();
-                container.querySelector(`[data-block-index="${blocks.indexOf(state.block)}"]`)?.focus({ preventScroll: true });
+                if (changed) {
+                    const next = pieceNodes().map(node => blocks[Number(node.dataset.blockIndex)]);
+                    changeBlocks(next, next.indexOf(state.block));
+                } else piece.focus({ preventScroll: true });
             };
             if (reducedMotion()) cleanup();
             else state.ghost.animate([
                 { transform: state.ghost.style.transform },
-                { transform: `translate(${target.left - state.rect.left}px, ${target.top - state.rect.top}px) scale(1)` },
+                { transform: `translate(${target.left - state.rect.left}px, ${target.top - state.rect.top}px)` },
             ], { duration: 160, easing: "cubic-bezier(.2,.8,.2,1)", fill: "forwards" }).finished.then(cleanup, cleanup);
         };
         const cancel = event => {
-            if (event.key === "Escape" && drag) {
-                event.preventDefault();
-                finish({ pointerId: drag.id, type: "cancel" });
-            }
+            if (event.key === "Escape" && drag) { event.preventDefault(); finish({ pointerId: press.id, type: "cancel" }); }
         };
-        chip.addEventListener("pointerdown", event => {
-            if (busy || blockDragActive || !event.isPrimary || event.button !== 0 || event.target.closest("input, button")) return;
-            const rect = chip.getBoundingClientRect(), ghost = chip.cloneNode(true);
-            ghost.classList.add("rule-block--floating");
-            ghost.tabIndex = -1;
-            ghost.inert = true;
-            ghost.setAttribute("aria-hidden", "true");
-            Object.assign(ghost.style, { left: `${rect.left}px`, top: `${rect.top}px`, width: `${rect.width}px`, height: `${rect.height}px`, transform: "translate(0, -6px) scale(1.035)" });
-            document.body.append(ghost);
-            drag = { id: event.pointerId, x: event.clientX, y: event.clientY, moved: false, rect, ghost, order: [...container.children], block: blocks[Number(chip.dataset.blockIndex)] };
-            blockDragActive = true;
-            chip.classList.add("rule-block--placeholder");
-            container.classList.add("is-dragging");
-            container.setPointerCapture(event.pointerId);
-            container.addEventListener("pointermove", move);
-            container.addEventListener("pointerup", finish);
-            container.addEventListener("pointercancel", finish);
-            container.addEventListener("lostpointercapture", finish);
+        piece.addEventListener("pointerdown", event => {
+            if (busy || blockDragActive || !event.isPrimary || event.button !== 0) return;
+            press = { id: event.pointerId, x: event.clientX, y: event.clientY };
+            document.addEventListener("pointermove", move);
+            document.addEventListener("pointerup", finish);
+            document.addEventListener("pointercancel", finish);
             document.addEventListener("keydown", cancel);
-            chip.focus({ preventScroll: true });
         });
-        const move = event => {
-            if (!drag || event.pointerId !== drag.id) return;
-            drag.ghost.style.transform = `translate(${event.clientX - drag.x}px, ${event.clientY - drag.y - 6}px) scale(1.035)`;
-            if (!drag.moved && Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 5) return;
-            drag.moved = true;
-            const bounds = container.getBoundingClientRect();
-            const x = event.clientX - bounds.left, y = event.clientY - bounds.top;
-            const target = [...container.children].find(node => x >= node.offsetLeft && x <= node.offsetLeft + node.offsetWidth && y >= node.offsetTop && y <= node.offsetTop + node.offsetHeight);
-            if (!target || target === chip) return;
-            reorder(x < target.offsetLeft + target.offsetWidth / 2 ? target : target.nextSibling);
-        };
-        chip.addEventListener("keydown", event => {
-            if (event.target !== chip || busy || blockDragActive || !event.altKey || !["ArrowLeft", "ArrowRight"].includes(event.key)) return;
+        piece.addEventListener("keydown", event => {
+            if (busy || blockDragActive || !event.altKey || !["ArrowLeft", "ArrowRight"].includes(event.key)) return;
             event.preventDefault();
-            const index = Number(chip.dataset.blockIndex);
-            const next = index + (event.key === "ArrowLeft" ? -1 : 1);
+            const index = Number(wrap.dataset.blockIndex), next = index + (event.key === "ArrowLeft" ? -1 : 1);
             if (next < 0 || next >= blocks.length) return;
-            [blocks[index], blocks[next]] = [blocks[next], blocks[index]];
-            setPreset("custom"); renderBlocks(); applyRule();
-            container.children[next].focus();
+            const list = blocks.slice();
+            [list[index], list[next]] = [list[next], list[index]];
+            changeBlocks(list, next);
         });
-    }
-
-    function renderBlocks() {
-        const container = $("[data-rule-blocks]");
-        container.replaceChildren();
-        blocks.forEach((block, index) => {
-            const chip = el("div", `rule-block d-inline-flex align-items-center gap-1 border p-1 ${block.type === "season" || block.type === "episode" ? `rule-${block.type}` : "bg-body-tertiary"}`);
-            chip.dataset.blockIndex = index;
-            chip.tabIndex = 0;
-            chip.setAttribute("role", "group");
-            chip.setAttribute("aria-label", `第 ${index + 1} 块：${rules.labels[block.type]}，可拖动排序`);
-            chip.setAttribute("aria-keyshortcuts", "Alt+ArrowLeft Alt+ArrowRight");
-            const grip = el("i", "bi bi-grip-vertical text-body-secondary");
-            grip.setAttribute("aria-hidden", "true");
-            chip.append(grip);
-            chip.append(el("span", "small px-1", rules.labels[block.type]));
-            chip.addEventListener("pointerenter", () => linkBlock(index, true));
-            chip.addEventListener("pointerleave", () => linkBlock(index, false));
-            if (block.type === "literal") {
-                const input = el("input", "form-control form-control-sm rule-literal");
-                input.value = block.value;
-                input.maxLength = 64;
-                input.setAttribute("aria-label", `第 ${index + 1} 块固定文字`);
-                input.addEventListener("input", () => { block.value = input.value; setPreset("custom"); applyRule(); });
-                chip.append(input);
-            }
-            const remove = button("×", () => { blocks.splice(index, 1); setPreset("custom"); renderBlocks(); applyRule(); }, "btn btn-sm p-1");
-            remove.setAttribute("aria-label", `移除第 ${index + 1} 块`);
-            chip.append(remove); container.append(chip);
-            bindBlockDrag(chip);
-        });
-        $("[data-rule-palette]").querySelectorAll("button").forEach(node => { node.disabled = blocks.length >= 16; });
     }
 
     function episodeMap() {
@@ -870,25 +1073,6 @@
             hint.classList.add("is-warning");
         }
         else hint.textContent = "点数字可改为季号或集号";
-    }
-
-    function renderPattern() {
-        const box = $("[data-rule-pattern]");
-        box.replaceChildren();
-        const text = { digits: "数字", separator: "分隔符", letters: "文字", space: "空格" };
-        blocks.forEach((block, index) => {
-            let node;
-            if (block.type === "season" || block.type === "episode") node = el("span", `rule-pattern-slot rule-${block.type}`, block.type === "season" ? "季" : "集");
-            else if (block.type === "literal") node = el("span", "rule-pattern-literal", block.value.replace(/ /g, "␣") || "（空）");
-            else if (block.type === "any") node = el("span", "rule-pattern-any", "…");
-            else node = el("span", "rule-pattern-slot", text[block.type]);
-            node.dataset.block = index;
-            node.title = rules.labels[block.type] + (block.type === "literal" ? `：${block.value}` : "");
-            node.addEventListener("pointerenter", () => linkBlock(index, true));
-            node.addEventListener("pointerleave", () => linkBlock(index, false));
-            box.append(node);
-        });
-        box.setAttribute("aria-label", `当前规则：${blocks.map(block => block.type === "literal" ? block.value : rules.labels[block.type]).join(" ")}`);
     }
 
     function renderSeasonSource(groups) {
@@ -1087,7 +1271,7 @@
     function renderTaskBar({ selected, issues } = stats()) {
         if (currentView() !== "editor") return;
         if (progress) {
-            bar.progress("association", { text: "正在关联视频", done: progress.done, total: progress.total });
+            bar.progress("association", progressSpec(progress));
             return;
         }
         const action = { label: selected ? `关联 ${selected} 个` : "关联", run: submit, disabled: busy || !title || !selected || issues > 0 };
@@ -1183,14 +1367,6 @@
         pick.replaceChildren(icon(title ? "arrow-left-right" : "search"), document.createTextNode(title ? "更换" : "选择作品"));
     }
 
-    function setAdvancedOpen(value) {
-        advancedOpen = value;
-        show($("[data-rule-advanced-panel]"), value);
-        const toggle = $("[data-rule-advanced]");
-        toggle.setAttribute("aria-expanded", String(value));
-        toggle.classList.toggle("active", value);
-    }
-
     function setRuleOpen(value) {
         ruleOpen = value;
         show($("[data-rule-editor]"), value);
@@ -1268,7 +1444,7 @@
             const relative = file.folder.startsWith(`${item.path}/`) ? file.folder.slice(item.path.length + 1).split("/").reverse() : [];
             file.folderSeason = [...relative, file.folder.split("/").pop()].map(part => rules.folderSeason(part)).find(Boolean) || null;
         }
-        adjust.clear(); pendingMarks = null; sampleIndex = 0; setAdvancedOpen(false);
+        adjust.clear(); pendingMarks = null; sampleIndex = 0;
         show($("[data-task-ai]"), item.recognition?.method === "ai");
         $("[data-task-name]").textContent = item.name;
         const path = $("[data-task-path]");
@@ -1308,14 +1484,16 @@
         if (!chosen.length) return;
         const chunks = [];
         for (let index = 0; index < chosen.length; index += 100) chunks.push(chosen.slice(index, index + 100));
-        progress = { done: 0, total: chosen.length };
+        progress = { base: 0, size: 0, step: null, label: "", total: chosen.length };
         lockEditor(true);
         renderTaskBar();
         let imported = 0, failed = false;
         try {
             for (const chunk of chunks) {
                 const payload = { title_id: title.title_id, source_name: task.name, items: chunk.map(file => ({ path: file.path, season_number: file.season, episode_number: file.episode })) };
-                const data = await json(root.dataset.completeUrl, payload);
+                Object.assign(progress, { size: chunk.length, step: null });
+                renderTaskBar();
+                const data = await completeStream(payload, step => { progress.step = step; renderTaskBar(); });
                 for (const row of data.rows || []) {
                     const file = files.find(item => item.path === row.path);
                     if (file) file.serverError = row.error || "";
@@ -1332,7 +1510,7 @@
                     return remaining.length ? [{ ...record, files: remaining }] : [];
                 });
                 imported += data.imported;
-                progress.done += chunk.length;
+                Object.assign(progress, { base: progress.base + chunk.length, size: 0, step: null });
                 renderTaskBar();
             }
         } catch (error) { failed = true; feedback(error.message, "danger"); }
@@ -1352,27 +1530,17 @@
 
     // ---- 事件 ------------------------------------------------------------
 
-    [...rules.presets, { name: "自定义" }].forEach((preset, i) => {
-        const value = i === rules.presets.length ? "custom" : String(i);
+    rules.presets.forEach((preset, i) => {
+        const value = String(i);
         const item = el("li");
         const option = button(preset.name, () => {
             if (busy || blockDragActive) return;
-            if (value === "custom") { setPreset(value); setAdvancedOpen(true); return; }
             useBlocks(structuredClone(rules.presets[i].blocks));
         }, "dropdown-item");
         option.dataset.value = value;
         item.append(option); $("[data-rule-presets]").append(item);
     });
     setPreset(0);
-    for (const [type, label] of Object.entries(rules.labels)) {
-        const add = button("", () => {
-            if (blocks.length >= 16 || blockDragActive) return;
-            blocks.push({ type, value: "" }); setPreset("custom");
-            renderBlocks(); applyRule();
-        }, "btn btn-sm chip-btn rule-palette-btn");
-        add.append(icon("plus"), document.createTextNode(label));
-        $("[data-rule-palette]").append(add);
-    }
     $("[data-default-season]").addEventListener("input", () => applyRule(false));
     editor.querySelectorAll("[data-sample-step]").forEach(node => node.addEventListener("click", () => {
         if (!files.length) return;
@@ -1388,7 +1556,6 @@
         if (key == null) return;
         setAdjust(key, { season: adjust.get(key)?.season ?? "", offset: event.target.value });
     });
-    $("[data-rule-advanced]").addEventListener("click", () => setAdvancedOpen(!advancedOpen));
     $("[data-rule-toggle]").addEventListener("click", () => setRuleOpen(!ruleOpen));
     $("[data-rule-reset]").addEventListener("click", () => { files.forEach(file => { file.manual = false; }); applyRule(false); });
     $("[data-files-all]").addEventListener("change", event => { files.forEach(file => { file.included = event.target.checked; }); invalidate(); renderFiles(); });
