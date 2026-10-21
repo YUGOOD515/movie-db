@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 编译只含常见影视格式的精简 ffprobe（LGPL，静态单文件，约 5 MB）。
+# 编译只含常见影视格式的精简 ffprobe（LGPL，静态单文件，约 8 MB）。
 #
 #   packaging/build_ffprobe.sh <FFmpeg 源码目录> <输出目录> [win64|native]
 #

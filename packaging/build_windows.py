@@ -3,7 +3,7 @@
     uv run python packaging/build_windows.py              # 输出到 dist/
     uv run python packaging/build_windows.py --no-ffprobe # 不内置 ffprobe
     uv run python packaging/build_windows.py --ffprobe-dir <目录>
-        # 使用 packaging/build_ffprobe.sh 编译的精简版 ffprobe（单文件约 5 MB，CI 默认）；
+        # 使用 packaging/build_ffprobe.sh 编译的精简版 ffprobe（单文件约 8 MB，CI 默认）；
         # 不指定时下载 BtbN 的完整 LGPL 版（约 160 MB）
 
 Windows 与 Linux 上都能组装（依赖按 Windows 平台下载二进制 wheel）；有 makensis 时生成
