@@ -7,7 +7,8 @@ DeepSeek（``api.deepseek.com``）按官方文档专门处理：
 - 关闭思考模式（Responses 用 ``reasoning.effort = none``，Chat 用 ``thinking.type = disabled``）：
   识别片名是分类任务，思考只会增加延迟和输出 token；
 - 不按每分钟次数限速：官方只限账号并发（deepseek-flash 2500、deepseek-v4-pro 500），
-  这里默认同时 4 个请求，由 ``LLM_CONCURRENCY`` 调整；
+  这里默认同时 64 个请求（遇到 429 自动减半、之后逐步恢复），由 ``LLM_CONCURRENCY`` 调整；
+  每批默认 8 条：小批次让并发真正铺开，单次响应也更快，由 ``LLM_BATCH_SIZE`` 调整；
 - 非流式请求在排队时会持续返回空行保活，读超时按“两次收到数据的间隔”计算，不会误判。
 
 其它平台沿用通用参数（不发送平台私有字段），默认 Chat Completions，``LLM_API`` 可覆盖。
@@ -91,8 +92,9 @@ def concurrency() -> int:
 
 
 def batch_size() -> int:
-    """合并请求时每次最多带几条记录。"""
-    return _env_int("LLM_BATCH_SIZE", 20, 1, 50)
+    """合并请求时每次最多带几条记录：DeepSeek 并发宽裕，默认 8 条一批；其他平台按次数限速，默认 20。"""
+    default = 8 if _settings()["provider"] == "deepseek" else 20
+    return _env_int("LLM_BATCH_SIZE", default, 1, 50)
 
 
 def parse_json(text: str) -> dict:

@@ -191,9 +191,10 @@ SECTIONS: tuple[Section, ...] = (
               options=(("", "自动"), ("responses", "Responses API"), ("chat", "Chat Completions"))),
             S("LLM_THINKING", "思考模式", "select", advanced=True, hint="仅 DeepSeek 生效，识别片名不需要思考。",
               options=(("", "关闭（默认）"), ("low", "低"), ("high", "高"), ("max", "最高"))),
-            S("LLM_BATCH_SIZE", "每次请求条数", "int", 20, advanced=True, low=1, high=50, placeholder="20"),
-            S("LLM_CONCURRENCY", "同时请求数", "int", advanced=True, low=1, high=16, placeholder="自动",
-              hint="留空时 DeepSeek 为 4，其他平台为 2。"),
+            S("LLM_BATCH_SIZE", "每次请求条数", "int", advanced=True, low=1, high=50, placeholder="自动",
+              hint="留空时 DeepSeek 为 8，其他平台为 20。"),
+            S("LLM_CONCURRENCY", "同时请求数", "int", advanced=True, low=1, high=500, placeholder="自动",
+              hint="留空时 DeepSeek 为 64，其他平台为 2；遇到限流会自动减半再逐步恢复。"),
         ), test="llm"),
     )),
 )

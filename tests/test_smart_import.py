@@ -149,7 +149,7 @@ class LlmTest(unittest.TestCase):
     def test_deepseek_is_limited_by_concurrency_not_rpm(self):
         with patch.dict(os.environ, {"LLM_BASE_URL": "https://api.deepseek.com", "LLM_RPM": "10"}):
             policy = throttle._llm_policy()
-            self.assertEqual((policy.concurrency, policy.rate), (4, 20))
+            self.assertEqual((policy.concurrency, policy.rate), (64, 50))
         with patch.dict(os.environ, {"LLM_BASE_URL": "https://api.siliconflow.cn/v1", "LLM_RPM": "30"}):
             policy = throttle._llm_policy()
             self.assertEqual((policy.concurrency, policy.rate), (2, 0.5))
@@ -319,11 +319,55 @@ class BatchRecognitionTest(unittest.TestCase):
             self.assertFalse(recognition.ai_used(result))
             self.assertEqual(recognition.signature(item, ai=recognition.ai_used(result)), recognition.signature(item, ai=False))
 
+    def test_progress_reports_each_stage(self):
+        snapshots = []
+
+        def ask(system, user, **kwargs):
+            items = json.loads(user)["items"]
+            return {"items": [{"id": item["id"], **self.ANSWERS[item["name"]]} for item in items]}
+
+        with patch.dict(os.environ, {"LLM_BATCH_SIZE": "20"}), patch.object(llm, "complete_json", side_effect=ask):
+            recognition.recognize_many(self.database_path, self.records, titles=[], on_progress=snapshots.append)
+        self.assertEqual(max(item["ai"] for item in snapshots), 3)
+        self.assertGreaterEqual(max(item["verifying"] for item in snapshots), 1)
+        self.assertEqual(snapshots[-1]["done"], 3)
+        self.assertEqual({key: max(item[key] for item in snapshots) for key in ("total", "rules")}, {"total": 3, "rules": 3})
+
     def test_rate_limit_defers_remaining_batches(self):
         stats, results, call = self.run_batch(Mock(side_effect=throttle.RateLimitError("llm", 3600)), size="2")
         self.assertEqual(call.call_count, 1)
         self.assertEqual(stats["deferred"], 3)
         self.assertTrue(all(result.get("ai_deferred") for result in results.values()))
+
+
+class LookupCacheTest(unittest.TestCase):
+    setUp = fixtures.LibraryIntegrationTest.setUp
+    tearDown = fixtures.LibraryIntegrationTest.tearDown
+
+    def test_unknown_type_uses_multi_search_and_results_persist(self):
+        payload = {"results": [
+            {"id": 7, "media_type": "tv", "name": "黑镜", "original_name": "Black Mirror", "first_air_date": "2011-12-04", "popularity": 50},
+            {"id": 8, "media_type": "movie", "title": "黑镜头", "original_title": "Shot", "release_date": "2001-01-01", "popularity": 1},
+            {"id": 9, "media_type": "person", "name": "黑镜"},
+        ]}
+        with patch.object(tmdb, "search_multi", return_value=payload) as multi, \
+             patch.object(tmdb, "search_media") as single:
+            first = recognition._search(["黑镜"], None, None, self.database_path)
+            second = recognition._search(["黑镜"], None, None, self.database_path)
+        self.assertEqual(multi.call_count, 1)  # 第二次命中 discovery.db 缓存
+        single.assert_not_called()
+        self.assertEqual([(item["media_type"], item["tmdb_id"]) for item in first], [("tv", 7), ("movie", 8)])
+        self.assertEqual(first, second)
+
+    def test_title_summary_is_cached_and_missing_imdb_expires_sooner(self):
+        summary = {"title_id": "", "display_title": "某剧", "start_year": 2020, "title_type": "series"}
+        candidate = {"media_type": "tv", "tmdb_id": 5, "name": "某剧", "year": 2020}
+        with patch.object(tmdb, "fetch_title_summary", return_value=summary) as fetch, \
+             patch.object(recognition.store, "cache_put", wraps=recognition.store.cache_put) as put:
+            self.assertIsNone(recognition._resolve(candidate, self.database_path))
+            self.assertIsNone(recognition._resolve(candidate, self.database_path))
+        self.assertEqual(fetch.call_count, 1)
+        self.assertEqual(put.call_args.args[3], recognition.MISSING_TTL)
 
 
 class DiscoveryStateTest(unittest.TestCase):

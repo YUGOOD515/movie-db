@@ -405,7 +405,16 @@
         refresh.classList.toggle("is-scanning", running);
         refresh.setAttribute("aria-busy", String(running));
         if (scan.status === "running") bar.progress("scan", { layer: "task", text: "正在扫描 AList", done: scan.done, total: scan.total, detail: scan.total ? `${Math.round(scan.done / scan.total * 100)}%` : "" });
-        else if (scan.status === "recognizing") bar.progress("scan", { layer: "task", text: scan.ai_pending ? `AI 识别中（${scan.ai?.model || "AI"}）` : "正在识别新内容", done: scan.recognized || 0, total: scan.to_recognize || 0, detail: scan.ai_pending ? `剩 ${scan.ai_pending} 项` : "" });
+        else if (scan.status === "recognizing") {
+            // 规则、AI、TMDB 核对三段并行：进度条按完成数走，说明里分别列出各段还在处理的条数。
+            const total = scan.to_recognize || 0;
+            const stages = [
+                (scan.rule_done || 0) < total ? `规则 ${scan.rule_done || 0}/${total}` : "",
+                scan.ai_pending ? `${scan.ai?.model || "AI"} ${scan.ai_pending} 项` : "",
+                scan.verifying ? `核对 ${scan.verifying} 项` : "",
+            ].filter(Boolean);
+            bar.progress("scan", { layer: "task", text: "正在识别新内容", done: scan.recognized || 0, total, detail: stages.join(" · ") });
+        }
         else if (bar.has("scan") && !watching) bar.clear("scan");
     }
 
