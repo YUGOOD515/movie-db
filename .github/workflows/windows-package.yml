@@ -1,0 +1,244 @@
+name: Windows 安装包
+
+on:
+  push:
+    branches: [main, "release/**", "feat/**", "perf/**"]
+    paths:
+      - packaging/**
+      - desktop.py
+      - app.py
+      - services/**
+      - connectors/**
+      - templates/**
+      - static/**
+      - pyproject.toml
+      - uv.lock
+      - .github/workflows/windows-package.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FFMPEG_VERSION: "8.1.3"
+
+jobs:
+  ffprobe:
+    # 精简版 ffprobe：在 Linux 上交叉编译（约 8 MB，替代 160 MB 的完整版），同时生成测试小样与完整版基准结果。
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 缓存精简版 ffprobe
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: ffprobe-out
+          key: ffprobe-slim-${{ env.FFMPEG_VERSION }}-${{ hashFiles('packaging/build_ffprobe.sh') }}
+
+      - name: 编译
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq mingw-w64 > /dev/null
+          curl -sSfL --retry 3 -o ffmpeg.tar.xz "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" || { echo "::error title=下载 FFmpeg 源码失败::"; exit 1; }
+          tar xJf ffmpeg.tar.xz
+          set +e
+          bash packaging/build_ffprobe.sh "ffmpeg-${FFMPEG_VERSION}" ffprobe-out win64 > build.log 2>&1
+          code=$?
+          cat build.log
+          if [ $code -ne 0 ]; then
+            # 失败原因写成注释，未登录也能在运行摘要里看到
+            echo "::error title=ffprobe 编译失败::$(tail -40 build.log | sed ':a;N;$!ba;s/%/%25/g;s/\r//g;s/\n/%0A/g')"
+            exit 1
+          fi
+
+      - name: 测试小样与基准结果
+        run: |
+          sudo apt-get install -y -qq ffmpeg > /dev/null
+          ffprobe -hide_banner -version | head -1
+          python3 packaging/check_ffprobe.py samples samples
+          FFPROBE_PATH=ffprobe python3 packaging/check_ffprobe.py expect samples samples/expected.json
+          ls -l ffprobe-out samples
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ffprobe-slim
+          path: |
+            ffprobe-out/
+            samples/
+          retention-days: 3
+
+  build:
+    needs: ffprobe
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      ALIST_AUTOSTART: "0"
+      MOVIEDB_AUTOSCAN_DISABLED: "1"
+      MOVIEDB_TONES_DISABLED: "1"
+      PYTHONUTF8: "1"
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+
+      - name: 缓存下载的 Python 与 FFmpeg
+        uses: actions/cache@v4
+        with:
+          path: .cache/packaging
+          key: packaging-${{ hashFiles('packaging/build_windows.py') }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ffprobe-slim
+          path: ffslim
+
+      - name: 准备 NSIS
+        run: |
+          $nsis = "${env:ProgramFiles(x86)}\NSIS"
+          if (-not (Get-Command makensis -ErrorAction SilentlyContinue) -and -not (Test-Path "$nsis\makensis.exe")) {
+            choco install nsis -y --no-progress
+          }
+
+      - name: 构建
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          uv run --frozen python packaging/build_windows.py --zip --ffprobe-dir ffslim\ffprobe-out 2>&1 | Tee-Object build.log
+          if ($LASTEXITCODE) {
+            # 失败原因写成注释，未登录也能在运行摘要里看到
+            "::error title=构建失败::$((Get-Content build.log -Tail 25) -join '%0A')"
+            exit 1
+          }
+
+      - name: 精简版 ffprobe 与完整版结果比对（经 HTTPS 读取）
+        run: |
+          $env:FFPROBE_PATH = (Resolve-Path dist\MovieDB\runtime\ffmpeg\ffprobe.exe).Path
+          & $env:FFPROBE_PATH -hide_banner -version | Select-Object -First 1
+          uv run --frozen python packaging/check_ffprobe.py verify ffslim\samples ffslim\samples\expected.json --https 2>&1 | Tee-Object probe.log
+          if ($LASTEXITCODE) {
+            "::error title=ffprobe 结果不一致::$((Get-Content probe.log -Tail 25) -join '%0A')"
+            exit 1
+          }
+
+      - name: 冒烟测试（免安装目录）
+        run: |
+          function Fail($message) { "::error::$message"; exit 1 }
+          $root = "dist\MovieDB"
+          & "$root\runtime\ffmpeg\ffprobe.exe" -hide_banner -version | Select-Object -First 1
+          & "$root\runtime\python\python.exe" -c "import flask, guessit, PIL, requests, dotenv, pystray; print('依赖可导入')"
+          if ($LASTEXITCODE) { Fail "依赖导入失败" }
+          $server = Start-Process "$root\runtime\python\python.exe" -ArgumentList "$root\app\desktop.py", "--no-browser", "--no-tray", "--port", "5070" -PassThru -RedirectStandardOutput smoke.log -RedirectStandardError smoke.err
+          try {
+            $ready = $false
+            for ($i = 0; $i -lt 60 -and -not $ready; $i++) {
+              Start-Sleep -Milliseconds 500
+              try { $ready = (Invoke-WebRequest http://127.0.0.1:5070/setup -UseBasicParsing).StatusCode -eq 200 } catch {}
+            }
+            if (-not $ready) { Get-Content smoke.log, smoke.err; Fail "服务没有启动" }
+            $code = curl.exe -s -o NUL -w "%{http_code}" -H "Accept: text/html" http://127.0.0.1:5070/
+            if ($code -ne "302") { Fail "首次使用没有跳转到引导页（HTTP $code）" }
+            $status = Invoke-RestMethod http://127.0.0.1:5070/setup/status
+            if (-not ($status.ffprobe.ok -and $status.ffprobe.bundled)) { Fail "没有识别到内置 ffprobe" }
+            "引导页正常；ffprobe $($status.ffprobe.version)"
+          } finally {
+            Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: 安装、首次设置与卸载
+        run: |
+          function Fail($message) { "::error::$message"; exit 1 }
+          $installer = Get-ChildItem dist\MovieDB-Setup-*.exe | Select-Object -First 1
+          Start-Process $installer.FullName -ArgumentList "/S" -Wait
+          $dir = "$env:LOCALAPPDATA\Programs\MovieDB"
+          foreach ($path in "$dir\runtime\python\pythonw.exe", "$dir\runtime\ffmpeg\ffprobe.exe", "$dir\app\desktop.py",
+                            "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\MovieDB.lnk", "$dir\Uninstall.exe") {
+            if (-not (Test-Path $path)) { Fail "安装后缺少 $path" }
+          }
+          $server = Start-Process "$dir\runtime\python\pythonw.exe" -ArgumentList "`"$dir\app\desktop.py`"", "--no-browser", "--no-tray", "--port", "5071" -WorkingDirectory "$dir\app" -PassThru
+          try {
+            $ready = $false
+            for ($i = 0; $i -lt 60 -and -not $ready; $i++) {
+              Start-Sleep -Milliseconds 500
+              try { $ready = (Invoke-WebRequest http://127.0.0.1:5071/setup -UseBasicParsing).StatusCode -eq 200 } catch {}
+            }
+            if (-not $ready) { Get-Content "$dir\app\logs\moviedb.log" -ErrorAction SilentlyContinue; Fail "安装版没有启动" }
+            # 模拟引导页最后一步：保存配置并建库（不连接外部服务）
+            $body = @{ ALIST_ORIGIN = "http://127.0.0.1:5244"; ALIST_USERNAME = "admin"; ALIST_PASSWORD = "ci"; TMDB_TOKEN = ("eyJ" + "a" * 100) } | ConvertTo-Json
+            $saved = Invoke-RestMethod http://127.0.0.1:5071/setup/save -Method Post -ContentType "application/json" -Body $body -Headers @{ Origin = "http://127.0.0.1:5071" }
+            if (-not $saved.library_created) { Fail "保存后没有创建媒体库" }
+            $code = curl.exe -s -o NUL -w "%{http_code}" -H "Accept: text/html" http://127.0.0.1:5071/
+            if ($code -ne "200") { Fail "建库后首页返回 HTTP $code" }
+            "安装版可用：已保存配置并创建媒体库"
+          } finally {
+            Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 1
+          }
+          Start-Process "$dir\Uninstall.exe" -ArgumentList "/S", "_?=$dir" -Wait
+          if (Test-Path "$dir\runtime") { Fail "卸载后仍有运行时文件" }
+          if (Test-Path "$dir\app\app.py") { Fail "卸载后仍有程序文件" }
+          if (-not (Test-Path "$dir\app\library.db") -or -not (Test-Path "$dir\app\.env")) { Fail "卸载时误删了媒体库数据" }
+          if (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\MovieDB.lnk") { Fail "卸载后快捷方式仍在" }
+          "卸载正常：程序已删除，媒体库与配置保留"
+          Get-ChildItem -Recurse -File $dir | ForEach-Object { $_.FullName.Substring($dir.Length) }
+
+      - name: 体积
+        run: |
+          foreach ($file in Get-ChildItem dist\*.exe, dist\*.zip) {
+            "::notice title=$($file.Name)::$([math]::Round($file.Length / 1MB, 1)) MB"
+          }
+          $installed = (Get-ChildItem -Recurse -File dist\MovieDB | Measure-Object Length -Sum).Sum
+          "::notice title=安装后占用::$([math]::Round($installed / 1MB, 1)) MB"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MovieDB-Windows
+          path: |
+            dist/MovieDB-Setup-*.exe
+            dist/MovieDB-*-portable.zip
+          retention-days: 14
+          compression-level: 0
+
+  release:
+    # 主干上 pyproject.toml 的版本号还没有对应的 Release 时，自动打标签 v<版本> 并上传安装包。
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 检查版本
+        id: version
+        run: |
+          version=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          if gh release view "v$version" > /dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "::notice title=跳过发布::v$version 已发布；改 pyproject.toml 的版本号后再合并即可发布新版本"
+          fi
+
+      - uses: actions/download-artifact@v4
+        if: steps.version.outputs.exists != 'true'
+        with:
+          name: MovieDB-Windows
+          path: dist
+
+      - name: 发布
+        if: steps.version.outputs.exists != 'true'
+        run: |
+          tag=${{ steps.version.outputs.tag }}
+          # 发行说明取 CHANGELOG.md 中对应版本的段落
+          awk -v tag="$tag" '/^## /{found = ($2 == tag)} found' CHANGELOG.md | tail -n +2 > notes.md
+          gh release create "$tag" dist/* --target "$GITHUB_SHA" --title "MovieDB $tag" --notes-file notes.md
+          echo "::notice title=已发布::$tag"

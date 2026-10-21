@@ -59,6 +59,8 @@ def run_publish(database: Path) -> bool:
             encoding="utf-8",
             errors="replace",
             timeout=TIMEOUT_SECONDS,
+            # 桌面版用 pythonw 运行，没有控制台；避免同步时弹出黑色窗口
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except (OSError, subprocess.TimeoutExpired) as error:
         logger.warning("Snapshot sync failed to run: %s", error)

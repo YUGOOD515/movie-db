@@ -84,6 +84,7 @@ discovery_path = _lazy("services.media_discovery", "canonical_path")
 browse_alist = _lazy("services.media_discovery", "browse")
 _discovery_store = _LazyModule("models.discovery_store")
 _recognition = _LazyModule("services.recognition")
+_setup = _LazyModule("services.setup_wizard")
 missing_by_title = _lazy("services.media_health", "missing_by_title")
 title_metadata = _lazy("services.media_association", "title_metadata")
 check_association = _lazy("services.media_association", "check_association")
@@ -168,6 +169,95 @@ def guard_read_only():
     if request.accept_mimetypes.accept_html and not request.accept_mimetypes.accept_json:
         return render_template("read_only.html"), 503
     return jsonify(error=READ_ONLY_MESSAGE, read_only=True), 503
+
+
+# 首次使用引导：媒体库还没建好时，页面请求先进入 /setup。
+SETUP_ENDPOINTS = {"static", "setup_page", "setup_status", "setup_test", "setup_save"}
+
+
+def _library_ready() -> bool:
+    ready = app.config.setdefault("LIBRARY_READY", set())
+    key = str(app.config["DATABASE"])
+    if key not in ready and _setup.library_ready(app.config["DATABASE"]):
+        ready.add(key)  # 建好后不会再变回未就绪，只缓存“已就绪”
+    return key in ready
+
+
+@app.before_request
+def guide_first_run():
+    if app.config["READ_ONLY"] or request.method != "GET" or request.endpoint in SETUP_ENDPOINTS:
+        return None
+    # 只拦截浏览器的页面跳转（Accept 明确含 text/html），接口请求照常返回。
+    if request.endpoint is None or "text/html" not in request.headers.get("Accept", ""):
+        return None
+    if not _library_ready():
+        return redirect(url_for("setup_page"))
+    return None
+
+
+def _setup_guard():
+    """设置会写入 .env：只读快照不提供；经 Cloudflare Tunnel 转发的请求不允许修改；写请求必须同源。"""
+    if app.config["READ_ONLY"]:
+        abort(404)
+    if request.headers.get("Cf-Connecting-Ip"):
+        return jsonify(ok=False, message="出于安全考虑，设置只能在运行 MovieDB 的电脑上修改。"), 403
+    if request.method == "POST":
+        source = request.headers.get("Origin") or request.headers.get("Referer") or ""
+        expected = request.host_url.rstrip("/")
+        if source != expected and not source.startswith(expected + "/"):
+            return jsonify(ok=False, message="请求来源不正确，请刷新设置页后重试。"), 403
+    return None
+
+
+@app.get("/setup")
+def setup_page():
+    if app.config["READ_ONLY"]:
+        abort(404)
+    return render_template("setup.html", first_run=not _library_ready(),
+                           remote=bool(request.headers.get("Cf-Connecting-Ip")))
+
+
+@app.get("/setup/status")
+def setup_status():
+    denied = _setup_guard()
+    if denied:
+        return denied
+    return jsonify(_setup.current(app.config["DATABASE"]))
+
+
+@app.post("/setup/test/<service>")
+def setup_test(service: str):
+    denied = _setup_guard()
+    if denied:
+        return denied
+    try:
+        return jsonify(_setup.run_test(service, request.get_json(silent=True) or {}))
+    except _setup.SetupError as error:
+        return jsonify(ok=False, message=str(error))
+
+
+@app.post("/setup/save")
+def setup_save():
+    denied = _setup_guard()
+    if denied:
+        return denied
+    try:
+        result = _setup.save(request.get_json(silent=True) or {}, app.config["DATABASE"])
+    except _setup.SetupError as error:
+        return jsonify(ok=False, message=str(error)), 400
+    except OSError as error:
+        return jsonify(ok=False, message=f"写入配置失败：{error.strerror or error}"), 500
+    secret_key = result.pop("secret_key", None)
+    if secret_key:
+        app.secret_key = secret_key
+    app.config["ALIST_ORIGIN"] = os.environ.get("ALIST_ORIGIN", "http://127.0.0.1:5244").rstrip("/")
+    app.config.get("LIBRARY_READY", set()).discard(str(app.config["DATABASE"]))
+    if not app.config.get("TESTING") and not os.environ.get("MOVIEDB_AUTOSCAN_DISABLED"):
+        from services.media_discovery import start_autoscan
+
+        start_autoscan(app.config["DATABASE"])
+    result["next"] = url_for("media", tab="associate", add_root=1)
+    return jsonify(result)
 
 
 @app.after_request
@@ -514,7 +604,8 @@ def recognize_discovery_record():
         return jsonify(error="TMDB 或 AI 服务暂时无法访问，请稍后重试。"), 502
     except RuntimeError:
         return jsonify(error="TMDB 尚未配置。"), 503
-    _discovery_store.save_recognition(app.config["DATABASE"], path, _recognition.signature(record), result)
+    _discovery_store.save_recognition(app.config["DATABASE"], path,
+                                      _recognition.signature(record, ai=_recognition.ai_used(result)), result)
     return jsonify(result)
 
 

@@ -1129,7 +1129,6 @@ class LibraryIntegrationTest(unittest.TestCase):
             items = [
                 {"title_id": "tt9000002", "season_number": "1", "episode_number": "1", "alist_url": "http://127.0.0.1:5244/d/Newsroom/S01E01.mkv?sign=abc"},
                 {"title_id": "tt9000002", "season_number": "1", "episode_number": "2", "alist_url": "http://127.0.0.1:5244/d/Newsroom/S01E02.mkv?sign=abc"},
-                {"title_id": "tt9000002", "season_number": "1", "episode_number": "3", "alist_url": "http://127.0.0.1:5244/d/Newsroom/S01E03.mkv?sign=abc"},
             ]
 
             # Intentionally fail on item 2

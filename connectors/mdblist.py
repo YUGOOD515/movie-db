@@ -10,6 +10,8 @@ from typing import Any, Final, Mapping, Optional, Sequence
 
 import requests
 
+from connectors import throttle
+
 PROJECT_ROOT: Final[Path] = Path(__file__).resolve().parents[1]
 ENV_PATH: Final[Path] = PROJECT_ROOT / ".env"
 
@@ -218,7 +220,8 @@ def fetch_mdblist_ratings(
 
     t0 = time.perf_counter()
     try:
-        resp = requests.get(cfg.api_url, params={"apikey": cfg.mdblist_apikey, "i": imdb_id}, timeout=cfg.timeout_seconds)
+        resp = throttle.call("mdblist", lambda: requests.get(
+            cfg.api_url, params={"apikey": cfg.mdblist_apikey, "i": imdb_id}, timeout=cfg.timeout_seconds))
         elapsed_ms = (time.perf_counter() - t0) * 1000
         if resp.status_code != 200:
             return TitleRatingsSummary(
