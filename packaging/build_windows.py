@@ -174,6 +174,9 @@ def megabytes(size: int) -> str:
 
 
 def main() -> int:
+    for stream in (sys.stdout, sys.stderr):  # Windows 控制台重定向时默认不是 UTF-8
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--out", type=Path, default=ROOT / "dist")
     parser.add_argument("--cache", type=Path, default=ROOT / ".cache" / "packaging")

@@ -45,6 +45,9 @@ def _redirect_output() -> None:
     """pythonw 没有控制台：把输出写入 logs/moviedb.log（超过 5MB 时轮换一次）。"""
     windowless = sys.stdout is None or Path(sys.executable).name.lower() == "pythonw.exe"
     if not windowless:
+        for stream in (sys.stdout, sys.stderr):  # 输出被重定向时 Windows 默认编码不是 UTF-8
+            if hasattr(stream, "reconfigure"):
+                stream.reconfigure(errors="replace")
         return
     LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
     if LOG_PATH.exists() and LOG_PATH.stat().st_size > 5 * 1024 * 1024:

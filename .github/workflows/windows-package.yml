@@ -27,6 +27,7 @@ jobs:
       ALIST_AUTOSTART: "0"
       MOVIEDB_AUTOSCAN_DISABLED: "1"
       MOVIEDB_TONES_DISABLED: "1"
+      PYTHONUTF8: "1"
     defaults:
       run:
         shell: pwsh
@@ -53,14 +54,21 @@ jobs:
       - name: 构建
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: uv run --frozen python packaging/build_windows.py --zip
+        run: |
+          uv run --frozen python packaging/build_windows.py --zip 2>&1 | Tee-Object build.log
+          if ($LASTEXITCODE) {
+            # 失败原因写成注释，未登录也能在运行摘要里看到
+            "::error title=构建失败::$((Get-Content build.log -Tail 25) -join '%0A')"
+            exit 1
+          }
 
       - name: 冒烟测试（免安装目录）
         run: |
+          function Fail($message) { "::error::$message"; exit 1 }
           $root = "dist\MovieDB"
           & "$root\runtime\ffmpeg\ffprobe.exe" -hide_banner -version | Select-Object -First 1
           & "$root\runtime\python\python.exe" -c "import flask, guessit, PIL, requests, dotenv, pystray; print('依赖可导入')"
-          if ($LASTEXITCODE) { throw "依赖导入失败" }
+          if ($LASTEXITCODE) { Fail "依赖导入失败" }
           $server = Start-Process "$root\runtime\python\python.exe" -ArgumentList "$root\app\desktop.py", "--no-browser", "--no-tray", "--port", "5070" -PassThru -RedirectStandardOutput smoke.log -RedirectStandardError smoke.err
           try {
             $ready = $false
@@ -68,11 +76,11 @@ jobs:
               Start-Sleep -Milliseconds 500
               try { $ready = (Invoke-WebRequest http://127.0.0.1:5070/setup -UseBasicParsing).StatusCode -eq 200 } catch {}
             }
-            if (-not $ready) { Get-Content smoke.log, smoke.err; throw "服务没有启动" }
+            if (-not $ready) { Get-Content smoke.log, smoke.err; Fail "服务没有启动" }
             $code = curl.exe -s -o NUL -w "%{http_code}" -H "Accept: text/html" http://127.0.0.1:5070/
-            if ($code -ne "302") { throw "首次使用没有跳转到引导页（HTTP $code）" }
+            if ($code -ne "302") { Fail "首次使用没有跳转到引导页（HTTP $code）" }
             $status = Invoke-RestMethod http://127.0.0.1:5070/setup/status
-            if (-not ($status.ffprobe.ok -and $status.ffprobe.bundled)) { throw "没有识别到内置 ffprobe" }
+            if (-not ($status.ffprobe.ok -and $status.ffprobe.bundled)) { Fail "没有识别到内置 ffprobe" }
             "引导页正常；ffprobe $($status.ffprobe.version)"
           } finally {
             Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
@@ -80,12 +88,13 @@ jobs:
 
       - name: 安装、首次设置与卸载
         run: |
+          function Fail($message) { "::error::$message"; exit 1 }
           $installer = Get-ChildItem dist\MovieDB-Setup-*.exe | Select-Object -First 1
           Start-Process $installer.FullName -ArgumentList "/S" -Wait
           $dir = "$env:LOCALAPPDATA\Programs\MovieDB"
           foreach ($path in "$dir\runtime\python\pythonw.exe", "$dir\runtime\ffmpeg\ffprobe.exe", "$dir\app\desktop.py",
                             "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\MovieDB.lnk", "$dir\Uninstall.exe") {
-            if (-not (Test-Path $path)) { throw "安装后缺少 $path" }
+            if (-not (Test-Path $path)) { Fail "安装后缺少 $path" }
           }
           $server = Start-Process "$dir\runtime\python\pythonw.exe" -ArgumentList "`"$dir\app\desktop.py`"", "--no-browser", "--no-tray", "--port", "5071" -WorkingDirectory "$dir\app" -PassThru
           try {
@@ -94,23 +103,23 @@ jobs:
               Start-Sleep -Milliseconds 500
               try { $ready = (Invoke-WebRequest http://127.0.0.1:5071/setup -UseBasicParsing).StatusCode -eq 200 } catch {}
             }
-            if (-not $ready) { Get-Content "$dir\app\logs\moviedb.log" -ErrorAction SilentlyContinue; throw "安装版没有启动" }
+            if (-not $ready) { Get-Content "$dir\app\logs\moviedb.log" -ErrorAction SilentlyContinue; Fail "安装版没有启动" }
             # 模拟引导页最后一步：保存配置并建库（不连接外部服务）
             $body = @{ ALIST_ORIGIN = "http://127.0.0.1:5244"; ALIST_USERNAME = "admin"; ALIST_PASSWORD = "ci"; TMDB_TOKEN = ("eyJ" + "a" * 100) } | ConvertTo-Json
             $saved = Invoke-RestMethod http://127.0.0.1:5071/setup/save -Method Post -ContentType "application/json" -Body $body -Headers @{ Origin = "http://127.0.0.1:5071" }
-            if (-not $saved.library_created) { throw "保存后没有创建媒体库" }
+            if (-not $saved.library_created) { Fail "保存后没有创建媒体库" }
             $code = curl.exe -s -o NUL -w "%{http_code}" -H "Accept: text/html" http://127.0.0.1:5071/
-            if ($code -ne "200") { throw "建库后首页返回 HTTP $code" }
+            if ($code -ne "200") { Fail "建库后首页返回 HTTP $code" }
             "安装版可用：已保存配置并创建媒体库"
           } finally {
             Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
             Start-Sleep -Seconds 1
           }
           Start-Process "$dir\Uninstall.exe" -ArgumentList "/S", "_?=$dir" -Wait
-          if (Test-Path "$dir\runtime") { throw "卸载后仍有运行时文件" }
-          if (Test-Path "$dir\app\app.py") { throw "卸载后仍有程序文件" }
-          if (-not (Test-Path "$dir\app\library.db") -or -not (Test-Path "$dir\app\.env")) { throw "卸载时误删了媒体库数据" }
-          if (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\MovieDB.lnk") { throw "卸载后快捷方式仍在" }
+          if (Test-Path "$dir\runtime") { Fail "卸载后仍有运行时文件" }
+          if (Test-Path "$dir\app\app.py") { Fail "卸载后仍有程序文件" }
+          if (-not (Test-Path "$dir\app\library.db") -or -not (Test-Path "$dir\app\.env")) { Fail "卸载时误删了媒体库数据" }
+          if (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\MovieDB.lnk") { Fail "卸载后快捷方式仍在" }
           "卸载正常：程序已删除，媒体库与配置保留"
           Get-ChildItem -Recurse -File $dir | ForEach-Object { $_.FullName.Substring($dir.Length) }
 
