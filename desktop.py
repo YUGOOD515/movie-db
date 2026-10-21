@@ -3,12 +3,15 @@
 安装包用 runtime/python/pythonw.exe 运行本文件（没有控制台窗口）；开发时也可以
 `uv run python desktop.py`。可选参数：--port 端口、--no-browser 不自动打开浏览器、
 --no-tray 不显示托盘图标（按 Ctrl+C 退出）。
+
+重启（托盘菜单或设置页）：先停止服务并释放端口，再用同样的参数启动一个新进程。
 """
 
 from __future__ import annotations
 
 import argparse
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -91,7 +94,28 @@ def _open_folder(path: Path) -> None:
         webbrowser.open(path.as_uri())
 
 
-def _run_tray(url: str, stop) -> bool:
+def relaunch_command(argv: list[str]) -> list[str]:
+    """重启用的命令：沿用原参数，不再自动打开浏览器（设置页会自己跳转）。"""
+    args = [arg for arg in argv if arg != "--no-browser"]
+    return [sys.executable, str(BASE_DIR / "desktop.py"), *args, "--no-browser"]
+
+
+def _spawn(command: list[str]) -> None:
+    flags = 0
+    if os.name == "nt":
+        flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+    subprocess.Popen(command, cwd=BASE_DIR, close_fds=True, creationflags=flags,
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def _configured_port(cli_port: int | None) -> int:
+    try:
+        return cli_port or int(os.environ.get("MOVIEDB_PORT") or DEFAULT_PORT)
+    except ValueError:
+        return DEFAULT_PORT
+
+
+def _run_tray(url: str, stop, restart=None, holder: dict | None = None) -> bool:
     try:
         import pystray
     except Exception:  # 没装 pystray 或当前系统不支持托盘
@@ -106,15 +130,18 @@ def _run_tray(url: str, stop) -> bool:
 
     menu = pystray.Menu(
         pystray.MenuItem("打开 MovieDB", open_app, default=True),
-        pystray.MenuItem("打开设置", lambda icon, item: webbrowser.open(url + "/setup")),
+        pystray.MenuItem("打开设置", lambda icon, item: webbrowser.open(url + "/settings")),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("打开数据文件夹", lambda icon, item: _open_folder(BASE_DIR)),
         pystray.MenuItem("查看日志", lambda icon, item: _open_folder(LOG_PATH.parent)),
         pystray.Menu.SEPARATOR,
+        *([pystray.MenuItem("重启 MovieDB", lambda icon, item: restart())] if restart else []),
         pystray.MenuItem("退出", quit_app),
     )
     icon = pystray.Icon("MovieDB", make_icon(64), f"MovieDB · {url}", menu)
-    icon.run()  # 阻塞到选择“退出”
+    if holder is not None:
+        holder["icon"] = icon
+    icon.run()  # 阻塞到选择“退出”或重启
     stop()
     return True
 
@@ -128,7 +155,7 @@ def main(argv: list[str] | None = None) -> int:
 
     _redirect_output()
     _prepare_environment()
-    port = args.port or int(os.environ.get("MOVIEDB_PORT") or DEFAULT_PORT)
+    port = _configured_port(args.port)
     url = f"http://127.0.0.1:{port}"
 
     running = _running_instance(url)
@@ -158,18 +185,38 @@ def main(argv: list[str] | None = None) -> int:
         threading.Timer(0.6, webbrowser.open, args=(url + "/",)).start()
 
     stopped = threading.Event()
+    restarting = threading.Event()
+    tray: dict = {}
 
     def stop():
         if not stopped.is_set():
             stopped.set()
             server.shutdown()
+            icon = tray.get("icon")
+            if icon is not None:
+                icon.visible = False
+                icon.stop()
 
-    if args.no_tray or not _run_tray(url, stop):
+    def request_restart() -> str:
+        """设置页与托盘共用：稍后停止服务（让当前请求先返回），退出后由新进程接手。"""
+        restarting.set()
+        threading.Timer(0.5, stop).start()
+        return f"http://127.0.0.1:{_configured_port(args.port)}"
+
+    app.config["RESTART_HANDLER"] = request_restart
+
+    if args.no_tray or not _run_tray(url, stop, request_restart, tray):
         try:
             while thread.is_alive():
                 thread.join(0.5)
         except KeyboardInterrupt:
             stop()
+    thread.join(5)
+    server.server_close()  # 释放端口，新进程才能用同一端口启动
+    if restarting.is_set():
+        print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] MovieDB 正在重启", flush=True)
+        _spawn(relaunch_command(sys.argv[1:] if argv is None else argv))
+        return 0
     print(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] MovieDB 已退出", flush=True)
     return 0
 

@@ -88,7 +88,8 @@ def _watch(database: Path) -> None:
             and now - last_change >= (0 if published is None else STABLE_SECONDS)
             and now - last_run >= (0 if published is None else MIN_INTERVAL_SECONDS)
         )
-        if due:
+        # 设置页可以随时暂停或清除令牌：每轮按当前设置判断，恢复后立即补同步。
+        if due and is_enabled():
             last_run = now
             if run_publish(database):
                 published = current

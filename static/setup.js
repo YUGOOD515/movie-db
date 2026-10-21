@@ -1,23 +1,22 @@
-// 首次使用引导与设置页：分步填写、逐项测试连接、保存到 .env。
+// 首次使用引导：开场 → 片源 → 海报与资料 → 加点料 → 完成；右侧海报墙随进度逐级亮起。
 (() => {
-    const root = document.querySelector("[data-setup]");
+    const root = document.querySelector("[data-onboard]");
     if (!root) return;
-    const form = root.querySelector("[data-setup-form]");
-    const panels = [...root.querySelectorAll("[data-step]")];
-    const links = [...root.querySelectorAll("[data-step-link]")];
-    const prev = root.querySelector("[data-prev]"), next = root.querySelector("[data-next]");
-    const saveNow = root.querySelector("[data-save-now]");
-    const firstRun = root.dataset.firstRun === "1";
-    const field = name => form.elements.namedItem(name);
+    const form = root.querySelector("[data-onboard-form]");
+    const scenes = Object.fromEntries([...root.querySelectorAll("[data-scene]")].map(node => [node.dataset.scene, node]));
+    const tiles = [...root.querySelectorAll(".onboard-tile")];
+    const progress = root.querySelector("[data-progress]");
+    const STEPS = ["alist", "tmdb", "extras"];
     const SERVICE_FIELDS = {
         alist: ["ALIST_ORIGIN", "ALIST_USERNAME", "ALIST_PASSWORD", "ALIST_PATH_PASSWORD"],
         tmdb: ["TMDB_TOKEN", "TMDB_PROXY"],
         llm: ["LLM_BASE_URL", "LLM_API_KEY", "LLM_MODEL"],
         mdblist: ["MDBLIST_APIKEY"],
     };
-    const STEP_SERVICE = ["alist", "tmdb", null, null];
-    const tests = {};        // service -> {ok, warn, message}
-    let state = null, step = 0, reached = 0, busy = false;
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const field = name => form.elements.namedItem(name);
+    const tests = {};
+    let state = null, at = "welcome", busy = false, timer = 0, postersShown = false;
 
     const el = (tag, className, text) => {
         const node = document.createElement(tag);
@@ -27,22 +26,58 @@
     };
     const icon = name => { const node = el("i", `bi bi-${name}`); node.setAttribute("aria-hidden", "true"); return node; };
 
-    function payload() {
+    function payload(extra = {}) {
         const data = {};
         for (const input of form.querySelectorAll("input[name]")) {
             data[input.name] = input.type === "checkbox" ? input.checked : input.value.trim();
         }
-        return data;
+        return { ...data, ...extra };
     }
 
     async function post(url, body) {
-        const response = await fetch(url, {
-            method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" },
-            body: JSON.stringify(body),
+        try {
+            const response = await fetch(url, {
+                method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" },
+                body: JSON.stringify(body),
+            });
+            try { return await response.json(); } catch { return { ok: false, message: `请求失败（HTTP ${response.status}）` }; }
+        } catch {
+            return { ok: false, message: "MovieDB 没有响应，请确认程序仍在运行。" };
+        }
+    }
+
+    function setLevel(level) {
+        root.dataset.level = String(Math.max(Number(root.dataset.level) || 0, level));
+    }
+
+    function setBusy(value) {
+        busy = value;
+        root.querySelectorAll("[data-connect], [data-finish], [data-finish-plain], [data-go], [data-test]").forEach(button => { button.disabled = value; });
+    }
+
+    // ------------------------------------------------------------ 场景切换
+
+    function go(name) {
+        clearTimeout(timer);
+        if (!scenes[name] || name === at) return;
+        scenes[at].hidden = true;
+        at = name;
+        root.dataset.at = name;
+        const scene = scenes[name];
+        scene.hidden = false;
+        scene.classList.remove("is-entering");
+        void scene.offsetWidth;  // 重新触发进场动画
+        scene.classList.add("is-entering");
+        const index = STEPS.indexOf(name);
+        progress.hidden = index < 0;
+        progress.querySelectorAll("li").forEach((item, i) => {
+            item.classList.toggle("is-current", i === index);
+            item.classList.toggle("is-done", i < index);
+            if (i === index) item.setAttribute("aria-current", "step"); else item.removeAttribute("aria-current");
         });
-        let data = {};
-        try { data = await response.json(); } catch { data = { ok: false, message: `请求失败（HTTP ${response.status}）` }; }
-        return data;
+        const first = scene.querySelector("input:not([type=checkbox]):not([type=hidden])") || scene.querySelector(".media-primary-action");
+        if (first && window.matchMedia("(pointer: fine)").matches) first.focus({ preventScroll: true });
+        window.scrollTo({ top: 0, behavior: reduceMotion.matches ? "auto" : "smooth" });
     }
 
     // ------------------------------------------------------------ 结果显示
@@ -51,182 +86,139 @@
         const box = root.querySelector(`[data-result="${service}"]`);
         if (!box) return;
         box.replaceChildren();
-        box.className = "setup-result";
+        box.className = "onboard-result";
         if (!result) return;
         if (result.pending) {
             box.classList.add("is-pending");
             const spinner = el("span", "spinner-border spinner-border-sm");
             spinner.setAttribute("aria-hidden", "true");
-            box.append(spinner, el("span", null, result.message || "正在测试…"));
+            box.append(spinner, el("span", null, result.message || "正在连接…"));
             return;
         }
         const warn = result.ok && result.warnings && result.warnings.length;
         box.classList.add(result.ok ? (warn ? "is-warn" : "is-ok") : "is-fail");
-        const head = el("div", "setup-result-head");
+        const head = el("p", "onboard-result-head");
         head.append(icon(result.ok ? (warn ? "exclamation-circle" : "check-circle-fill") : "x-circle-fill"),
             el("strong", null, result.message || (result.ok ? "已连接" : "失败")));
-        if (result.ok && result.details && result.details.length) head.append(el("span", "setup-result-details", result.details.join(" · ")));
+        if (result.ok && result.details && result.details.length) head.append(el("span", "onboard-result-details", result.details.join(" · ")));
         box.append(head);
-        for (const text of (result.ok ? result.warnings || [] : [])) box.append(el("p", "setup-result-note", text));
+        for (const text of (result.ok ? result.warnings || [] : [])) box.append(el("p", "onboard-result-note", text));
         if (result.skip) {
-            const skip = el("button", "setup-skip", "跳过测试，继续");
+            const skip = el("button", "onboard-skip", "跳过检测，先继续");
             skip.type = "button";
-            skip.addEventListener("click", () => { tests[service] = { ok: true, skipped: true }; go(step + 1); });
+            skip.addEventListener("click", () => { tests[service] = { ok: true, skipped: true }; setLevel(1); go("tmdb"); });
             box.append(skip);
         }
     }
 
-    async function runTest(service) {
-        if (busy) return tests[service];
-        busy = true; render();
+    async function runTest(service, extra) {
+        if (busy) return null;
+        setBusy(true);
         showResult(service, { pending: true });
-        let result;
-        try {
-            result = await post(`/setup/test/${service}`, payload());
-        } catch {
-            result = { ok: false, message: "MovieDB 没有响应，请确认程序仍在运行。" };
-        }
-        busy = false;
+        const result = await post(`/setup/test/${service}`, payload(extra));
+        setBusy(false);
         tests[service] = result;
         if (service === "tmdb" && result.network) root.querySelector('[data-more="proxy"]').open = true;
         showResult(service, result);
-        render();
         return result;
     }
 
-    // ------------------------------------------------------------ 步骤
-
-    function stepDone(index) {
-        const service = STEP_SERVICE[index];
-        if (service) return Boolean(tests[service] && tests[service].ok);
-        return firstRun && index < reached;
+    function setConnectLabel(service, text) {
+        root.querySelector(`[data-connect="${service}"] span`).textContent = text;
     }
 
-    function render() {
-        panels.forEach((panel, index) => { panel.hidden = index !== step; });
-        links.forEach((link, index) => {
-            const item = link.parentElement;
-            item.classList.toggle("is-current", index === step);
-            item.classList.toggle("is-done", index !== step && stepDone(index));
-            link.disabled = busy || (firstRun && index > reached);
-            if (index === step) link.setAttribute("aria-current", "step"); else link.removeAttribute("aria-current");
-            const mark = link.querySelector("[data-step-mark]");
-            mark.replaceChildren(index !== step && stepDone(index) ? icon("check-lg") : document.createTextNode(String(index + 1)));
-        });
-        prev.hidden = step === 0;
-        prev.disabled = busy;
-        next.disabled = busy;
-        next.querySelector("span").textContent = step < panels.length - 1 ? "下一步"
-            : firstRun ? "保存并添加片库目录" : "保存设置";
-        next.querySelector("i").className = step < panels.length - 1 || firstRun ? "bi bi-arrow-right" : "bi bi-check-lg";
-        if (saveNow) { saveNow.hidden = step === panels.length - 1; saveNow.disabled = busy; }
-        if (step === panels.length - 1) renderChecklist();
-    }
-
-    function go(index) {
-        step = Math.max(0, Math.min(panels.length - 1, index));
-        reached = Math.max(reached, step);
-        render();
-        const first = panels[step].querySelector("input:not([type=checkbox]), select");
-        if (first && window.matchMedia("(pointer: fine)").matches) first.focus({ preventScroll: true });
-    }
-
-    async function advance() {
-        if (step === panels.length - 1) return save();
-        const service = STEP_SERVICE[step];
-        if (service && !(tests[service] && tests[service].ok)) {
-            const result = await runTest(service);
-            if (!result.ok) {
-                // 服务暂时没开也允许先保存，之后到设置里再测
-                if (service === "alist" && !result.network) showResult(service, { ...result, skip: true });
-                return;
-            }
-        }
-        go(step + 1);
-    }
-
-    // ------------------------------------------------------------ 检查清单
-
-    function checkItem(status, title, detail) {
-        const item = el("li", `setup-check is-${status}`);
-        const mark = { ok: "check-circle-fill", warn: "exclamation-circle", off: "dash-circle", fail: "x-circle-fill", info: "info-circle" }[status];
-        const text = el("div", "min-w-0");
-        text.append(el("strong", null, title));
-        if (detail) text.append(el("span", null, detail));
-        item.append(icon(mark), text);
-        return item;
-    }
-
-    function serviceCheck(service, title, configured) {
-        const result = tests[service];
-        if (result && result.skipped) return checkItem("warn", title, "未测试");
-        if (result && result.ok) return checkItem(result.warnings && result.warnings.length ? "warn" : "ok", title,
-            [result.message, ...(result.details || [])].join(" · "));
-        if (result) return checkItem("fail", title, result.message);
-        return checkItem(configured ? "info" : "warn", title, configured ? "已填写，未测试" : "未填写");
-    }
-
-    function renderChecklist() {
-        const list = root.querySelector("[data-checklist]");
-        const data = payload();
-        const saved = name => Boolean(data[name] || (state && state.saved[name]));
-        list.replaceChildren(
-            serviceCheck("alist", "AList", data.ALIST_USERNAME && saved("ALIST_PASSWORD")),
-            serviceCheck("tmdb", "TMDB", saved("TMDB_TOKEN")),
-            data.ai_enabled ? serviceCheck("llm", "AI 识别", saved("LLM_API_KEY")) : checkItem("off", "AI 识别", "未开启，仅用文件名规则识别"),
-            data.mdblist_enabled ? serviceCheck("mdblist", "多平台评分", saved("MDBLIST_APIKEY")) : checkItem("off", "多平台评分", "未开启"),
-        );
-        if (state) {
-            const probe = state.ffprobe;
-            list.append(probe.ok
-                ? checkItem("ok", "ffprobe", `${probe.bundled ? "随安装包提供" : "已找到"}${probe.version ? ` · ${probe.version}` : ""}`)
-                : checkItem("warn", "ffprobe", "未找到：导入时无法读取分辨率、HDR 与音轨。可安装 FFmpeg 并加入 PATH，或在 .env 中设置 FFPROBE_PATH。"));
-            list.append(state.library.ready
-                ? checkItem("ok", "媒体库", `${state.library.name} 已存在，保持不变`)
-                : checkItem("info", "媒体库", `将新建 ${state.library.name}（${state.library.folder}）`));
-        }
-    }
-
-    async function save() {
-        if (busy) return;
-        busy = true; render();
-        showResult("save", { pending: true, message: "正在保存…" });
-        let result;
-        try {
-            result = await post("/setup/save", payload());
-        } catch {
-            result = { ok: false, message: "MovieDB 没有响应，请确认程序仍在运行。" };
-        }
-        busy = false;
-        if (result.ok && firstRun && result.next) {
-            showResult("save", { ok: true, message: "已保存", details: [result.library_created ? "媒体库已创建" : "正在打开媒体管理"] });
-            window.location.assign(result.next);
+    async function connect(service) {
+        const passed = tests[service] && tests[service].ok;
+        if (passed) { go(service === "alist" ? "tmdb" : "extras"); return; }
+        const result = await runTest(service, service === "tmdb" ? { with_posters: !postersShown } : undefined);
+        if (!result) return;
+        if (!result.ok) {
+            // AList 暂时没开也允许先往下走，之后到设置里再检测
+            if (service === "alist" && !result.network) showResult(service, { ...result, skip: true });
             return;
         }
-        if (result.ok) {
-            showResult("save", { ok: true, message: "已保存", details: ["新设置已生效"] });
-            for (const input of form.querySelectorAll("[data-secret]")) input.value = "";
-            await load();
-        } else {
-            showResult("save", result);
-            if (step !== panels.length - 1) go(panels.length - 1);
+        setConnectLabel(service, "继续");
+        const warned = result.warnings && result.warnings.length;
+        if (service === "alist") {
+            setLevel(1);
+            if (!warned) timer = setTimeout(() => go("tmdb"), 900);
+            return;
         }
-        render();
-        if (saveNow && step !== panels.length - 1) window.showAppToast?.(result.ok ? "设置已保存" : result.message, result.ok ? "success" : "warning");
+        setLevel(2);
+        const shown = await showPosters(result.posters || []);
+        if (!warned) timer = setTimeout(() => go("extras"), shown ? 2000 : 900);
+    }
+
+    // ------------------------------------------------------------ 海报墙
+
+    function showPosters(names) {
+        if (!names.length || postersShown) return Promise.resolve(postersShown);
+        postersShown = true;
+        const order = tiles.map((tile, index) => index).sort(() => Math.random() - 0.5);
+        return new Promise(resolve => {
+            let pending = tiles.length, done = false;
+            const finish = () => { if (!done) { done = true; resolve(true); } };
+            setTimeout(finish, 1500);  // 慢的海报不挡住流程
+            tiles.forEach((tile, index) => {
+                const img = tile.querySelector("img");
+                img.addEventListener("load", () => {
+                    img.hidden = false;
+                    tile.style.setProperty("--delay", `${order.indexOf(index) * 28}ms`);
+                    tile.classList.add("is-lit");
+                    if (--pending === 0) finish();
+                }, { once: true });
+                img.addEventListener("error", () => { if (--pending === 0) finish(); }, { once: true });
+                img.src = `/setup/poster/w342/${encodeURIComponent(names[index % names.length])}`;
+            });
+        });
+    }
+
+    // ------------------------------------------------------------ 开场检测
+
+    function check(name, status, text) {
+        const item = root.querySelector(`[data-check="${name}"]`);
+        item.dataset.state = status;
+        item.querySelector("[data-check-text]").textContent = text;
+    }
+
+    function renderChecks() {
+        const origin = state.values.ALIST_ORIGIN.replace(/^https?:\/\//, "");
+        check("alist", state.alist_running ? "ok" : "warn",
+            state.alist_running ? `AList 正在运行（${origin}）` : "没有检测到 AList，下一步可以填写它的地址");
+        const probe = state.ffprobe;
+        check("ffprobe", probe.ok ? "ok" : "warn", probe.ok
+            ? `ffprobe ${probe.bundled ? "随安装包提供" : "已就绪"}${probe.version ? ` · ${probe.version}` : ""}`
+            : "未找到 ffprobe，导入时不读取分辨率、HDR 与音轨");
+        check("library", "ok", state.library.ready ? `媒体库 ${state.library.name} 已存在` : `将新建媒体库 ${state.library.name}`);
+    }
+
+    // ------------------------------------------------------------ 保存
+
+    async function finish(withExtras) {
+        if (busy) return;
+        const extra = withExtras ? {} : { ai_enabled: false, mdblist_enabled: false };
+        setBusy(true);
+        showResult("save", { pending: true, message: "正在保存…" });
+        const result = await post("/setup/save", payload(extra));
+        setBusy(false);
+        if (!result.ok) { showResult("save", result); return; }
+        showResult("save", null);
+        setLevel(3);
+        const link = root.querySelector("[data-next-link]");
+        if (result.next) link.href = result.next;
+        if (result.library_created === false) root.querySelector("[data-finale-text]").textContent = "设置已保存。接下来选择网盘里的影片目录，MovieDB 会识别并补全资料。";
+        go("finale");
     }
 
     // ------------------------------------------------------------ 字段联动
 
     function syncFeature(input) {
-        const body = input.closest("[data-feature]").querySelector("[data-feature-body]");
-        body.hidden = !input.checked;
-        if (step === panels.length - 1) renderChecklist();
+        input.closest("[data-feature]").querySelector("[data-feature-body]").hidden = !input.checked;
     }
 
     function setupPresets(presets, baseUrl) {
         const select = root.querySelector("[data-preset]"), keyLink = root.querySelector("[data-key-link]");
         select.replaceChildren(...presets.map(preset => new Option(preset.name, preset.id)), new Option("其他（自定义）", ""));
-        // DeepSeek 旧配置可能带 /v1，同样归到 DeepSeek 预设。
         const match = presets.find(preset => preset.base_url === baseUrl || (preset.id === "deepseek" && /\/\/api\.deepseek\.com(\/v1)?\/?$/.test(baseUrl || "")));
         select.value = match ? match.id : baseUrl ? "" : presets[0].id;
         let previous = match || (baseUrl ? null : presets[0]);
@@ -234,7 +226,7 @@
             const preset = presets.find(item => item.id === select.value);
             keyLink.hidden = !preset;
             if (preset) keyLink.href = preset.key_url;
-            // DeepSeek 只限并发不限每分钟次数，隐藏“每分钟请求上限”。
+            // DeepSeek 只限并发不限每分钟次数
             root.querySelector("[data-rpm-field]").hidden = preset?.rpm === false;
             if (!fill || !preset) return;
             field("LLM_BASE_URL").value = preset.base_url;
@@ -250,54 +242,55 @@
 
     async function load() {
         state = await (await fetch("/setup/status", { headers: { Accept: "application/json" } })).json();
-        if (state.ok === false) { showResult("save", state); return; }
+        if (state.ok === false) throw new Error(state.message);
         for (const [name, value] of Object.entries(state.values)) {
             const input = field(name);
-            if (input && !input.matches(":focus")) input.value = value || "";
+            if (input) input.value = value || "";
         }
         for (const [name, saved] of Object.entries(state.saved)) {
             const input = field(name);
-            if (input) input.placeholder = saved ? "已保存，留空保持不变" : "";
+            if (input && saved) input.placeholder = "已保存，留空保持不变";
         }
         if (state.saved.ALIST_PATH_PASSWORD) root.querySelector('[data-more="path-password"]').open = true;
         if (state.values.TMDB_PROXY) root.querySelector('[data-more="proxy"]').open = true;
-        render();
+        setupPresets(state.presets, state.values.LLM_BASE_URL);
+        field("ai_enabled").checked = Boolean(state.saved.LLM_API_KEY || state.values.LLM_BASE_URL);
+        field("mdblist_enabled").checked = Boolean(state.saved.MDBLIST_APIKEY);
+        form.querySelectorAll("[data-feature] input[type=checkbox]").forEach(syncFeature);
+        renderChecks();
     }
 
     form.addEventListener("input", event => {
         const name = event.target.name;
         for (const [service, names] of Object.entries(SERVICE_FIELDS)) {
-            if (names.includes(name) && tests[service]) { delete tests[service]; showResult(service, null); render(); }
+            if (!names.includes(name) || !tests[service]) continue;
+            delete tests[service];
+            showResult(service, null);
+            clearTimeout(timer);
+            if (service === "alist" || service === "tmdb") setConnectLabel(service, "连接");
         }
     });
     form.addEventListener("keydown", event => {
-        if (event.key === "Enter" && event.target.matches("input:not([type=checkbox])")) { event.preventDefault(); advance(); }
+        if (event.key !== "Enter" || !event.target.matches("input:not([type=checkbox])")) return;
+        event.preventDefault();
+        if (at === "alist" || at === "tmdb") connect(at);
+        else if (at === "extras") finish(true);
     });
-    for (const input of form.querySelectorAll("[data-feature] input[type=checkbox]")) {
-        input.addEventListener("change", () => syncFeature(input));
-    }
-    for (const button of root.querySelectorAll("[data-reveal]")) {
-        button.addEventListener("click", () => {
-            const input = button.previousElementSibling, shown = input.type === "text";
-            input.type = shown ? "password" : "text";
-            button.querySelector("i").className = shown ? "bi bi-eye" : "bi bi-eye-slash";
-            button.title = shown ? "显示" : "隐藏";
-        });
-    }
+    form.addEventListener("submit", event => event.preventDefault());
+    form.querySelectorAll("[data-feature] input[type=checkbox]").forEach(input => input.addEventListener("change", () => syncFeature(input)));
+    root.querySelectorAll("[data-reveal]").forEach(button => button.addEventListener("click", () => {
+        const input = button.previousElementSibling, shown = input.type === "text";
+        input.type = shown ? "password" : "text";
+        button.querySelector("i").className = shown ? "bi bi-eye" : "bi bi-eye-slash";
+        button.title = shown ? "显示" : "隐藏";
+    }));
+    root.querySelectorAll("[data-go]").forEach(button => button.addEventListener("click", () => go(button.dataset.go)));
+    root.querySelectorAll("[data-connect]").forEach(button => button.addEventListener("click", () => connect(button.dataset.connect)));
     root.querySelectorAll("[data-test]").forEach(button => button.addEventListener("click", () => runTest(button.dataset.test)));
-    links.forEach((link, index) => link.addEventListener("click", () => go(index)));
-    prev.addEventListener("click", () => go(step - 1));
-    next.addEventListener("click", advance);
-    saveNow?.addEventListener("click", save);
+    root.querySelector("[data-finish]").addEventListener("click", () => finish(true));
+    root.querySelector("[data-finish-plain]").addEventListener("click", () => finish(false));
 
-    render();
-    load().then(() => {
-        const data = state.values;
-        setupPresets(state.presets, data.LLM_BASE_URL);
-        field("ai_enabled").checked = Boolean(state.saved.LLM_API_KEY || data.LLM_BASE_URL);
-        field("mdblist_enabled").checked = Boolean(state.saved.MDBLIST_APIKEY);
-        form.querySelectorAll("[data-feature] input[type=checkbox]").forEach(syncFeature);
-        if (!firstRun) reached = panels.length - 1;
-        render();
-    }).catch(() => showResult("save", { ok: false, message: "无法读取当前设置，请刷新页面。" }));
+    load().catch(() => {
+        check("alist", "warn", "无法读取当前状态，请刷新页面");
+    });
 })();

@@ -1,0 +1,112 @@
+{% extends "layout.html" %}
+
+{% block title %}: 设置{% endblock %}
+
+{% macro control(item) %}
+    {% set id = "set-" ~ item.name %}
+    {% if item.kind == "bool" %}
+        <div class="form-check form-switch m-0">
+            <input class="form-check-input" id="{{ id }}" name="{{ item.name }}" type="checkbox" role="switch" data-setting>
+        </div>
+    {% elif item.kind == "select" %}
+        <select class="form-select" id="{{ id }}" name="{{ item.name }}" data-setting>
+            {% for value, label in item.options %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
+        </select>
+    {% elif item.secret %}
+        <div class="settings-secret">
+            <input class="form-control" id="{{ id }}" name="{{ item.name }}" type="password" autocomplete="off" spellcheck="false" data-setting data-secret{% if item.required %} data-required{% endif %}>
+            <button class="settings-inline-btn" type="button" data-reveal aria-label="显示{{ item.label }}" title="显示"><i class="bi bi-eye" aria-hidden="true"></i></button>
+            {% if not item.required %}<button class="settings-inline-btn settings-clear" type="button" data-clear hidden>清除</button>{% endif %}
+        </div>
+    {% else %}
+        <input class="form-control" id="{{ id }}" name="{{ item.name }}"
+               type="{{ 'number' if item.kind in ('int', 'float') else 'url' if item.kind == 'url' else 'text' }}"
+               {% if item.kind == "int" %}step="1"{% elif item.kind == "float" %}step="any"{% endif %}
+               {% if item.low is not none %}min="{{ item.low }}"{% endif %}{% if item.high is not none %}max="{{ item.high }}"{% endif %}
+               {% if item.kind == "url" %}inputmode="url"{% endif %}
+               placeholder="{{ item.placeholder }}" spellcheck="false" autocomplete="off" data-setting>
+    {% endif %}
+    <div class="settings-error" data-error="{{ item.name }}" role="alert"></div>
+{% endmacro %}
+
+{% macro row(item) %}
+    <div class="settings-row{% if item.kind == 'bool' %} is-switch{% endif %}" data-row="{{ item.name }}">
+        <div class="settings-row-label">
+            <label for="set-{{ item.name }}">{{ item.label }}</label>
+            {% if item.restart %}<span class="settings-badge">重启后生效</span>{% endif %}
+            {% if item.hint %}<p class="settings-row-hint">{{ item.hint }}</p>{% endif %}
+        </div>
+        <div class="settings-row-control">{{ control(item) }}</div>
+    </div>
+{% endmacro %}
+
+{% block main %}
+<div class="container-xl settings-shell" data-settings>
+    <header class="settings-header">
+        <h1 class="h3 fw-bold mb-0">设置</h1>
+        <div class="segmented-control text-nowrap" role="tablist" aria-label="设置分区">
+            {% for section in sections %}
+                <button class="btn btn-sm" type="button" role="tab" id="tab-{{ section.id }}" aria-controls="section-{{ section.id }}" data-tab="{{ section.id }}">{{ section.title }}</button>
+            {% endfor %}
+        </div>
+    </header>
+    <p class="settings-lead">修改后在底部保存，大部分设置立即生效。已保存的密码和密钥不会显示，留空即保持不变。</p>
+
+    {% if remote %}
+        <div class="settings-banner"><i class="bi bi-shield-lock" aria-hidden="true"></i><span>出于安全考虑，设置只能在运行 MovieDB 的电脑上修改。</span></div>
+    {% endif %}
+
+    <form class="settings-form" data-settings-form autocomplete="off" novalidate>
+        {% for section in sections %}
+            <section class="settings-section" id="section-{{ section.id }}" role="tabpanel" aria-labelledby="tab-{{ section.id }}" data-section="{{ section.id }}" hidden>
+                {% for group in section.groups %}
+                    <section class="settings-group" data-group="{{ group.id }}" aria-labelledby="group-{{ group.id }}">
+                        <header class="settings-group-head">
+                            <div class="min-w-0">
+                                <h2 class="settings-group-title" id="group-{{ group.id }}">{{ group.title }}</h2>
+                                <p class="settings-group-desc">{{ group.description }}</p>
+                            </div>
+                            <div class="settings-group-side">
+                                <span class="settings-status" data-status="{{ group.id }}"><span class="settings-dot" aria-hidden="true"></span><span data-status-text></span></span>
+                                {% if group.id == "llm" %}
+                                    <div class="form-check form-switch m-0" title="开启 AI 识别">
+                                        <input class="form-check-input" id="set-ai-enabled" name="ai_enabled" type="checkbox" role="switch" aria-label="开启 AI 识别">
+                                    </div>
+                                {% endif %}
+                                {% if group.test %}
+                                    <button class="btn btn-sm chip-btn" type="button" data-test="{{ group.test }}"><span>检测</span></button>
+                                {% endif %}
+                            </div>
+                        </header>
+                        {% if group.test %}<div class="settings-result" data-result="{{ group.test }}" role="status" aria-live="polite"></div>{% endif %}
+
+                        <div class="settings-body"{% if group.id == "llm" %} data-ai-body{% endif %}>
+                            {% if group.id == "llm" %}
+                                <div class="settings-row">
+                                    <div class="settings-row-label">
+                                        <label for="set-preset">平台</label>
+                                        <p class="settings-row-hint"><a href="#" target="_blank" rel="noopener" data-key-link hidden>获取 API Key</a></p>
+                                    </div>
+                                    <div class="settings-row-control"><select class="form-select" id="set-preset" data-preset></select></div>
+                                </div>
+                            {% endif %}
+                            {% for item in group.basic %}{{ row(item) }}{% endfor %}
+                            {% if group.advanced %}
+                                <details class="settings-advanced" data-advanced>
+                                    <summary>高级</summary>
+                                    {% for item in group.advanced %}{{ row(item) }}{% endfor %}
+                                </details>
+                            {% endif %}
+                        </div>
+                    </section>
+                {% endfor %}
+            </section>
+        {% endfor %}
+    </form>
+</div>
+{% endblock %}
+
+{% block scripts %}
+    <script src="{{ url_for('static', filename='status-bar.js') }}"></script>
+    <script src="{{ url_for('static', filename='settings.js') }}"></script>
+{% endblock %}

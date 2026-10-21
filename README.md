@@ -8,16 +8,17 @@
 
 ## 安装与首次使用
 
-**Windows 安装包**：`MovieDB-Setup-<版本>.exe` 可在仓库 [Releases](https://github.com/YUGOOD515/movie-db/releases) 页面直接下载（同时提供免安装 zip）；合并到 `main` 时“Windows 安装包”工作流会按 `pyproject.toml` 的版本号自动构建并发布，各分支的构建产物也可在运行记录底部的 Artifacts 下载（需登录 GitHub）。版本变更见 [CHANGELOG.md](CHANGELOG.md)。安装包自带 Python 运行环境、全部依赖和 ffprobe，按当前用户安装到 `%LOCALAPPDATA%\Programs\MovieDB`，不需要管理员权限；安装完成后从开始菜单或桌面的“MovieDB”启动，程序在系统托盘常驻（打开 MovieDB / 打开设置 / 打开数据文件夹 / 查看日志 / 退出），重复双击只会打开页面。默认端口 5000，可在 `.env` 设置 `MOVIEDB_PORT`。
+**Windows 安装包**：`MovieDB-Setup-<版本>.exe` 可在仓库 [Releases](https://github.com/YUGOOD515/movie-db/releases) 页面直接下载（同时提供免安装 zip）；合并到 `main` 时“Windows 安装包”工作流会按 `pyproject.toml` 的版本号自动构建并发布，各分支的构建产物也可在运行记录底部的 Artifacts 下载（需登录 GitHub）。版本变更见 [CHANGELOG.md](CHANGELOG.md)。安装包自带 Python 运行环境、全部依赖和 ffprobe，按当前用户安装到 `%LOCALAPPDATA%\Programs\MovieDB`，不需要管理员权限；安装完成后从开始菜单或桌面的“MovieDB”启动，程序在系统托盘常驻（打开 MovieDB / 打开设置 / 打开数据文件夹 / 查看日志 / 重启 MovieDB / 退出），重复双击只会打开页面。默认端口 5000，可在设置页或 `.env` 的 `MOVIEDB_PORT` 修改。
 
-首次打开（还没有 `library.db`）会进入引导页：
+首次打开（还没有 `library.db`）会进入全屏引导，右侧海报墙随进度逐级亮起：
 
-1. **连接 AList**：填写地址、账号，测试时会检查登录、根目录可见的存储，以及“签名所有”是否开启（导入取播放链接需要）。
-2. **TMDB 元数据**：填写 API 读访问令牌；误填 32 位 API Key 会直接提示。访问不了 TMDB 时可填 `TMDB_PROXY`（只对 TMDB 生效）。
-3. **增强功能（可选）**：AI 识别推荐 DeepSeek（也可选硅基流动、智谱、Gemini、OpenRouter、OpenAI 等预设），测试时真实发一次请求并核对模型名；MDBList 多平台评分。
-4. **完成**：汇总各项测试结果、ffprobe 状态与媒体库位置，保存后自动创建空媒体库，并直接打开“添加扫描目录”。
+1. **开场**：检测本机 AList 是否在运行、ffprobe 是否可用，以及将要新建的媒体库。
+2. **片源 · AList**：填写地址、账号，“连接”时会检查登录、根目录可见的存储，以及“签名所有”是否开启（导入取播放链接需要）；AList 暂时没开也可以跳过检测先往下走。
+3. **海报与资料 · TMDB**：填写 API 读访问令牌（页内有获取步骤），误填 32 位 API Key 会直接提示；访问不了 TMDB 时可填 `TMDB_PROXY`（只对 TMDB 生效）。连通后海报墙翻出 TMDB 本周热门海报（经本机转发，沿用代理）。
+4. **加点料（可选）**：AI 识别推荐 DeepSeek（也可选硅基流动、智谱、Gemini、OpenRouter、OpenAI 等预设），检测时真实发一次请求并核对模型名；MDBList 多平台评分。“以后再说”只保存必填项。
+5. **完成**：自动创建空媒体库，“去关联第一批影片”直接打开“添加扫描目录”。
 
-配置写入程序目录的 `.env`（保留原有注释与其他变量），立即生效，无需重启。之后可从侧栏“管理 → 设置”修改；已保存的密码和密钥不会回显，留空即保持不变。设置只能在运行 MovieDB 的电脑上修改：经 Cloudflare Tunnel 访问时只读，云端快照不提供该页面。
+配置写入程序目录的 `.env`（保留原有注释与其他变量），立即生效。媒体库建好后 `/setup` 改为跳转到侧栏“管理 → 设置”：分为**连接**（AList、待关联扫描、播放器、ffprobe、云端只读快照、本机端口）、**元数据**（TMDB、MDBList、IMDb 评分）、**AI** 三栏，每组显示状态并可单独“检测”，不常用的项收在“高级”里；修改后在底部状态栏保存或放弃。已保存的密码和密钥不会回显，留空即保持不变，可选密钥可单独清除；关闭 AI 识别会一并清除其接口地址、模型与 API Key。除端口（`MOVIEDB_PORT`）外都立即生效；改端口后桌面版可在设置页或托盘菜单“重启 MovieDB”一键重启，其他启动方式需手动重启。设置只能在运行 MovieDB 的电脑上修改：经 Cloudflare Tunnel 访问时只读，云端快照不提供该页面。
 
 媒体库、配置、海报缓存与日志都保存在安装目录的 `app\` 下（托盘菜单“打开数据文件夹”）。覆盖安装会保留这些数据；卸载时默认只删除程序文件，可选择一并删除数据。
 
@@ -91,7 +92,7 @@ TMDB 与 AList 凭据不得写入源码或提交到 Git。曾经进入 Git 历�
 
 **DeepSeek（推荐）**：`LLM_BASE_URL=https://api.deepseek.com`、`LLM_MODEL=deepseek-flash`。按官方文档专门处理：默认走 Responses API；关闭思考模式（Responses 用 `reasoning.effort=none`，Chat 用 `thinking.type=disabled`，`LLM_THINKING` 可改）；官方不限每分钟次数、只限账号并发（deepseek-flash 2500，deepseek-v4-pro 500），因此只限同时在途 4 个请求（`LLM_CONCURRENCY`），忽略 `LLM_RPM`。旧配置里的 `/v1` 会自动去掉。粗略估算：1000 个需要 AI 的目录约 50 次请求、输入约 20 万 token、输出约 8 万 token，按 deepseek-flash 价格约 0.1–0.2 美元（非高峰时段约减半）。
 
-设置页“测试连接”会真实发送一次极小的 JSON 请求，能直接发现余额不足、模型名错误等问题。
+设置页“检测”会真实发送一次极小的 JSON 请求，能直接发现余额不足、模型名错误等问题。
 
 确认关联后记住原目录名，下次同名目录直接识别。忽略的条目收在“已忽略”标签页，可随时恢复。识别结果按目录内容签名缓存，内容未变不会重复识别。扫描时顺带检查已关联文件：AList 明确返回不存在才标记为“失效”，网络错误不改变状态；媒体资源管理页可按“失效”筛选，源文件不会被删除。
 
