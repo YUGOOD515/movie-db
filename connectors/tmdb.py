@@ -63,7 +63,7 @@ logger = logging.getLogger(__name__)
 
 # 短时、有界缓存；同一键的并发请求共用一个 Future，失败不缓存。
 CACHE_TTL = 600
-CACHE_LIMIT = 128
+CACHE_LIMIT = 2048  # 一次扫描几百个目录、每个 1–3 个搜索词，太小会在同一轮内反复请求
 _cache = OrderedDict()
 _pending = {}
 _cache_lock = Lock()
@@ -110,6 +110,22 @@ def search_media(query: str, media_type: str, page: int = 1) -> dict:
                 "include_adult": "false",
             })
     return _cached(("search", media_type, query, LANGUAGE, page), fetch)
+
+
+def search_multi(query: str, page: int = 1) -> dict:
+    """一次请求同时搜索电影和剧集（结果里带 media_type，另含人物，需由调用方过滤）。"""
+    def fetch():
+        with _session() as session:
+            return _get(session, "/search/multi", {
+                "query": query, "page": page, "language": LANGUAGE,
+                "include_adult": "false",
+            })
+    return _cached(("search", "multi", query, LANGUAGE, page), fetch)
+
+
+def clear_cache():
+    with _cache_lock:
+        _cache.clear()
 
 
 def fetch_title_summary(media_type: str, tmdb_id: int) -> dict:

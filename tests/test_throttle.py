@@ -52,6 +52,44 @@ class CallTest(unittest.TestCase):
                 pass
         self.assertGreaterEqual(time.monotonic() - started, 0.09)
 
+    def test_concurrency_halves_on_429_and_recovers(self):
+        gate = throttle.Limiter("x", throttle.Policy(rate=1e6, burst=1e6, concurrency=8, max_wait=5))
+        gate.limited()
+        gate.limited()
+        self.assertEqual(gate.concurrency, 2)
+        for _ in range(2 + 3 + 4 + 5 + 6 + 7):  # 每连续成功“当前上限”次加 1
+            gate.succeeded()
+        self.assertEqual(gate.concurrency, 8)
+        gate.succeeded()
+        self.assertEqual(gate.concurrency, 8)  # 不超过配置值
+
+    def test_reduced_limit_caps_in_flight_requests(self):
+        import threading
+        gate = throttle.Limiter("x", throttle.Policy(rate=1e6, burst=1e6, concurrency=4, max_wait=5))
+        gate.limited()
+        active, peak, lock = [0], [0], threading.Lock()
+
+        def work():
+            with gate.slot():
+                with lock:
+                    active[0] += 1
+                    peak[0] = max(peak[0], active[0])
+                time.sleep(0.02)
+                with lock:
+                    active[0] -= 1
+
+        threads = [threading.Thread(target=work) for _ in range(8)]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+        self.assertEqual(peak[0], 2)
+
+    def test_call_reports_limits_to_limiter(self):
+        send = Mock(side_effect=[response(429, {"Retry-After": "0"}), response(200)])
+        throttle.call("tmdb", send)
+        self.assertEqual(throttle.limiter("tmdb").concurrency, throttle.limiter("tmdb").policy.concurrency // 2)
+
 
 class AlistTest(unittest.TestCase):
     def test_driver_throttling_message_is_retried(self):

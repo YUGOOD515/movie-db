@@ -106,6 +106,7 @@ class Group:
     description: str
     settings: tuple[Setting, ...]
     test: str | None = None  # 对应 setup_wizard.TESTS 的检测项
+    icon: str = ""           # Bootstrap Icons 名称（不含 bi- 前缀）
 
     @property
     def basic(self):
@@ -122,6 +123,7 @@ class Section:
     title: str
     description: str
     groups: tuple[Group, ...] = field(default_factory=tuple)
+    icon: str = ""
 
 
 S = Setting
@@ -141,31 +143,31 @@ SECTIONS: tuple[Section, ...] = (
             S("ALIST_RATE", "每秒请求数", "float", 20, advanced=True, low=0.1, high=100, placeholder="20",
               hint="网盘风控严格时调低。"),
             S("ALIST_CONCURRENCY", "同时请求数", "int", 4, advanced=True, low=1, high=16, placeholder="4"),
-        ), test="alist"),
+        ), test="alist", icon="hdd-network"),
         Group("scan", "待关联扫描", "发现新文件、检查失效文件", (
             S("MOVIEDB_AUTOSCAN", "启动时自动扫描", "bool", True,
               hint="MovieDB 启动后在后台扫描已选择的片库目录。"),
-        )),
+        ), icon="radar"),
         Group("player", "播放器", "用 MPC-HC 播放并记录观看进度", (
             S("MPC_PATH", "MPC-HC 程序", "path", placeholder="C:\\Program Files\\MPC-HC\\mpc-hc64.exe"),
             S("MPC_WEB_URL", "Web 接口", "url", placeholder="http://127.0.0.1:13579",
               hint="在 MPC-HC“选项 → Web 界面”中开启，用于记录观看进度。"),
-        ), test="player"),
+        ), test="player", icon="play-circle"),
         Group("ffprobe", "ffprobe", "读取分辨率、HDR 与音轨", (
             S("FFPROBE_PATH", "程序路径", "path", placeholder="ffprobe", hint="安装包已自带；留空使用系统 PATH 中的 ffprobe。"),
             S("FFPROBE_TIMEOUT", "超时（秒）", "int", 60, advanced=True, low=5, high=600, placeholder="60"),
             S("FFPROBE_CONCURRENCY", "并行进程数", "int", 3, advanced=True, low=1, high=8, placeholder="3"),
-        ), test="ffprobe"),
+        ), test="ffprobe", icon="film"),
         Group("sync", "云端只读快照", "本机离线时，在 Cloudflare 上浏览片库", (
             S("MOVIEDB_SYNC_TOKEN", "同步令牌", "secret", hint="设置后，媒体库变化时自动同步到云端。"),
             S("MOVIEDB_SYNC_DISABLED", "暂停自动同步", "bool", False),
             S("MOVIEDB_SYNC_URL", "同步地址", "url", advanced=True, placeholder="https://moviedb-router.example.workers.dev"),
-        )),
+        ), icon="cloud-arrow-up"),
         Group("app", "本机", "MovieDB 自身", (
             S("MOVIEDB_PORT", "端口", "int", 5000, low=1024, high=65535, restart=True, placeholder="5000",
               hint="桌面版使用的本机端口。"),
-        )),
-    )),
+        ), icon="pc-display"),
+    ), icon="plug"),
     Section("metadata", "元数据", "海报、简介、演员与评分", (
         Group("tmdb", "TMDB", "海报、简介、演员与季集", (
             S("TMDB_TOKEN", "API 读访问令牌", "secret", required=True,
@@ -174,12 +176,12 @@ SECTIONS: tuple[Section, ...] = (
             S("TMDB_API_ORIGIN", "接口地址", "url", advanced=True, placeholder="https://api.themoviedb.org/3",
               hint="使用反向代理或镜像时填写。"),
             S("TMDB_IMAGE_ORIGIN", "图片地址", "url", advanced=True, placeholder="https://image.tmdb.org/t/p"),
-        ), test="tmdb"),
+        ), test="tmdb", icon="image"),
         Group("mdblist", "MDBList", "烂番茄、Metacritic 等多平台评分", (
             S("MDBLIST_APIKEY", "API Key", "secret", hint="在 mdblist.com 登录后，于 Preferences → API Access 中生成；免费账号每天 1000 次。"),
-        ), test="mdblist"),
-        Group("imdb", "IMDb 评分", "官方评分文件，超过一天自动重新下载", ()),
-    )),
+        ), test="mdblist", icon="bar-chart"),
+        Group("imdb", "IMDb 评分", "官方评分文件，超过一天自动重新下载", (), icon="star"),
+    ), icon="collection"),
     Section("ai", "AI", "识别文件名拿不准的影片", (
         Group("llm", "AI 识别", "文件名规则拿不准时，让大模型判断片名、年份和季集", (
             S("LLM_BASE_URL", "接口地址", "url", placeholder="https://…/v1"),
@@ -191,11 +193,13 @@ SECTIONS: tuple[Section, ...] = (
               options=(("", "自动"), ("responses", "Responses API"), ("chat", "Chat Completions"))),
             S("LLM_THINKING", "思考模式", "select", advanced=True, hint="仅 DeepSeek 生效，识别片名不需要思考。",
               options=(("", "关闭（默认）"), ("low", "低"), ("high", "高"), ("max", "最高"))),
-            S("LLM_BATCH_SIZE", "每次请求条数", "int", 20, advanced=True, low=1, high=50, placeholder="20"),
-            S("LLM_CONCURRENCY", "同时请求数", "int", advanced=True, low=1, high=16, placeholder="自动",
-              hint="留空时 DeepSeek 为 4，其他平台为 2。"),
-        ), test="llm"),
-    )),
+            S("LLM_BATCH_SIZE", "每次请求条数", "int", advanced=True, low=1, high=50, placeholder="自动",
+              hint="留空时 DeepSeek 为 8，其他平台为 20。"),
+            S("LLM_CONCURRENCY", "同时请求数", "int", advanced=True, low=1, high=500, placeholder="自动",
+              hint="留空时 DeepSeek 为 64，其他平台为 2；遇到限流会自动减半再逐步恢复。"),
+        ), test="llm", icon="stars"),
+    ), icon="stars"),
+    Section("data", "数据", "清除本机数据，回到首次使用", icon="database"),
 )
 del S
 

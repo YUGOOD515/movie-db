@@ -6,10 +6,11 @@
 - LLM（OpenAI 兼容）：免费档通常是每分钟十几到几十次、每日几十到上千次，超出返回 429，
   并在 Retry-After / X-RateLimit-Reset / retryDelay 中给出恢复时间。
   DeepSeek 官方不限每分钟次数，只限账号并发（deepseek-flash 2500、deepseek-v4-pro 500），
-  超出返回 429，服务器繁忙返回 503；因此只限并发（默认 4，LLM_CONCURRENCY），忽略 LLM_RPM。
+  超出返回 429，服务器繁忙返回 503；因此只限并发（默认 64，LLM_CONCURRENCY），忽略 LLM_RPM。
 - MDBList：免费档每日 1000 次，且每 5 分钟最多 1000 次读取。
 
-每个服务一只令牌桶（平均速率）加一个信号量（同时在途请求数）。遇到 429/503 时按服务端给出的
+每个服务一只令牌桶（平均速率）加一个自适应并发上限（同时在途请求数）：遇到 429/503 时并发减半，
+之后每连续成功一轮（成功次数达到当前上限）加 1，直到恢复配置值（AIMD）。遇到 429/503 时按服务端给出的
 等待时间（否则指数退避 + 抖动）全服务暂停后重试；需要等待的时间超过 max_wait（多半是每日额度
 用尽）时不再阻塞，改为“熔断”到恢复时间，期间同一服务的请求直接抛出 RateLimitError，由调用方
 降级处理（例如 AI 识别退回规则识别）。
@@ -83,14 +84,15 @@ def _llm_policy() -> Policy:
     deepseek = re.search(r"//([a-z0-9-]+\.)*deepseek\.com(?:[:/]|$)", base_url.strip().lower()) is not None
     if deepseek:
         # 按并发限流：速率只做防抖（每秒 20 次），真正的约束是同时在途数。
-        return Policy(rate=20, burst=4, concurrency=int(_env_float("LLM_CONCURRENCY", 4)), max_wait=90)
+        return Policy(rate=50, burst=16, concurrency=int(_env_float("LLM_CONCURRENCY", 64)), max_wait=90)
     return Policy(rate=_env_float("LLM_RPM", 10) / 60, burst=1,
                   concurrency=int(_env_float("LLM_CONCURRENCY", 2)), max_wait=90)
 
 
 def _policies() -> dict[str, Policy]:
     return {
-        "tmdb": Policy(rate=20, burst=10, concurrency=8, max_wait=30),
+        # TMDB 上限约 40 req/s，留余量取 30；并发 16 足以把速率跑满（单次请求约 0.3–0.5 秒）。
+        "tmdb": Policy(rate=30, burst=10, concurrency=16, max_wait=30),
         "tmdb-image": Policy(rate=20, burst=10, concurrency=6, max_wait=30),
         "alist": Policy(
             # 目录读取多数命中 AList 自身缓存，速率不是网盘风控的关键；同时在途数才是，保持 4。
@@ -112,7 +114,44 @@ class Limiter:
         self._tokens = policy.burst
         self._updated = time.monotonic()
         self._paused_until = 0.0
-        self._slots = threading.BoundedSemaphore(max(1, policy.concurrency))
+        self._ceiling = max(1, policy.concurrency)
+        self._limit = self._ceiling      # 当前并发上限，限流时减半、成功后缓慢恢复
+        self._active = 0
+        self._streak = 0
+        self._free = threading.Condition(threading.Lock())
+
+    @property
+    def concurrency(self) -> int:
+        with self._free:
+            return self._limit
+
+    def limited(self) -> None:
+        """收到 429/503：并发上限减半（至少 1）。"""
+        with self._free:
+            self._limit = max(1, self._limit // 2)
+            self._streak = 0
+
+    def succeeded(self) -> None:
+        """一次未被限流的请求：连续成功达到当前上限次数后上限加 1。"""
+        with self._free:
+            if self._limit >= self._ceiling:
+                return
+            self._streak += 1
+            if self._streak >= self._limit:
+                self._streak = 0
+                self._limit += 1
+                self._free.notify()
+
+    def _acquire(self) -> None:
+        with self._free:
+            while self._active >= self._limit:
+                self._free.wait()
+            self._active += 1
+
+    def _release(self) -> None:
+        with self._free:
+            self._active -= 1
+            self._free.notify()
 
     def pause(self, seconds: float) -> None:
         """整个服务暂停 seconds 秒（所有线程共享）。"""
@@ -141,10 +180,13 @@ class Limiter:
         blocked = self.blocked_for()
         if blocked > self.policy.max_wait:
             raise RateLimitError(self.name, blocked)
-        with self._slots:
+        self._acquire()
+        try:
             while (delay := self._take()) > 0:
                 time.sleep(min(delay, 5))
             yield
+        finally:
+            self._release()
 
 
 _limiters: dict[str, Limiter] = {}
@@ -234,7 +276,9 @@ def call(service: str, send, *, throttled=None):
             continue
         limited = response.status_code in RETRY_STATUS or bool(throttled and throttled(response))
         if not limited:
+            gate.succeeded()
             return response
+        gate.limited()
         delay = retry_after(response)
         wait = delay if delay is not None else _backoff(attempt)
         response.close()

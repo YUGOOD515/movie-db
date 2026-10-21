@@ -43,6 +43,11 @@ CREATE TABLE IF NOT EXISTS name_alias (
     payload TEXT NOT NULL,
     updated_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS lookup_cache (
+    key TEXT PRIMARY KEY,
+    payload TEXT NOT NULL,
+    expires_at REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS media_health (
     alist_path TEXT PRIMARY KEY,
     title_id TEXT NOT NULL,
@@ -67,6 +72,12 @@ def _connect(library_database) -> sqlite3.Connection:
             connection.executescript(SCHEMA)
             _ready.add(key)
     return connection
+
+
+def reset():
+    """数据文件被删除后调用：下次连接时重新建表。"""
+    with _lock:
+        _ready.clear()
 
 
 def _write(library_database, statements):
@@ -177,3 +188,20 @@ def missing_media(library_database) -> list[dict]:
     with closing(_connect(library_database)) as db:
         return [dict(row) for row in db.execute(
             "SELECT alist_path, title_id, checked_at FROM media_health WHERE status = 'missing' ORDER BY alist_path")]
+
+
+# TMDB 查询缓存（搜索结果、作品摘要）-------------------------------------
+
+def cache_get(library_database, key: str):
+    with closing(_connect(library_database)) as db:
+        row = db.execute("SELECT payload FROM lookup_cache WHERE key = ? AND expires_at > ?", (key, time.time())).fetchone()
+    return json.loads(row["payload"]) if row else None
+
+
+def cache_put(library_database, key: str, value, ttl: float):
+    now = time.time()
+    statements = [("INSERT OR REPLACE INTO lookup_cache (key, payload, expires_at) VALUES (?, ?, ?)",
+                   (key, json.dumps(value, ensure_ascii=False), now + ttl))]
+    if hash(key) % 200 == 0:  # 偶尔顺手清掉过期项，避免表无限增长
+        statements.append(("DELETE FROM lookup_cache WHERE expires_at <= ?", (now,)))
+    _write(library_database, statements)

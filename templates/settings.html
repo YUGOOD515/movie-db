@@ -46,7 +46,7 @@
         <h1 class="h3 fw-bold mb-0">设置</h1>
         <div class="segmented-control text-nowrap" role="tablist" aria-label="设置分区">
             {% for section in sections %}
-                <button class="btn btn-sm" type="button" role="tab" id="tab-{{ section.id }}" aria-controls="section-{{ section.id }}" data-tab="{{ section.id }}">{{ section.title }}</button>
+                <button class="btn btn-sm" type="button" role="tab" id="tab-{{ section.id }}" aria-controls="section-{{ section.id }}" data-tab="{{ section.id }}">{% if section.icon %}<i class="bi bi-{{ section.icon }}" aria-hidden="true"></i>{% endif %}<span>{{ section.title }}</span></button>
             {% endfor %}
         </div>
     </header>
@@ -57,12 +57,13 @@
     {% endif %}
 
     <form class="settings-form" data-settings-form autocomplete="off" novalidate>
-        {% for section in sections %}
+        {% for section in sections if section.id != "data" %}
             <section class="settings-section" id="section-{{ section.id }}" role="tabpanel" aria-labelledby="tab-{{ section.id }}" data-section="{{ section.id }}" hidden>
                 {% for group in section.groups %}
                     <section class="settings-group" data-group="{{ group.id }}" aria-labelledby="group-{{ group.id }}">
                         <header class="settings-group-head">
-                            <div class="min-w-0">
+                            {% if group.icon %}<span class="settings-group-icon" aria-hidden="true"><i class="bi bi-{{ group.icon }}"></i></span>{% endif %}
+                            <div class="min-w-0 flex-grow-1">
                                 <h2 class="settings-group-title" id="group-{{ group.id }}">{{ group.title }}</h2>
                                 <p class="settings-group-desc">{{ group.description }}</p>
                             </div>
@@ -103,6 +104,35 @@
             </section>
         {% endfor %}
     </form>
+
+    <section class="settings-section" id="section-data" role="tabpanel" aria-labelledby="tab-data" data-section="data" hidden>
+        <form class="settings-group settings-danger" data-reset aria-labelledby="group-reset" autocomplete="off" novalidate>
+            <header class="settings-group-head">
+                <span class="settings-group-icon" aria-hidden="true"><i class="bi bi-trash3"></i></span>
+                <div class="min-w-0 flex-grow-1">
+                    <h2 class="settings-group-title" id="group-reset">清除数据</h2>
+                    <p class="settings-group-desc">彻底删除所选数据，不做备份、无法恢复。清除媒体库或连接设置后会回到首次使用引导。</p>
+                </div>
+            </header>
+            <div class="settings-body">
+                <div data-reset-parts></div>
+                <p class="settings-reset-note" data-reset-cloud hidden><i class="bi bi-cloud-slash" aria-hidden="true"></i><span>已开启云端只读快照：清除媒体库时，云端快照会同步清空。</span></p>
+                <div class="settings-row settings-reset-confirm">
+                    <div class="settings-row-label">
+                        <label for="reset-confirm">确认</label>
+                        <p class="settings-row-hint">输入“清除”后才能执行。</p>
+                    </div>
+                    <div class="settings-row-control">
+                        <input class="form-control" id="reset-confirm" type="text" placeholder="清除" spellcheck="false" autocomplete="off" data-reset-confirm>
+                    </div>
+                </div>
+                <div class="settings-reset-actions">
+                    <div class="settings-result" data-reset-result role="status" aria-live="polite"></div>
+                    <button class="btn btn-sm btn-danger" type="submit" data-reset-submit disabled><i class="bi bi-trash3" aria-hidden="true"></i><span>清除所选数据</span></button>
+                </div>
+            </div>
+        </form>
+    </section>
 </div>
 {% endblock %}
 
