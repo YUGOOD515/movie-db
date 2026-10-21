@@ -91,18 +91,51 @@
             </div>
         </div>
         <div class="rule-editor squircle-card mb-3 d-none" id="rule-editor" data-rule-editor>
-            <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
-                <span class="small" id="rule-preset-label">文件名规则</span>
-                <div class="dropdown">
-                    <button id="rule-preset" type="button" class="btn btn-sm chip-btn dropdown-toggle rule-preset" data-bs-toggle="dropdown" aria-expanded="false" aria-labelledby="rule-preset-label rule-preset" data-rule-preset></button>
-                    <ul class="dropdown-menu media-menu" data-rule-presets aria-labelledby="rule-preset-label"></ul>
+            <div class="rule-suggest d-none" role="status" data-rule-suggest></div>
+            <section class="rule-row" aria-labelledby="rule-sample-label">
+                <div class="rule-row-head">
+                    <span class="rule-label" id="rule-sample-label">样例</span>
+                    <div class="rule-sample-nav">
+                        <button type="button" class="btn icon-btn rule-nav-btn" aria-label="上一个样例" data-sample-step="-1"><i class="bi bi-chevron-left" aria-hidden="true"></i></button>
+                        <span class="rule-sample-index" data-sample-index></span>
+                        <button type="button" class="btn icon-btn rule-nav-btn" aria-label="下一个样例" data-sample-step="1"><i class="bi bi-chevron-right" aria-hidden="true"></i></button>
+                    </div>
+                    <span class="rule-hint" data-sample-hint></span>
                 </div>
-                <label class="small ms-sm-3" for="default-season">默认季号</label>
-                <input id="default-season" class="form-control form-control-sm position-input" type="number" min="0" step="1" data-default-season>
-            </div>
-            <div class="d-flex flex-wrap align-items-center gap-2 mb-2" data-rule-blocks aria-label="文件名匹配块" aria-describedby="rule-drag-help"></div>
-            <span id="rule-drag-help" class="visually-hidden">按住匹配块拖动排序，也可聚焦匹配块后按 Alt 加方向键调整顺序。</span>
-            <div class="d-flex flex-wrap gap-1" data-rule-palette aria-label="添加匹配块"></div>
+                <div class="rule-sample" data-rule-sample></div>
+            </section>
+            <section class="rule-row" aria-labelledby="rule-pattern-label">
+                <div class="rule-row-head">
+                    <span class="rule-label" id="rule-pattern-label">规则</span>
+                    <div class="rule-pattern" data-rule-pattern></div>
+                    <div class="rule-row-actions">
+                        <div class="dropdown">
+                            <button id="rule-preset" type="button" class="btn btn-sm chip-btn dropdown-toggle rule-preset" data-bs-toggle="dropdown" aria-expanded="false" aria-label="常用格式" data-rule-preset></button>
+                            <ul class="dropdown-menu dropdown-menu-end media-menu" data-rule-presets aria-label="常用格式"></ul>
+                        </div>
+                        <button type="button" class="btn btn-sm chip-btn" aria-expanded="false" aria-controls="rule-advanced" data-rule-advanced>高级<i class="bi bi-chevron-down" aria-hidden="true"></i></button>
+                    </div>
+                </div>
+                <div class="rule-advanced d-none" id="rule-advanced" data-rule-advanced-panel>
+                    <div class="d-flex flex-wrap align-items-center gap-2 mb-2" data-rule-blocks aria-label="文件名匹配块" aria-describedby="rule-drag-help"></div>
+                    <span id="rule-drag-help" class="visually-hidden">按住匹配块拖动排序，也可聚焦匹配块后按 Alt 加方向键调整顺序。</span>
+                    <div class="d-flex flex-wrap gap-1" data-rule-palette aria-label="添加匹配块"></div>
+                </div>
+            </section>
+            <section class="rule-row" aria-labelledby="rule-season-label">
+                <div class="rule-row-head">
+                    <span class="rule-label" id="rule-season-label">季号</span>
+                    <div class="segmented-control" role="group" aria-label="季号来源" data-season-source>
+                        <button type="button" class="btn btn-sm" data-value="file">文件名</button>
+                        <button type="button" class="btn btn-sm" data-value="folder">文件夹</button>
+                        <button type="button" class="btn btn-sm" data-value="fixed">固定</button>
+                    </div>
+                    <label class="rule-inline small" for="default-season"><span data-season-fallback>读不出时用</span>第<input id="default-season" class="form-control form-control-sm rule-number" type="number" min="0" step="1" data-default-season>季</label>
+                    <label class="rule-inline small d-none" for="single-offset" data-single-offset>集号<input id="single-offset" class="form-control form-control-sm rule-number" type="number" step="1" placeholder="+0" data-offset-input>偏移</label>
+                </div>
+                <div class="rule-folders d-none" data-rule-folders></div>
+            </section>
+            <div class="rule-result" role="status" aria-live="polite" data-rule-result></div>
         </div>
         <div class="table-responsive squircle-card association-files-card">
             <table class="table align-middle mb-0 association-files">

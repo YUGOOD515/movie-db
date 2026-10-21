@@ -31,6 +31,9 @@
     let files = [], title = null, task = null, blocks = [], waitingForTitle = false;
     let useGuess = false, busy = false, taskVersion = 0, onlyErrors = false, ruleOpen = false, progress = null;
     let blockDragActive = false;
+    // 识别规则：季号来源、各文件夹的季号与集号偏移、当前样例。
+    let seasonSource = "file", sampleIndex = 0, pendingMarks = null, advancedOpen = false, suggestion = null;
+    const adjust = new Map();
 
     async function json(url, payload) {
         const response = await fetch(url, payload === undefined ? {} : {
@@ -524,9 +527,31 @@
         for (const file of files) file.serverError = "";
     }
 
-    function suggestSeason(file) {
-        const match = file.path.slice(0, -file.name.length).match(/(?:season\s*|\bS|第)(\d{1,3})(?:季|\b)/i);
-        return match ? match[1] : $("[data-default-season]").value;
+    const folderOf = file => file.path.slice(0, Math.max(0, file.path.length - file.name.length - 1));
+    function folderLabel(folder) {
+        if (folder === task.path || !folder.startsWith(`${task.path}/`)) return folder.split("/").pop() || folder;
+        return folder.slice(task.path.length + 1);
+    }
+    function folderGroups() {
+        const groups = new Map();
+        for (const file of files) {
+            if (!groups.has(file.folder)) groups.set(file.folder, { key: file.folder, label: folderLabel(file.folder), files: [] });
+            groups.get(file.folder).files.push(file);
+        }
+        return [...groups.values()];
+    }
+    const fallbackSeason = () => $("[data-default-season]").value;
+    const numberOrNull = value => value === "" || value == null || !Number.isFinite(Number(value)) ? null : Number(value);
+
+    // 未经文件夹调整的季集：文件名规则（或识别阶段的推测）+ 季号来源。
+    function rawPosition(file) {
+        const guess = useGuess ? file.guess : null;
+        const folder = file.folderSeason?.season ?? null;
+        let season;
+        if (seasonSource === "fixed") season = fallbackSeason();
+        else if (seasonSource === "folder") season = folder ?? fallbackSeason();
+        else season = guess?.[0] ?? file.match?.season ?? folder ?? fallbackSeason();
+        return { season, episode: guess?.[1] ?? file.match?.episode ?? "" };
     }
 
     // 识别阶段已推测出季集时优先采用；用户改动匹配规则后改用规则结果。
@@ -535,19 +560,28 @@
         invalidate();
         for (const file of files) {
             file.match = rules.parse(file.name, blocks);
-            if (!file.manual) {
-                const guess = useGuess ? file.guess : null;
-                file.season = guess?.[0] ?? file.match?.season ?? suggestSeason(file);
-                file.episode = guess?.[1] ?? file.match?.episode ?? "";
-            }
+            file.raw = rawPosition(file);
+            if (file.manual) continue;
+            const change = adjust.get(file.folder) || {};
+            const season = numberOrNull(change.season), offset = numberOrNull(change.offset) || 0;
+            file.season = season ?? file.raw.season;
+            file.episode = file.raw.episode === "" || file.raw.episode == null ? "" : Number(file.raw.episode) + offset;
         }
         renderFiles();
+    }
+
+    function useBlocks(next) {
+        blocks = next;
+        const index = rules.presetIndex(blocks);
+        setPreset(index >= 0 ? index : "custom");
+        pendingMarks = null;
+        renderBlocks(); applyRule();
     }
 
     function setPreset(value) {
         const control = $("[data-rule-preset]");
         control.dataset.value = String(value);
-        control.textContent = value === "custom" ? "自定义" : rules.presets[Number(value)].name;
+        control.textContent = value === "custom" ? "常用格式" : rules.presets[Number(value)].name;
         $("[data-rule-presets]").querySelectorAll("button").forEach(node => {
             const active = node.dataset.value === String(value);
             node.classList.toggle("active", active);
@@ -668,11 +702,13 @@
             grip.setAttribute("aria-hidden", "true");
             chip.append(grip);
             chip.append(el("span", "small px-1", rules.labels[block.type]));
+            chip.addEventListener("pointerenter", () => linkBlock(index, true));
+            chip.addEventListener("pointerleave", () => linkBlock(index, false));
             if (block.type === "literal") {
                 const input = el("input", "form-control form-control-sm rule-literal");
                 input.value = block.value;
                 input.maxLength = 64;
-                input.setAttribute("aria-label", `第 ${index + 1} 块特定字符`);
+                input.setAttribute("aria-label", `第 ${index + 1} 块固定文字`);
                 input.addEventListener("input", () => { block.value = input.value; setPreset("custom"); applyRule(); });
                 chip.append(input);
             }
@@ -741,6 +777,265 @@
         }
     }
 
+
+    // ---- 识别规则面板：样例、规则摘要、季号来源、文件夹调整、结果 ----------------
+
+    function sampleFile() {
+        if (!files.length) return null;
+        sampleIndex = Math.min(Math.max(sampleIndex, 0), files.length - 1);
+        return files[sampleIndex];
+    }
+
+    function linkBlock(index, on) {
+        $("[data-rule-sample]").querySelectorAll(`[data-span="${index}"]`).forEach(node => node.classList.toggle("is-linked", on));
+        $("[data-rule-pattern]").querySelectorAll(`[data-block="${index}"]`).forEach(node => node.classList.toggle("is-linked", on));
+    }
+
+    function sampleMarks(file) {
+        if (pendingMarks?.file === file) return pendingMarks.marks;
+        return (file.match?.spans || []).filter(span => span.type === "season" || span.type === "episode")
+            .map(({ type, start, end }) => ({ type, start, end }));
+    }
+
+    function markSample(file, start, end, type) {
+        if (busy) return;
+        let marks = sampleMarks(file).filter(mark => mark.start !== start);
+        if (type !== "none") marks = marks.filter(mark => mark.type !== type).concat({ type, start, end });
+        if (!marks.some(mark => mark.type === "episode")) {
+            pendingMarks = { file, marks };
+            renderRulePanel();
+            return;
+        }
+        const next = rules.buildRule(file.name, marks);
+        if (!next) { feedback("无法根据这个标记生成规则，请换一段数字试试。", "warning"); return; }
+        useBlocks(next);
+    }
+
+    function digitToken(file, segment, marks) {
+        const mark = marks.find(item => item.start === segment.start && item.end === segment.end);
+        const wrap = el("span", "dropdown d-inline-block");
+        const token = el("button", `rule-token is-digit${mark ? ` rule-${mark.type}` : ""}`, segment.text);
+        token.type = "button";
+        token.dataset.bsToggle = "dropdown";
+        token.setAttribute("aria-expanded", "false");
+        if (segment.span != null) token.dataset.span = segment.span;
+        token.setAttribute("aria-label", `${segment.text}${mark ? `（${mark.type === "season" ? "季号" : "集号"}）` : ""}，设为季号或集号`);
+        if (mark) token.dataset.role = mark.type === "season" ? "季" : "集";
+        const menu = el("ul", "dropdown-menu media-menu");
+        const option = (label, type) => {
+            const node = button(label, () => markSample(file, segment.start, segment.end, type), "dropdown-item small");
+            const line = el("li"); line.append(node); menu.append(line);
+        };
+        if (mark?.type !== "episode") option("设为集号", "episode");
+        if (mark?.type !== "season") option("设为季号", "season");
+        if (mark?.type === "season") option("不作为季号", "none");
+        wrap.append(token, menu);
+        bootstrap.Dropdown.getOrCreateInstance(token, fixedPopper);
+        return wrap;
+    }
+
+    function renderSample() {
+        const file = sampleFile(), box = $("[data-rule-sample]");
+        box.replaceChildren();
+        $("[data-sample-index]").textContent = files.length ? `${sampleIndex + 1}/${files.length}` : "";
+        root.querySelectorAll("[data-sample-step]").forEach(node => { node.disabled = busy || files.length < 2; });
+        if (!file) return;
+        // 文件夹行：季号来自文件夹时标出读到的位置。
+        const folder = el("div", "rule-sample-folder");
+        folder.append(icon("folder2"));
+        const label = folderLabel(file.folder), hit = rules.folderSeason(label);
+        if (hit && seasonSource !== "fixed") {
+            folder.append(el("span", "", label.slice(0, hit.start)), el("mark", `rule-season${seasonSource === "folder" ? "" : " is-soft"}`, label.slice(hit.start, hit.end)), el("span", "", label.slice(hit.end)));
+        } else folder.append(el("span", "", label));
+        const name = el("div", "rule-sample-name");
+        const marks = sampleMarks(file), spans = file.match?.spans || [];
+        const cuts = new Set([0, file.name.length]);
+        for (const span of spans) { cuts.add(span.start); cuts.add(span.end); }
+        for (const run of file.name.matchAll(/[0-9]+/g)) { cuts.add(run.index); cuts.add(run.index + run[0].length); }
+        // 扩展名里的数字（mp4）不可点。
+        const dot = file.name.lastIndexOf("."), ext = dot > 0 && file.name.length - dot <= 6 ? dot : file.name.length;
+        const points = [...cuts].sort((a, b) => a - b);
+        for (let i = 0; i < points.length - 1; i++) {
+            const start = points[i], end = points[i + 1], text = file.name.slice(start, end);
+            const index = spans.findIndex(span => span.start <= start && span.end >= end && span.end > span.start);
+            const segment = { start, end, text, span: index >= 0 ? index : null };
+            if (/^[0-9]+$/.test(text) && start < ext) name.append(digitToken(file, segment, marks));
+            else {
+                const node = el("span", "rule-token", text);
+                if (segment.span != null) {
+                    node.dataset.span = segment.span;
+                    node.addEventListener("pointerenter", () => linkBlock(segment.span, true));
+                    node.addEventListener("pointerleave", () => linkBlock(segment.span, false));
+                }
+                name.append(node);
+            }
+        }
+        box.append(folder, name);
+        const hint = $("[data-sample-hint]");
+        hint.className = "rule-hint";
+        if (pendingMarks?.file === file) hint.textContent = "再点一段数字设为集号";
+        else if (!file.match) {
+            hint.textContent = validNumber(file.episode, 1) ? "规则读不出，暂用自动识别结果 · 点数字设为集号" : "规则读不出这个文件 · 点数字设为季号或集号";
+            hint.classList.add("is-warning");
+        }
+        else hint.textContent = "点数字可改为季号或集号";
+    }
+
+    function renderPattern() {
+        const box = $("[data-rule-pattern]");
+        box.replaceChildren();
+        const text = { digits: "数字", separator: "分隔符", letters: "文字", space: "空格" };
+        blocks.forEach((block, index) => {
+            let node;
+            if (block.type === "season" || block.type === "episode") node = el("span", `rule-pattern-slot rule-${block.type}`, block.type === "season" ? "季" : "集");
+            else if (block.type === "literal") node = el("span", "rule-pattern-literal", block.value.replace(/ /g, "␣") || "（空）");
+            else if (block.type === "any") node = el("span", "rule-pattern-any", "…");
+            else node = el("span", "rule-pattern-slot", text[block.type]);
+            node.dataset.block = index;
+            node.title = rules.labels[block.type] + (block.type === "literal" ? `：${block.value}` : "");
+            node.addEventListener("pointerenter", () => linkBlock(index, true));
+            node.addEventListener("pointerleave", () => linkBlock(index, false));
+            box.append(node);
+        });
+        box.setAttribute("aria-label", `当前规则：${blocks.map(block => block.type === "literal" ? block.value : rules.labels[block.type]).join(" ")}`);
+    }
+
+    function renderSeasonSource(groups) {
+        $("[data-season-source]").querySelectorAll("button").forEach(node => {
+            const active = node.dataset.value === seasonSource;
+            node.classList.toggle("active", active);
+            node.setAttribute("aria-pressed", String(active));
+        });
+        $("[data-season-fallback]").textContent = seasonSource === "fixed" ? "" : "读不出时用";
+        const single = groups.length === 1;
+        show($("[data-single-offset]"), single);
+        if (single) {
+            const input = $("[data-offset-input]");
+            if (document.activeElement !== input) input.value = adjust.get(groups[0].key)?.offset ?? "";
+            input.dataset.folder = groups[0].key;
+        }
+    }
+
+    function renderFolders(groups) {
+        const box = $("[data-rule-folders]");
+        show(box, groups.length > 1);
+        if (groups.length < 2) { box.replaceChildren(); return; }
+        // 输入框正在编辑时只更新占位提示，避免打断输入。
+        if (box.contains(document.activeElement)) {
+            for (const group of groups) {
+                const input = box.querySelector(`[data-folder-season="${CSS.escape(group.key)}"]`);
+                if (input) input.placeholder = String(group.files[0]?.raw?.season ?? "");
+            }
+            return;
+        }
+        box.replaceChildren();
+        const head = el("div", "rule-folder rule-folder-head");
+        head.append(el("span", "", "文件夹"), el("span", "", "季号"), el("span", "", "集号偏移"));
+        box.append(head);
+        for (const group of groups) {
+            const row = el("div", "rule-folder");
+            const name = el("span", "rule-folder-name");
+            name.append(el("span", "text-truncate", group.label), el("span", "rule-folder-count", `${group.files.length} 个`));
+            name.title = group.label;
+            const change = adjust.get(group.key) || {};
+            const season = el("input", "form-control form-control-sm rule-number");
+            season.type = "number"; season.min = "0"; season.step = "1";
+            season.value = change.season ?? "";
+            season.placeholder = String(group.files[0]?.raw?.season ?? "");
+            season.dataset.folderSeason = group.key;
+            season.setAttribute("aria-label", `${group.label} 的季号`);
+            const offset = el("input", "form-control form-control-sm rule-number");
+            offset.type = "number"; offset.step = "1"; offset.placeholder = "+0";
+            offset.value = change.offset ?? "";
+            offset.setAttribute("aria-label", `${group.label} 的集号偏移`);
+            const update = () => setAdjust(group.key, { season: season.value, offset: offset.value });
+            season.addEventListener("input", update); offset.addEventListener("input", update);
+            const seasonCell = el("label", "rule-inline small"); seasonCell.append("第", season, "季");
+            const offsetCell = el("label", "rule-inline small"); offsetCell.append("+", offset);
+            row.append(name, seasonCell, offsetCell);
+            box.append(row);
+        }
+    }
+
+    function setAdjust(key, change) {
+        const value = { season: change.season ?? "", offset: change.offset ?? "" };
+        if (value.season === "" && (value.offset === "" || Number(value.offset) === 0)) adjust.delete(key);
+        else adjust.set(key, value);
+        applyRule(false);
+    }
+
+    // 有“无此集”且各文件夹像是连续编号时，给出一键顺延的建议。
+    function computeSuggestion(groups) {
+        if (title?.media_type !== "tv" || groups.length < 2) return null;
+        if (!files.some(file => file.included && file.issue === ISSUES.absent)) return null;
+        const input = groups.map(group => {
+            const chosen = group.files.filter(file => file.included && validNumber(file.raw?.episode, 1));
+            return { key: group.key, season: numberOrNull(chosen[0]?.raw.season), episodes: chosen.map(file => Number(file.raw.episode)) };
+        });
+        const plan = rules.continuePlan(input, title.episodes);
+        if (!plan) return null;
+        const same = plan.every(step => {
+            const group = groups.find(item => item.key === step.key);
+            return group.files.every(file => !file.included || (Number(file.season) === step.season && Number(file.episode) === Number(file.raw.episode) + step.offset));
+        });
+        return same ? null : plan;
+    }
+
+    function renderSuggestion(groups) {
+        const box = $("[data-rule-suggest]");
+        suggestion = computeSuggestion(groups);
+        box.replaceChildren();
+        show(box, !!suggestion);
+        if (!suggestion) return;
+        const seasons = new Set(title.episodes.filter(item => item.season_number > 0).map(item => item.season_number));
+        const body = el("div", "rule-suggest-body");
+        body.append(el("strong", "", "可能是连续编号"), el("span", "", `TMDB 中这部剧有 ${seasons.size} 季，文件夹可按顺序接上：`));
+        const list = el("ul", "rule-suggest-list");
+        for (const step of suggestion) {
+            const group = groups.find(item => item.key === step.key);
+            const line = el("li");
+            line.append(el("span", "text-truncate", group.label), icon("arrow-right"), el("span", "rule-suggest-target", `第 ${step.season} 季第 ${step.first}–${step.last} 集`));
+            list.append(line);
+        }
+        body.append(list);
+        const apply = button("按此调整", () => {
+            for (const step of suggestion) {
+                const raw = groups.find(item => item.key === step.key).files.find(file => file.raw?.season !== "")?.raw.season;
+                adjust.set(step.key, { season: Number(raw) === step.season ? "" : String(step.season), offset: step.offset ? String(step.offset) : "" });
+                if (!adjust.get(step.key).season && !adjust.get(step.key).offset) adjust.delete(step.key);
+            }
+            applyRule(false);
+            feedback("已按连续编号调整季集", "success");
+        }, "btn btn-sm media-primary-action px-3");
+        const head = el("div", "rule-suggest-icon"); head.append(icon("lightbulb"));
+        box.append(head, body, apply);
+    }
+
+    function renderResult() {
+        const box = $("[data-rule-result]");
+        box.replaceChildren();
+        const chosen = files.filter(file => file.included);
+        const unread = chosen.filter(file => !validNumber(file.season, 0) || !validNumber(file.episode, 1));
+        const found = chosen.filter(file => file.target);
+        const missing = chosen.length - unread.length - found.length;
+        const part = (symbol, text, classes = "", action = null) => {
+            const node = action ? button("", action, `rule-result-item btn btn-link ${classes}`) : el("span", `rule-result-item ${classes}`);
+            node.append(icon(symbol), el("span", "", text));
+            box.append(node);
+        };
+        part("files", `${chosen.length} 个文件`);
+        part(unread.length ? "exclamation-triangle-fill" : "check2", unread.length ? `${unread.length} 个读不出季集` : "季集全部读出", unread.length ? "is-warning" : "is-ok",
+            unread.length ? () => { sampleIndex = files.indexOf(unread.find(file => !file.match) || unread[0]); renderRulePanel(); } : null);
+        part(missing > 0 ? "exclamation-triangle-fill" : "check2", missing > 0 ? `${missing} 个在 TMDB 找不到` : `${found.length} 个都在 TMDB 找到`, missing > 0 ? "is-warning" : "is-ok",
+            missing > 0 ? locateIssue : null);
+    }
+
+    function renderRulePanel() {
+        if (title?.media_type !== "tv" || !task) return;
+        const groups = folderGroups();
+        renderSample(); renderPattern(); renderSeasonSource(groups); renderFolders(groups); renderSuggestion(groups); renderResult();
+    }
+
     function stats() {
         let selected = 0, issues = 0;
         for (const file of files) if (file.included) { selected++; if (file.issue) issues++; }
@@ -791,7 +1086,9 @@
         show(filter, issues > 0 || onlyErrors);
         show($("[data-rule-reset]"), files.some(f => f.manual));
         if (series) {
-            $("[data-rule-summary]").textContent = useGuess ? "季集按识别结果填写" : `季集按「${$("[data-rule-preset]").textContent}」识别`;
+            const source = useGuess ? "季集按识别结果填写" : "季集按文件名规则读取";
+            $("[data-rule-summary]").textContent = adjust.size ? `${source}，已按文件夹调整` : source;
+            renderRulePanel();
         }
         renderTaskBar({ selected, issues });
     }
@@ -903,6 +1200,14 @@
         pick.replaceChildren(icon(title ? "arrow-left-right" : "search"), document.createTextNode(title ? "更换" : "选择作品"));
     }
 
+    function setAdvancedOpen(value) {
+        advancedOpen = value;
+        show($("[data-rule-advanced-panel]"), value);
+        const toggle = $("[data-rule-advanced]");
+        toggle.setAttribute("aria-expanded", String(value));
+        toggle.classList.toggle("active", value);
+    }
+
     function setRuleOpen(value) {
         ruleOpen = value;
         show($("[data-rule-editor]"), value);
@@ -933,10 +1238,16 @@
             setPreset(best);
             blocks = structuredClone(rules.presets[best].blocks);
             useGuess = files.some(file => file.guess?.[1] != null);
+            adjust.clear(); pendingMarks = null;
+            const fromName = files.some(file => file.guess?.[0] != null || rules.parse(file.name, blocks)?.season != null);
+            seasonSource = fromName || !files.some(file => file.folderSeason) ? (fromName ? "file" : "fixed") : "folder";
             busy = false;
             renderBlocks(); applyRule(false);
-            // 有文件没能读出集号时，才展开规则编辑器。
-            setRuleOpen(title.media_type === "tv" && files.some(file => file.included && !validNumber(file.episode, 1)));
+            const unread = files.findIndex(file => !file.match);
+            sampleIndex = unread >= 0 ? unread : 0;
+            // 有文件读不出集号，或可以按连续编号修正时，才展开识别规则。
+            renderRulePanel();
+            setRuleOpen(title.media_type === "tv" && (files.some(file => file.included && !validNumber(file.episode, 1)) || !!suggestion));
         } catch (error) {
             if (version === taskVersion) feedback(error.message, "danger");
         } finally {
@@ -969,6 +1280,12 @@
         task = item; title = null; busy = false; useGuess = false; onlyErrors = false; progress = null;
         const positions = item.recognition?.positions || {};
         files = [...item.files].sort((a, b) => a.path.localeCompare(b.path, "zh-CN", { numeric: true })).map(file => ({ ...file, included: true, season: "", episode: "", manual: false, guess: positions[file.path] || null }));
+        for (const file of files) {
+            file.folder = folderOf(file);
+            const relative = file.folder.startsWith(`${item.path}/`) ? file.folder.slice(item.path.length + 1).split("/").reverse() : [];
+            file.folderSeason = [...relative, file.folder.split("/").pop()].map(part => rules.folderSeason(part)).find(Boolean) || null;
+        }
+        adjust.clear(); pendingMarks = null; sampleIndex = 0; setAdvancedOpen(false);
         show($("[data-task-ai]"), item.recognition?.method === "ai");
         $("[data-task-name]").textContent = item.name;
         const path = $("[data-task-path]");
@@ -1057,10 +1374,8 @@
         const item = el("li");
         const option = button(preset.name, () => {
             if (busy || blockDragActive) return;
-            setPreset(value);
-            if (value !== "custom") {
-                blocks = structuredClone(rules.presets[i].blocks); renderBlocks(); applyRule();
-            }
+            if (value === "custom") { setPreset(value); setAdvancedOpen(true); return; }
+            useBlocks(structuredClone(rules.presets[i].blocks));
         }, "dropdown-item");
         option.dataset.value = value;
         item.append(option); $("[data-rule-presets]").append(item);
@@ -1075,7 +1390,22 @@
         add.append(icon("plus"), document.createTextNode(label));
         $("[data-rule-palette]").append(add);
     }
-    $("[data-default-season]").addEventListener("input", () => applyRule());
+    $("[data-default-season]").addEventListener("input", () => applyRule(false));
+    editor.querySelectorAll("[data-sample-step]").forEach(node => node.addEventListener("click", () => {
+        if (!files.length) return;
+        sampleIndex = (sampleIndex + Number(node.dataset.sampleStep) + files.length) % files.length;
+        pendingMarks = null; renderRulePanel();
+    }));
+    $("[data-season-source]").querySelectorAll("button").forEach(node => node.addEventListener("click", () => {
+        if (busy || seasonSource === node.dataset.value) return;
+        seasonSource = node.dataset.value; applyRule(false);
+    }));
+    $("[data-offset-input]").addEventListener("input", event => {
+        const key = event.target.dataset.folder;
+        if (key == null) return;
+        setAdjust(key, { season: adjust.get(key)?.season ?? "", offset: event.target.value });
+    });
+    $("[data-rule-advanced]").addEventListener("click", () => setAdvancedOpen(!advancedOpen));
     $("[data-rule-toggle]").addEventListener("click", () => setRuleOpen(!ruleOpen));
     $("[data-rule-reset]").addEventListener("click", () => { files.forEach(file => { file.manual = false; }); applyRule(false); });
     $("[data-files-all]").addEventListener("change", event => { files.forEach(file => { file.included = event.target.checked; }); invalidate(); renderFiles(); });
