@@ -745,8 +745,7 @@ select {
 }
 
 .watch-progress .progress-bar,
-.deletion-watch-progress .progress-bar,
-.rating-progress-toast .progress-bar {
+.deletion-watch-progress .progress-bar {
     background-color: var(--media-accent);
 }
 
@@ -1607,22 +1606,6 @@ body.detail-overview-open [data-episode-target] {
     font-size: 0.8125rem;
 }
 
-.discovery-status {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    min-width: 0;
-    color: var(--bs-secondary-color);
-    font-size: 0.8125rem;
-    white-space: nowrap;
-}
-
-.discovery-status .spinner-border {
-    width: 0.8rem;
-    height: 0.8rem;
-    border-width: 0.12em;
-}
-
 .discovery-missing {
     display: inline-flex;
     align-items: center;
@@ -1728,36 +1711,44 @@ body.detail-overview-open [data-episode-target] {
 }
 
 /* 待关联里的复选框跟随站点强调色（暗色主题为白底深色勾） */
-#media-association .form-check-input {
+#media-association .form-check-input,
+.status-bar .form-check-input {
     --bs-form-check-bg: transparent;
     border-color: rgba(var(--bs-emphasis-color-rgb), 0.35);
     cursor: pointer;
 }
 
-#media-association .form-check-input:focus {
+#media-association .form-check-input:focus,
+.status-bar .form-check-input:focus {
     border-color: var(--media-accent);
     box-shadow: 0 0 0 0.2rem rgba(var(--media-accent-rgb), 0.2);
 }
 
 #media-association .form-check-input:checked,
-#media-association .form-check-input:indeterminate {
+.status-bar .form-check-input:checked,
+#media-association .form-check-input:indeterminate,
+.status-bar .form-check-input:indeterminate {
     border-color: var(--media-accent);
     background-color: var(--media-accent);
 }
 
-#media-association .form-check-input:checked[type="checkbox"] {
+#media-association .form-check-input:checked[type="checkbox"],
+.status-bar .form-check-input:checked[type="checkbox"] {
     --bs-form-check-bg-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3e%3cpath fill='none' stroke='%23111111' stroke-linecap='round' stroke-linejoin='round' stroke-width='3' d='m6 10 3 3 6-6'/%3e%3c/svg%3e");
 }
 
-#media-association .form-check-input[type="checkbox"]:indeterminate {
+#media-association .form-check-input[type="checkbox"]:indeterminate,
+.status-bar .form-check-input[type="checkbox"]:indeterminate {
     --bs-form-check-bg-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3e%3cpath fill='none' stroke='%23111111' stroke-linecap='round' stroke-linejoin='round' stroke-width='3' d='M6 10h8'/%3e%3c/svg%3e");
 }
 
-[data-bs-theme="light"] #media-association .form-check-input:checked[type="checkbox"] {
+[data-bs-theme="light"] #media-association .form-check-input:checked[type="checkbox"],
+[data-bs-theme="light"] .status-bar .form-check-input:checked[type="checkbox"] {
     --bs-form-check-bg-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3e%3cpath fill='none' stroke='%23ffffff' stroke-linecap='round' stroke-linejoin='round' stroke-width='3' d='m6 10 3 3 6-6'/%3e%3c/svg%3e");
 }
 
-[data-bs-theme="light"] #media-association .form-check-input[type="checkbox"]:indeterminate {
+[data-bs-theme="light"] #media-association .form-check-input[type="checkbox"]:indeterminate,
+[data-bs-theme="light"] .status-bar .form-check-input[type="checkbox"]:indeterminate {
     --bs-form-check-bg-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3e%3cpath fill='none' stroke='%23ffffff' stroke-linecap='round' stroke-linejoin='round' stroke-width='3' d='M6 10h8'/%3e%3c/svg%3e");
 }
 
@@ -1802,14 +1793,19 @@ body.detail-overview-open [data-episode-target] {
     transition: background-color 0.15s ease, opacity 0.15s ease;
 }
 
+/* 悬停底色贴合列表的超椭圆圆角：半径扣掉 1px 边框，形状一并继承。 */
+.discovery-item {
+    corner-shape: inherit;
+}
+
 .discovery-item:first-child {
-    border-top-left-radius: inherit;
-    border-top-right-radius: inherit;
+    border-top-left-radius: calc(var(--radius-card) - 1px);
+    border-top-right-radius: calc(var(--radius-card) - 1px);
 }
 
 .discovery-item:last-child {
-    border-bottom-left-radius: inherit;
-    border-bottom-right-radius: inherit;
+    border-bottom-left-radius: calc(var(--radius-card) - 1px);
+    border-bottom-right-radius: calc(var(--radius-card) - 1px);
 }
 
 .discovery-item + .discovery-item {
@@ -1975,55 +1971,107 @@ body.detail-overview-open [data-episode-target] {
     opacity: 0.45;
 }
 
-/* 底部操作栏：固定在视口底部，滚动时始终可见 */
-.association-bar {
-    position: sticky;
-    bottom: 1rem;
-    z-index: 1010;
+/* 统一状态栏（static/status-bar.js）：固定在视口底部居中，不随页面流动。
+   z-index 低于下拉菜单（1000），菜单可以盖在状态栏上方。 */
+.status-dock {
+    position: fixed;
+    left: 50%;
+    bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+    z-index: 990;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    width: min(44rem, calc(100vw - 2rem));
+    transform: translateX(-50%);
+    pointer-events: none;
+}
+
+.status-dock-layer {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.status-dock-layer:empty {
+    display: none;
+}
+
+.status-bar {
+    position: relative;
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
+    gap: 0.75rem;
     min-height: 3.25rem;
-    margin-top: 1rem;
     padding: 0.5rem 0.5rem 0.5rem 1rem;
     overflow: hidden;
     border: 1px solid var(--media-card-border);
     border-radius: var(--radius-control);
     corner-shape: squircle;
     background-color: rgba(var(--bs-body-bg-rgb), 0.86);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+    box-shadow: var(--toast-shadow, 0 8px 24px rgba(0, 0, 0, 0.16));
     -webkit-backdrop-filter: blur(16px) saturate(1.4);
     backdrop-filter: blur(16px) saturate(1.4);
-}
-
-.association-bar.d-none {
-    display: none;
-}
-
-.association-bar-status {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    min-width: 0;
-    margin: 0;
     font-size: 0.875rem;
+    pointer-events: auto;
+    transition: opacity 0.2s var(--ease-out), transform 0.2s var(--ease-out);
 }
 
-.association-bar-status > .bi {
+.status-bar.is-entering,
+.status-bar.is-leaving {
+    opacity: 0;
+    transform: translateY(0.5rem);
+}
+
+.status-bar.is-leaving {
+    pointer-events: none;
+}
+
+.status-bar-lead {
+    display: inline-flex;
     flex-shrink: 0;
+    align-items: center;
+    margin: 0;
     color: var(--bs-secondary-color);
 }
 
-.association-bar-status > .bi-check2-circle {
-    color: var(--bs-success);
+.status-bar-lead .spinner-border {
+    --bs-spinner-width: 0.95rem;
+    --bs-spinner-height: 0.95rem;
+    --bs-spinner-border-width: 0.15em;
 }
 
-.association-bar-status.is-warning > .bi {
-    color: var(--bs-warning);
+.status-bar-toggle {
+    cursor: pointer;
 }
 
-.association-bar-link {
+.status-bar.is-success .status-bar-lead { color: var(--bs-success); }
+.status-bar.is-warning .status-bar-lead { color: var(--bs-warning); }
+.status-bar.is-danger .status-bar-lead { color: var(--bs-danger); }
+.status-bar.is-info .status-bar-lead { color: var(--media-accent); }
+
+.status-bar-body {
+    display: flex;
+    flex: 1;
+    align-items: baseline;
+    gap: 0.5rem;
+    min-width: 0;
+}
+
+.status-bar-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.status-bar-detail {
+    flex-shrink: 0;
+    color: var(--bs-secondary-color);
+    font-variant-numeric: tabular-nums;
+}
+
+.status-bar-link {
+    flex-shrink: 0;
     padding: 0;
     border: 0;
     color: inherit;
@@ -2032,23 +2080,81 @@ body.detail-overview-open [data-episode-target] {
     text-underline-offset: 0.2em;
 }
 
-.association-bar > .btn {
+.status-bar-actions {
+    display: flex;
     flex-shrink: 0;
+    align-items: center;
+    gap: 0.375rem;
 }
 
-.association-bar-progress {
+.status-bar-actions .media-primary-action {
+    padding-inline: 1.25rem !important;
+}
+
+.status-bar-close {
+    width: 2rem;
+    height: 2rem;
+    border-radius: var(--radius-control);
+}
+
+.status-bar-close:hover {
+    color: var(--bs-emphasis-color);
+    background-color: var(--bs-tertiary-bg);
+}
+
+.status-bar-progress {
     position: absolute;
     right: 0;
     bottom: 0;
     left: 0;
     height: 2px;
     background: linear-gradient(90deg, var(--media-accent) var(--progress, 0%), transparent var(--progress, 0%));
-    opacity: 0.6;
+    opacity: 0.7;
     transition: background 0.25s ease;
 }
 
-body.association-bar-active .save-toast {
-    bottom: 6rem;
+.status-bar-progress.is-indeterminate {
+    background: linear-gradient(90deg, transparent, var(--media-accent), transparent) 0 0 / 40% 100% no-repeat;
+    animation: status-progress 1.4s ease-in-out infinite;
+}
+
+@keyframes status-progress {
+    from { background-position: -40% 0; }
+    to { background-position: 140% 0; }
+}
+
+/* 页面底部为状态栏让位；全站提示条出现在状态栏上方。 */
+body.has-status-dock {
+    padding-bottom: calc(var(--status-dock-space, 0px) + 1rem);
+}
+
+body.has-status-dock .save-toast {
+    bottom: calc(var(--status-dock-space, 0px) + 1.75rem);
+}
+
+@media (max-width: 575.98px) {
+    .status-dock {
+        width: calc(100vw - 1rem);
+        bottom: calc(0.5rem + env(safe-area-inset-bottom, 0px));
+    }
+
+    .status-bar {
+        gap: 0.5rem;
+        padding-left: 0.75rem;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .status-bar,
+    .status-bar-progress {
+        transition: none;
+    }
+
+    .status-bar-progress.is-indeterminate {
+        animation: none;
+        background: var(--media-accent);
+        opacity: 0.35;
+    }
 }
 
 @media (max-width: 575.98px) {
@@ -3031,8 +3137,7 @@ tr.has-issue .target-btn {
    Toasts
    ========================================================================== */
 
-.save-toast,
-.rating-progress-toast {
+.save-toast {
     position: fixed;
     left: 50%;
     bottom: 2rem;
@@ -3043,8 +3148,7 @@ tr.has-issue .target-btn {
     transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s ease;
 }
 
-.save-toast--show,
-.rating-progress-toast--show {
+.save-toast--show {
     opacity: 1;
     visibility: visible;
     transform: translate(-50%, 0);
@@ -3090,29 +3194,6 @@ tr.has-issue .target-btn {
     font-size: inherit;
     line-height: inherit;
     color: inherit !important;
-}
-
-.rating-progress-toast {
-    z-index: 1075;
-    width: min(24rem, calc(100vw - 2rem));
-    padding: 0.8rem 1rem;
-    background-color: var(--bs-body-bg);
-    border: 1px solid var(--media-card-border);
-    border-radius: var(--radius-control);
-    corner-shape: squircle;
-}
-
-.rating-progress-toast .progress {
-    height: 0.3rem;
-}
-
-.rating-progress-toast .progress-bar {
-    transition: width 0.25s ease;
-}
-
-/* A transient toast stacks above a running progress toast. */
-body.rating-progress-active .save-toast {
-    bottom: 6.75rem;
 }
 
 /* Read-only snapshot */
@@ -3376,6 +3457,7 @@ html[data-ambient] {
     position: absolute;
     inset: 0;
     border-radius: inherit;
+    corner-shape: inherit;
     background: var(--bs-body-color);
     transform: scaleX(0);
     transform-origin: left center;

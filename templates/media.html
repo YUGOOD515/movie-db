@@ -66,7 +66,7 @@
 {% endblock %}
 
 {% block main %}
-    <div class="container-xl text-start">
+    <div class="container-xl text-start"{% if not read_only %} data-rating-status-url="{{ url_for('manager_rating_refresh_status') }}"{% endif %}>
         <header class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-5">
             <div class="d-flex align-items-center gap-3">
                 <h1 class="h3 mb-0">媒体资源管理</h1>
@@ -280,6 +280,7 @@
 {% endblock %}
 
 {% block scripts %}
+    <script src="{{ url_for('static', filename='status-bar.js') }}"></script>
     <script src="{{ url_for('static', filename='manager.js') }}"></script>
     {% if active_tab == 'associate' and not read_only %}
     <script src="{{ url_for('static', filename='title-search.js') }}" defer></script>

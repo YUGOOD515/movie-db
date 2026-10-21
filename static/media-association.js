@@ -282,63 +282,49 @@
         renderBar();
     }
 
-    function barStatus(bar, symbol, text, classes = "") {
-        const status = el("span", `association-bar-status ${classes}`.trim());
-        if (symbol === "spinner") status.append(spinner()); else if (symbol) status.append(icon(symbol));
-        status.append(el("span", "text-truncate", text));
-        bar.append(status);
-        return status;
-    }
+    // 底部状态栏（static/status-bar.js）：列表与编辑器共用一个 "association" 条目，按当前视图切换内容。
+    const bar = window.StatusBar;
+    const currentView = () => !editor.classList.contains("d-none") ? "editor" : !panel.classList.contains("d-none") ? "list" : "other";
 
     function renderBar() {
-        const bar = $("[data-discovery-bar]");
-        bar.replaceChildren();
-        let visible = false;
+        if (currentView() !== "list") return;
         if (confirming) {
-            visible = true;
-            barStatus(bar, "spinner", `正在关联 ${confirming.done}/${confirming.total} 个视频`);
-            const action = button("关联中…", () => {}, "btn btn-sm media-primary-action px-4");
-            action.disabled = true;
-            const line = el("span", "association-bar-progress");
-            line.style.setProperty("--progress", `${confirming.done / confirming.total * 100}%`);
-            bar.append(action, line);
-        } else if (tab === "ready") {
+            bar.progress("association", { text: "正在关联视频", done: confirming.done, total: confirming.total });
+            return;
+        }
+        if (tab === "ready") {
             const groups = grouped(visibleRecords().filter(item => stateOf(item) === "ready"));
             if (groups.length) {
-                visible = true;
                 const picked = groups.filter(group => !excluded.has(group.key));
-                const label = el("label", "association-bar-status");
-                const all = el("input", "form-check-input mt-0");
-                all.type = "checkbox";
-                all.checked = picked.length === groups.length;
-                all.indeterminate = picked.length > 0 && picked.length < groups.length;
-                all.setAttribute("aria-label", "全选可确认项");
-                all.addEventListener("change", () => {
-                    for (const group of groups) { if (all.checked) excluded.delete(group.key); else excluded.add(group.key); }
-                    renderList();
-                });
                 const videos = picked.reduce((sum, group) => sum + group.records.reduce((count, item) => count + item.files.length, 0), 0);
-                label.append(all, el("span", "text-truncate", picked.length ? `已选 ${picked.length} 项 · ${videos} 个视频` : "未选择"));
-                const action = button(picked.length ? `确认关联 ${picked.length} 项` : "确认关联", () => confirm(picked.flatMap(group => group.records)), "btn btn-sm media-primary-action px-4");
-                action.disabled = !picked.length;
-                bar.append(label, action);
+                bar.selection("association", {
+                    text: picked.length ? `已选 ${picked.length} 项 · ${videos} 个视频` : "未选择",
+                    checked: picked.length === groups.length,
+                    indeterminate: picked.length > 0 && picked.length < groups.length,
+                    toggleLabel: "全选可确认项",
+                    onToggle: checked => {
+                        for (const group of groups) { if (checked) excluded.delete(group.key); else excluded.add(group.key); }
+                        renderList();
+                    },
+                    action: { label: picked.length ? `确认关联 ${picked.length} 项` : "确认关联", disabled: !picked.length, run: () => confirm(picked.flatMap(group => group.records)) },
+                });
+                return;
             }
         } else if (tab === "unknown") {
             const junk = visibleRecords().filter(item => stateOf(item) === "unknown" && item.recognition?.not_media && !item.recognition?.title);
             if (junk.length) {
-                visible = true;
-                barStatus(bar, "slash-circle", `${junk.length} 项可能不是影视内容`);
-                bar.append(button(`全部忽略`, () => ignoreAll(junk), "btn btn-sm chip-btn px-3"));
+                bar.notice("association", { icon: "slash-circle", text: `${junk.length} 项可能不是影视内容`, action: { label: "全部忽略", run: () => ignoreAll(junk) } });
+                return;
             }
         }
-        show(bar, visible);
-        syncBar();
+        bar.clear("association");
     }
 
-    // 底部操作栏出现时，全站提示条上移，避免互相遮挡。
     function syncBar() {
-        const listBar = !panel.classList.contains("d-none") && !$("[data-discovery-bar]").classList.contains("d-none");
-        document.body.classList.toggle("association-bar-active", listBar || !editor.classList.contains("d-none"));
+        const view = currentView();
+        if (view === "list") renderBar();
+        else if (view === "editor") renderTaskBar();
+        else bar.clear("association");
     }
 
     function renderRoots() {
@@ -364,12 +350,9 @@
         refresh.disabled = running;
         refresh.classList.toggle("is-scanning", running);
         refresh.setAttribute("aria-busy", String(running));
-        const status = $("[data-discovery-status]");
-        let text = "";
-        if (scan.status === "running") text = scan.total ? `扫描中 ${Math.round(scan.done / scan.total * 100)}%` : "扫描中…";
-        else if (scan.status === "recognizing") text = `识别中 ${scan.recognized || 0}/${scan.to_recognize || 0}`;
-        status.lastElementChild.textContent = text;
-        show(status, !!text);
+        if (scan.status === "running") bar.progress("scan", { layer: "task", text: "正在扫描 AList", done: scan.done, total: scan.total, detail: scan.total ? `${Math.round(scan.done / scan.total * 100)}%` : "" });
+        else if (scan.status === "recognizing") bar.progress("scan", { layer: "task", text: "正在识别新内容", done: scan.recognized || 0, total: scan.to_recognize || 0 });
+        else if (bar.has("scan") && !watching) bar.clear("scan");
     }
 
     async function discover(start = false, refresh = false) {
@@ -386,13 +369,19 @@
                 watching = false;
                 const warnings = data.warnings || [];
                 const ready = records.filter(item => stateOf(item) === "ready").length;
-                const message = data.status === "error" ? data.error || "AList 扫描失败，请重试。"
-                    : `扫描完成 · ${records.length} 项${ready ? ` · ${ready} 项可确认` : ""}${warnings.length ? ` · ${warnings.length} 项警告：${warnings.join("；")}` : ""}`;
-                feedback(message, data.status === "error" ? "danger" : warnings.length ? "warning" : "success");
+                if (data.status === "error") bar.result("scan", { tone: "danger", text: data.error || "AList 扫描失败，请重试。", duration: 0, action: { label: "重试", run: () => discover(true, true) } });
+                else bar.result("scan", {
+                    tone: warnings.length ? "warning" : "success",
+                    text: `扫描完成 · ${records.length} 项${ready ? ` · ${ready} 项可确认` : ""}`,
+                    detail: warnings.length ? `${warnings.length} 项警告` : "",
+                    duration: warnings.length ? 0 : 4000,
+                });
+                if (warnings.length) feedback(warnings.join("；"), "warning");
             }
             return data;
         } catch (error) {
-            feedback(error.message, "danger");
+            watching = false;
+            bar.result("scan", { tone: "danger", text: error.message, duration: 0, action: { label: "重试", run: () => discover(true, true) } });
             scan = { ...scan, status: "error" }; scanProgress();
             return null;
         }
@@ -440,7 +429,9 @@
         }
         confirming = null;
         renderList();
-        feedback(`已关联 ${videos} 个视频${failed.length ? ` · ${failed.length} 项移至待核对` : ""}`, failed.length ? "warning" : "success");
+        bar.result("association-done", failed.length
+            ? { tone: "warning", text: `已关联 ${videos} 个视频 · ${failed.length} 项移至待核对`, duration: 0, action: { label: "查看", run: () => { tab = "review"; showView("list"); renderList(); bar.clear("association-done"); } } }
+            : { tone: "success", text: `已关联 ${videos} 个视频` });
     }
 
     async function recognizeAgain(item) {
@@ -1094,24 +1085,16 @@
     }
 
     function renderTaskBar({ selected, issues } = stats()) {
-        const status = $("[data-task-status]"), action = $("[data-task-complete]");
-        status.replaceChildren();
-        status.className = "association-bar-status";
-        const say = (symbol, text) => { if (symbol === "spinner") status.append(spinner()); else if (symbol) status.append(icon(symbol)); status.append(el("span", "text-truncate", text)); };
+        if (currentView() !== "editor") return;
         if (progress) {
-            say("spinner", `关联中 ${progress.done}/${progress.total}`);
-            action.textContent = "关联中…"; action.disabled = true;
+            bar.progress("association", { text: "正在关联视频", done: progress.done, total: progress.total });
             return;
         }
-        if (!title) say(busy ? "spinner" : "", busy ? "读取作品信息…" : "先选择对应的电影或剧集");
-        else if (!selected) say("", "未选择视频");
-        else if (issues) {
-            status.classList.add("is-warning");
-            say("exclamation-triangle-fill", `${issues} 个文件需处理`);
-            if (!onlyErrors) status.append(button("查看", locateIssue, "btn btn-link association-bar-link"));
-        } else say("check2-circle", title.media_type === "tv" ? `${selected} 个视频全部对上` : `${selected} 个视频 → ${title.name}`);
-        action.textContent = selected ? `关联 ${selected} 个` : "关联";
-        action.disabled = busy || !title || !selected || issues > 0;
+        const action = { label: selected ? `关联 ${selected} 个` : "关联", run: submit, disabled: busy || !title || !selected || issues > 0 };
+        if (!title) bar.check("association", { state: busy ? "loading" : "idle", text: busy ? "读取作品信息…" : "先选择对应的电影或剧集", action });
+        else if (!selected) bar.check("association", { text: "未选择视频", action });
+        else if (issues) bar.check("association", { state: "warning", text: `${issues} 个文件需处理`, link: onlyErrors ? null : { label: "查看", run: locateIssue }, action });
+        else bar.check("association", { state: "ok", text: title.media_type === "tv" ? `${selected} 个视频全部对上` : `${selected} 个视频 → ${title.name}`, action });
     }
 
     function locateIssue() {
@@ -1356,13 +1339,13 @@
         progress = null;
         if (imported && !files.length) {
             busy = false;
-            feedback(`已关联 ${imported} 个视频 · ${title.name}`, "success");
+            bar.result("association-done", { tone: "success", text: `已关联 ${imported} 个视频 · ${title.name}` });
             closeEditor();
             return;
         }
         if (imported) {
             task = records.find(record => record.path === task.path) || task;
-            feedback(`已关联 ${imported} 个视频，剩余 ${files.length} 个`, failed ? "warning" : "success");
+            bar.result("association-done", { tone: failed ? "warning" : "success", text: `已关联 ${imported} 个视频，剩余 ${files.length} 个` });
         }
         lockEditor(false);
     }
@@ -1412,7 +1395,6 @@
     $("[data-files-errors]").addEventListener("click", () => { onlyErrors = !onlyErrors; updateFileStates(); });
     $("[data-task-pick]").addEventListener("click", pickTitle);
     $("[data-task-close]").addEventListener("click", closeEditor);
-    $("[data-task-complete]").addEventListener("click", submit);
     picker.addEventListener("title:selected", event => {
         if (!waitingForTitle) return;
         event.preventDefault(); waitingForTitle = false; chooseTitle(event.detail);

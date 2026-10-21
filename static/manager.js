@@ -1,4 +1,4 @@
-// Media manager: batch import rows, rating refresh progress and artwork picking.
+// Media manager: batch import rows, rating refresh progress (status bar) and artwork picking.
 (() => {
     // Media manager: editable batch rows and JSON-to-form loading.
     document.querySelectorAll("[data-batch-import-form]").forEach((form) => {
@@ -108,114 +108,90 @@
                 submit.disabled = true;
                 submit.textContent = "正在批量录入…";
             }
+            const total = rows.querySelectorAll("[data-batch-import-row]").length;
+            window.StatusBar?.progress("batch-import", { text: `正在批量录入 ${total} 条`, detail: "完成后自动刷新" });
         });
         updateRows();
     });
 
-    // Manager rating refresh: one local background job with a persistent
-    // bottom-center progress notification.
-    document.querySelectorAll("[data-rating-refresh]").forEach((button) => {
+    // 评分刷新：服务端单个后台任务，进度显示在统一状态栏（两个标签页都会接续显示）。
+    const ratingStatusUrl = document.querySelector("[data-rating-status-url]")?.dataset.ratingStatusUrl;
+    const ratingButton = document.querySelector("[data-rating-refresh]");
+    if (ratingStatusUrl && window.StatusBar) {
         let pollTimer = null;
+        let watching = false;
 
-        function progressToast() {
-            let toast = document.querySelector("[data-rating-progress-toast]");
-            if (toast) {
-                return toast;
-            }
-            toast = document.createElement("div");
-            toast.className = "rating-progress-toast";
-            toast.dataset.ratingProgressToast = "";
-            toast.setAttribute("role", "status");
-            toast.setAttribute("aria-live", "polite");
-            toast.innerHTML = `
-                <div class="d-flex align-items-center justify-content-between gap-3 mb-2">
-                    <span class="small fw-semibold" data-rating-progress-label>正在刷新评分</span>
-                    <span class="small text-body-secondary" data-rating-progress-count>0 / 0</span>
-                </div>
-                <div class="progress" role="progressbar" aria-label="评分刷新进度" aria-valuemin="0" aria-valuemax="100">
-                    <div class="progress-bar" data-rating-progress-bar style="width: 0%"></div>
-                </div>`;
-            document.body.appendChild(toast);
-            return toast;
-        }
-
-        function renderProgress(status) {
-            const toast = progressToast();
+        function renderRating(status) {
             const total = Number(status.total) || 0;
             const completed = Number(status.completed) || 0;
-            const percent = total ? Math.round((completed / total) * 100) : 100;
-            toast.querySelector("[data-rating-progress-label]").textContent = status.running
-                ? `正在刷新评分${status.current_title_id ? ` · ${status.current_title_id}` : ""}`
-                : "评分刷新完成";
-            toast.querySelector("[data-rating-progress-count]").textContent = `${completed} / ${total}`;
-            const bar = toast.querySelector("[data-rating-progress-bar]");
-            bar.style.width = `${percent}%`;
-            bar.closest("[role='progressbar']").setAttribute("aria-valuenow", String(percent));
-            toast.classList.add("rating-progress-toast--show");
-            document.body.classList.add("rating-progress-active");
+            window.StatusBar.progress("rating", {
+                layer: "task",
+                text: status.current_title_id ? `正在刷新评分 · ${status.current_title_id}` : "正在刷新评分",
+                done: completed,
+                total,
+            });
         }
 
-        function finishProgress(status) {
-            renderProgress(status);
-            button.disabled = false;
-            window.setTimeout(() => {
-                document.querySelector("[data-rating-progress-toast]")?.classList.remove(
-                    "rating-progress-toast--show",
-                );
-                document.body.classList.remove("rating-progress-active");
-                const message = `评分刷新完成：成功 ${status.succeeded} 条，失败 ${status.failed} 条。`;
-                window.showAppToast?.(message, status.failed ? "warning" : "success");
-            }, 900);
+        function finishRating(status) {
+            if (ratingButton) ratingButton.disabled = false;
+            if (!watching) return;
+            watching = false;
+            const failed = Number(status.failed) || 0;
+            window.StatusBar.result("rating", {
+                tone: failed ? "warning" : "success",
+                text: `评分刷新完成：成功 ${status.succeeded || 0} 条${failed ? `，失败 ${failed} 条` : ""}`,
+                duration: failed ? 0 : 5000,
+            });
         }
 
-        async function pollStatus() {
+        async function pollRating() {
             try {
-                const response = await fetch(button.dataset.statusUrl);
+                const response = await fetch(ratingStatusUrl);
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}`);
                 }
                 const status = await response.json();
                 if (status.running) {
-                    button.disabled = true;
-                    renderProgress(status);
-                    pollTimer = window.setTimeout(pollStatus, 600);
+                    watching = true;
+                    if (ratingButton) ratingButton.disabled = true;
+                    renderRating(status);
+                    pollTimer = window.setTimeout(pollRating, 600);
                 } else {
-                    finishProgress(status);
+                    finishRating(status);
                 }
             } catch {
-                button.disabled = false;
-                window.showAppToast?.("无法读取评分刷新进度。", "danger");
+                if (ratingButton) ratingButton.disabled = false;
+                if (watching) {
+                    watching = false;
+                    window.StatusBar.result("rating", { tone: "danger", text: "无法读取评分刷新进度。", duration: 0 });
+                }
             }
         }
 
-        button.addEventListener("click", async () => {
-            button.disabled = true;
+        ratingButton?.addEventListener("click", async () => {
+            ratingButton.disabled = true;
             try {
-                const response = await fetch(button.dataset.startUrl, { method: "POST" });
+                const response = await fetch(ratingButton.dataset.startUrl, { method: "POST" });
                 if (!response.ok) {
                     throw new Error(`HTTP ${response.status}`);
                 }
-                const status = await response.json();
-                renderProgress(status);
+                watching = true;
+                renderRating(await response.json());
                 window.clearTimeout(pollTimer);
-                pollTimer = window.setTimeout(pollStatus, 300);
+                pollTimer = window.setTimeout(pollRating, 300);
             } catch {
-                button.disabled = false;
-                window.showAppToast?.("评分刷新启动失败。", "danger");
+                ratingButton.disabled = false;
+                window.StatusBar.result("rating", {
+                    tone: "danger",
+                    text: "评分刷新启动失败。",
+                    duration: 0,
+                    action: { label: "重试", run: () => ratingButton.click() },
+                });
             }
         });
 
-        fetch(button.dataset.statusUrl)
-            .then((response) => response.ok ? response.json() : null)
-            .then((status) => {
-                if (status?.running) {
-                    button.disabled = true;
-                    renderProgress(status);
-                    pollTimer = window.setTimeout(pollStatus, 600);
-                }
-            })
-            .catch(() => {});
-    });
+        pollRating();
+    }
 
     // Overview cards artwork preview trial and confirmation
     document.querySelectorAll(".overview-card").forEach((card) => {
