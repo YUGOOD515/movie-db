@@ -85,6 +85,7 @@ browse_alist = _lazy("services.media_discovery", "browse")
 _discovery_store = _LazyModule("models.discovery_store")
 _recognition = _LazyModule("services.recognition")
 _setup = _LazyModule("services.setup_wizard")
+_settings = _LazyModule("services.settings")
 missing_by_title = _lazy("services.media_health", "missing_by_title")
 title_metadata = _lazy("services.media_association", "title_metadata")
 check_association = _lazy("services.media_association", "check_association")
@@ -172,7 +173,7 @@ def guard_read_only():
 
 
 # 首次使用引导：媒体库还没建好时，页面请求先进入 /setup。
-SETUP_ENDPOINTS = {"static", "setup_page", "setup_status", "setup_test", "setup_save"}
+SETUP_ENDPOINTS = {"static", "setup_page", "setup_status", "setup_test", "setup_save", "setup_poster"}
 
 
 def _library_ready() -> bool:
@@ -211,10 +212,26 @@ def _setup_guard():
 
 @app.get("/setup")
 def setup_page():
+    """首次使用引导；媒体库建好后改由设置页修改配置。"""
     if app.config["READ_ONLY"]:
         abort(404)
-    return render_template("setup.html", first_run=not _library_ready(),
-                           remote=bool(request.headers.get("Cf-Connecting-Ip")))
+    if _library_ready():
+        return redirect(url_for("settings_page"))
+    return render_template("setup.html", first_run=True, remote=bool(request.headers.get("Cf-Connecting-Ip")))
+
+
+@app.get("/setup/poster/<size>/<name>")
+def setup_poster(size: str, name: str):
+    """引导页海报墙：转发 TMDB 海报，沿用 TMDB 代理设置。"""
+    if app.config["READ_ONLY"] or request.headers.get("Cf-Connecting-Ip"):
+        abort(404)
+    image = _setup.poster(size, name)
+    if image is None:
+        abort(404)
+    response = Response(image[0], mimetype=image[1])
+    response.cache_control.max_age = 86400
+    response.cache_control.private = True
+    return response
 
 
 @app.get("/setup/status")
@@ -258,6 +275,60 @@ def setup_save():
         start_autoscan(app.config["DATABASE"])
     result["next"] = url_for("media", tab="associate", add_root=1)
     return jsonify(result)
+
+
+# ---------------------------------------------------------------- 设置页
+
+
+@app.get("/settings")
+def settings_page():
+    if app.config["READ_ONLY"]:
+        abort(404)
+    return render_template("settings.html", sections=_settings.SECTIONS,
+                           remote=bool(request.headers.get("Cf-Connecting-Ip")))
+
+
+@app.get("/settings/state")
+def settings_state():
+    denied = _setup_guard()
+    if denied:
+        return denied
+    return jsonify(_settings.state(restart_supported=callable(app.config.get("RESTART_HANDLER"))))
+
+
+@app.post("/settings/save")
+def settings_save():
+    denied = _setup_guard()
+    if denied:
+        return denied
+    payload = request.get_json(silent=True) or {}
+    ai_enabled = payload.get("ai_enabled")
+    try:
+        result = _settings.save(payload.get("values") or {},
+                                ai_enabled if isinstance(ai_enabled, bool) else None)
+    except _settings.SettingsInvalid as error:
+        return jsonify(ok=False, message="有设置需要修改。", errors=error.errors), 400
+    except OSError as error:
+        return jsonify(ok=False, message=f"写入配置失败：{error.strerror or error}"), 500
+    result["applied"] = _settings.apply(result["changed"], app)
+    result["status"] = _settings.statuses()
+    return jsonify(result)
+
+
+@app.post("/settings/test/<service>")
+def settings_test(service: str):
+    return setup_test(service)
+
+
+@app.post("/settings/restart")
+def settings_restart():
+    denied = _setup_guard()
+    if denied:
+        return denied
+    handler = app.config.get("RESTART_HANDLER")
+    if not callable(handler):
+        return jsonify(ok=False, manual=True, message="当前不是通过桌面版启动，请手动重启 MovieDB。")
+    return jsonify(ok=True, url=handler())
 
 
 @app.after_request
@@ -532,7 +603,7 @@ def import_title_poster():
         abort(502)
     if not path:
         abort(404)
-    response = redirect(f"{tmdb.TMDB_IMAGE}/w185{path}")
+    response = redirect(f"{tmdb.image_origin()}/w185{path}")
     response.cache_control.max_age = 600
     return response
 

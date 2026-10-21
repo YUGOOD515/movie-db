@@ -1,6 +1,6 @@
 """Compact candidate cards for the association picker."""
 
-from connectors.tmdb import TMDB_IMAGE
+from connectors.tmdb import image_origin
 
 
 def build_search_viewmodel(payload: dict, media_type: str) -> dict:
@@ -16,7 +16,7 @@ def build_search_viewmodel(payload: dict, media_type: str) -> dict:
             "original_name": original if original != name else "",
             "year": date[:4],
             "overview": item.get("overview") or "暂无简介。",
-            "poster_url": f"{TMDB_IMAGE}/w92{poster}" if poster else None,
+            "poster_url": f"{image_origin()}/w92{poster}" if poster else None,
             "localized_poster_url": f"/manager/titles/poster?type={media_type}&tmdb_id={item['id']}",
         })
     page = payload.get("page", 1)

@@ -173,6 +173,17 @@ def test_tmdb_check(setup_env):
         assert get.call_args.kwargs["proxies"]["https"] == "http://127.0.0.1:7890"
 
 
+def test_tmdb_check_returns_trending_posters_for_onboarding(setup_env):
+    trending = {"results": [{"poster_path": "/AbCdEf1.jpg"}, {"poster_path": None}, {"poster_path": "/../bad.jpg"},
+                            {"poster_path": "/AbCdEf1.jpg"}, {"poster_path": "/XyZ_-99.png"}]}
+    with patch.object(requests, "get", side_effect=[_response(200), _response(200, trending), _response(200, {})]) as get:
+        result = setup_wizard.test_tmdb({"TMDB_TOKEN": TOKEN, "with_posters": True})
+    assert result["ok"] and result["posters"] == ["AbCdEf1.jpg", "XyZ_-99.png"]
+    assert get.call_args_list[1].args[0].endswith("/trending/all/week")
+    with patch.object(requests, "get", return_value=_response(200)):
+        assert "posters" not in setup_wizard.test_tmdb({"TMDB_TOKEN": TOKEN})
+
+
 def test_tmdb_session_uses_proxy_only_when_configured(monkeypatch):
     from connectors import tmdb
     monkeypatch.setenv("TMDB_TOKEN", TOKEN)

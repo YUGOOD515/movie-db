@@ -17,7 +17,7 @@ from urllib.parse import urlparse
 
 import requests
 
-from connectors import alist, llm, throttle
+from connectors import alist, llm, throttle, tmdb
 from services import env_file
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -113,7 +113,17 @@ def current(database: Path) -> dict:
         "ffprobe": ffprobe_status(),
         "presets": LLM_PRESETS,
         "env_exists": ENV_PATH.exists(),
+        "alist_running": _alist_running(values["ALIST_ORIGIN"]),
     }
+
+
+def _alist_running(origin: str) -> bool:
+    from services.alist_process import is_alist_running
+
+    try:
+        return is_alist_running(origin)
+    except ValueError:
+        return False
 
 
 # ---------------------------------------------------------------- 测试
@@ -201,7 +211,7 @@ def test_tmdb(form: dict) -> dict:
         return {"ok": False, "message": "这是 32 位的 API Key，这里需要更长的“API 读访问令牌”（API Read Access Token）。"}
     proxy = _field(form, "TMDB_PROXY")
     proxies = {"http": _url(proxy, "代理地址"), "https": _url(proxy, "代理地址")} if proxy else None
-    origin = os.environ.get("TMDB_API_ORIGIN", "https://api.themoviedb.org/3").rstrip("/")
+    origin = tmdb.api_origin()
     try:
         response = requests.get(origin + "/authentication", headers={"Authorization": f"Bearer {token}", "accept": "application/json"},
                                 proxies=proxies, timeout=TIMEOUT)
@@ -212,7 +222,63 @@ def test_tmdb(form: dict) -> dict:
         return {"ok": False, "message": "令牌无效，请复制完整的“API 读访问令牌”。"}
     if response.status_code != 200:
         return {"ok": False, "message": f"TMDB 返回错误（HTTP {response.status_code}），请稍后重试。"}
-    return {"ok": True, "message": "已连接", "details": ["令牌有效"] + (["通过代理访问"] if proxy else [])}
+    result = {"ok": True, "message": "已连接", "details": ["令牌有效"] + (["通过代理访问"] if proxy else [])}
+    if form.get("with_posters"):
+        result["posters"] = trending_posters(origin, token, proxies)
+    return result
+
+
+# 引导页海报墙：TMDB 本周热门的海报路径，图片经本机转发（沿用 TMDB 代理）。
+POSTER_SIZES = {"w185", "w342"}
+POSTER_NAME = re.compile(r"^[A-Za-z0-9_-]{6,64}\.(?:jpg|jpeg|png|webp)$")
+_poster_proxies: dict | None = None
+_poster_cache: dict[str, tuple[bytes, str]] = {}
+POSTER_CACHE_LIMIT = 96
+
+
+def trending_posters(origin: str, token: str, proxies: dict | None, limit: int = 40) -> list[str]:
+    global _poster_proxies
+    _poster_proxies = proxies
+    names: list[str] = []
+    headers = {"Authorization": f"Bearer {token}", "accept": "application/json"}
+    for page in (1, 2):
+        try:
+            response = requests.get(origin + "/trending/all/week", params={"language": "zh-CN", "page": page},
+                                    headers=headers, proxies=proxies, timeout=TIMEOUT)
+            items = response.json().get("results") or [] if response.status_code == 200 else []
+        except (requests.RequestException, ValueError, AttributeError):
+            break
+        for item in items:
+            path = str(item.get("poster_path") or "").lstrip("/")
+            if POSTER_NAME.match(path) and path not in names:
+                names.append(path)
+        if len(names) >= limit:
+            break
+    return names[:limit]
+
+
+def poster(size: str, name: str) -> tuple[bytes, str] | None:
+    """读取一张海报；只接受 TMDB 的尺寸与文件名格式，结果缓存在内存中。"""
+    if size not in POSTER_SIZES or not POSTER_NAME.match(name):
+        return None
+    key = f"{size}/{name}"
+    if key in _poster_cache:
+        return _poster_cache[key]
+    proxies = _poster_proxies
+    if proxies is None and os.environ.get("TMDB_PROXY", "").strip():
+        proxy = os.environ["TMDB_PROXY"].strip()
+        proxies = {"http": proxy, "https": proxy}
+    try:
+        response = requests.get(f"{tmdb.image_origin()}/{key}", proxies=proxies, timeout=TIMEOUT)
+    except requests.RequestException:
+        return None
+    kind = response.headers.get("Content-Type", "")
+    if response.status_code != 200 or not kind.startswith("image/"):
+        return None
+    if len(_poster_cache) >= POSTER_CACHE_LIMIT:
+        _poster_cache.pop(next(iter(_poster_cache)))
+    _poster_cache[key] = (response.content, kind)
+    return _poster_cache[key]
 
 
 def test_llm(form: dict) -> dict:
@@ -270,7 +336,42 @@ def test_mdblist(form: dict) -> dict:
     return {"ok": True, "message": "已连接", "details": ["每天可查询 1000 次"]}
 
 
-TESTS = {"alist": test_alist, "tmdb": test_tmdb, "llm": test_llm, "mdblist": test_mdblist}
+def test_ffprobe(form: dict) -> dict:
+    configured = _field(form, "FFPROBE_PATH")
+    if configured:
+        try:
+            result = subprocess.run([configured, "-version"], capture_output=True, text=True, timeout=8,
+                                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        except (OSError, subprocess.TimeoutExpired):
+            return {"ok": False, "message": "无法运行这个 ffprobe，请检查路径。"}
+        if result.returncode != 0:
+            return {"ok": False, "message": "这个程序不是可用的 ffprobe。"}
+        match = re.search(r"ffprobe version (\S+)", (result.stdout.splitlines() or [""])[0])
+        return {"ok": True, "message": "可以使用", "details": [f"ffprobe {match.group(1)}" if match else configured]}
+    status = ffprobe_status()
+    if not status["ok"]:
+        return {"ok": False, "message": "没有找到 ffprobe：请安装 FFmpeg 并加入 PATH，或填写程序路径。"}
+    return {"ok": True, "message": "可以使用",
+            "details": [f"ffprobe {status['version']}" if status["version"] else status["path"],
+                        "随安装包提供" if status["bundled"] else status["path"]]}
+
+
+def test_player(form: dict) -> dict:
+    path = _field(form, "MPC_PATH") or r"C:\Program Files\MPC-HC\mpc-hc64.exe"
+    if not Path(path).is_file():
+        return {"ok": False, "message": "没有找到 MPC-HC，请填写程序路径。"}
+    web = _url(_field(form, "MPC_WEB_URL") or "http://127.0.0.1:13579", "Web 接口")
+    details, warnings = ["已找到 MPC-HC"], []
+    try:
+        requests.get(web + "/variables.html", timeout=2)
+        details.append("Web 接口已开启")
+    except requests.RequestException:
+        warnings.append("Web 接口没有响应：MPC-HC 未运行或未开启“Web 界面”，播放时无法记录进度。")
+    return {"ok": True, "message": "可以播放", "details": details, "warnings": warnings}
+
+
+TESTS = {"alist": test_alist, "tmdb": test_tmdb, "llm": test_llm, "mdblist": test_mdblist,
+         "ffprobe": test_ffprobe, "player": test_player}
 
 
 def run_test(service: str, form: dict) -> dict:

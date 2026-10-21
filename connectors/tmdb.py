@@ -16,8 +16,19 @@ from connectors import throttle
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-TMDB_API = os.environ.get("TMDB_API_ORIGIN", "https://api.themoviedb.org/3").rstrip("/")
-TMDB_IMAGE = os.environ.get("TMDB_IMAGE_ORIGIN", "https://image.tmdb.org/t/p").rstrip("/")
+DEFAULT_API_ORIGIN = "https://api.themoviedb.org/3"
+DEFAULT_IMAGE_ORIGIN = "https://image.tmdb.org/t/p"
+
+
+def api_origin() -> str:
+    """每次读取环境变量：设置页修改接口地址后立即生效。"""
+    return (os.environ.get("TMDB_API_ORIGIN", "").strip() or DEFAULT_API_ORIGIN).rstrip("/")
+
+
+def image_origin() -> str:
+    return (os.environ.get("TMDB_IMAGE_ORIGIN", "").strip() or DEFAULT_IMAGE_ORIGIN).rstrip("/")
+
+
 LANGUAGE = "zh-CN"
 IMAGE_LANGUAGE = "zh,null"
 REQUEST_TIMEOUT = 20
@@ -165,7 +176,7 @@ def _session() -> requests.Session:
 def _get(session: requests.Session, endpoint: str, params: dict) -> dict:
     response = throttle.call(
         "tmdb",
-        lambda: session.get(TMDB_API + endpoint, params=params, timeout=REQUEST_TIMEOUT),
+        lambda: session.get(api_origin() + endpoint, params=params, timeout=REQUEST_TIMEOUT),
     )
     response.raise_for_status()
     return response.json()
@@ -350,7 +361,7 @@ def _artwork_rows(
                 "title_id": title_id,
                 "artwork_type": artwork_type,
                 "position": position,
-                "remote_path": f"{TMDB_IMAGE}/{size}/{file_path.lstrip('/')}",
+                "remote_path": f"{image_origin()}/{size}/{file_path.lstrip('/')}",
                 "local_path": f"{local_prefix}/{image_key}/{position}{_suffix(file_path)}",
             }
         )
@@ -402,7 +413,7 @@ def build_title_cast(title_id: str, cast: list[dict]) -> list[dict]:
                 ),
                 "cast_order": int(person.get("order", len(rows))),
                 "remote_path": (
-                    f"{TMDB_IMAGE}/{PROFILE_SIZE}/{profile_path.lstrip('/')}"
+                    f"{image_origin()}/{PROFILE_SIZE}/{profile_path.lstrip('/')}"
                     if profile_path
                     else None
                 ),
@@ -643,7 +654,7 @@ def _download_url(row: dict) -> str:
     remote_path = row["remote_path"]
     if remote_path.startswith("http"):
         return remote_path
-    return f"{TMDB_IMAGE}/original/{remote_path.lstrip('/')}"
+    return f"{image_origin()}/original/{remote_path.lstrip('/')}"
 
 
 def _target_path(image_root: Path, row: dict) -> Path:
