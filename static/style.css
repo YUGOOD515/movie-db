@@ -1762,13 +1762,15 @@ body.detail-overview-open [data-episode-target] {
 }
 
 #media-association .form-check-input:focus,
-.status-bar .form-check-input:focus {
+.status-bar .form-check-input:focus,
+.settings-reset-part .form-check-input:focus {
     border-color: var(--media-accent);
     box-shadow: 0 0 0 0.2rem rgba(var(--media-accent-rgb), 0.2);
 }
 
 #media-association .form-check-input:checked,
 .status-bar .form-check-input:checked,
+.settings-reset-part .form-check-input:checked,
 #media-association .form-check-input:indeterminate,
 .status-bar .form-check-input:indeterminate {
     border-color: var(--media-accent);
@@ -1776,7 +1778,8 @@ body.detail-overview-open [data-episode-target] {
 }
 
 #media-association .form-check-input:checked[type="checkbox"],
-.status-bar .form-check-input:checked[type="checkbox"] {
+.status-bar .form-check-input:checked[type="checkbox"],
+.settings-reset-part .form-check-input:checked[type="checkbox"] {
     --bs-form-check-bg-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3e%3cpath fill='none' stroke='%23111111' stroke-linecap='round' stroke-linejoin='round' stroke-width='3' d='m6 10 3 3 6-6'/%3e%3c/svg%3e");
 }
 
@@ -1786,7 +1789,8 @@ body.detail-overview-open [data-episode-target] {
 }
 
 [data-bs-theme="light"] #media-association .form-check-input:checked[type="checkbox"],
-[data-bs-theme="light"] .status-bar .form-check-input:checked[type="checkbox"] {
+[data-bs-theme="light"] .status-bar .form-check-input:checked[type="checkbox"],
+[data-bs-theme="light"] .settings-reset-part .form-check-input:checked[type="checkbox"] {
     --bs-form-check-bg-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3e%3cpath fill='none' stroke='%23ffffff' stroke-linecap='round' stroke-linejoin='round' stroke-width='3' d='m6 10 3 3 6-6'/%3e%3c/svg%3e");
 }
 
@@ -4548,14 +4552,11 @@ html[data-vt-from="card"]::view-transition-image-pair(media-hero) {
     color: var(--bs-warning-text-emphasis);
 }
 
-.settings-form {
-    padding-bottom: 96px;
-}
-
 .settings-section {
     display: grid;
     gap: 48px;
     margin-top: 48px;
+    padding-bottom: 96px; /* 给底部状态栏留位置 */
 }
 
 .settings-section[hidden] {
@@ -4636,6 +4637,10 @@ html[data-vt-from="card"]::view-transition-image-pair(media-hero) {
     gap: 8px 24px;
     padding: 16px 0;
     border-bottom: 1px solid var(--media-card-border);
+}
+
+.settings-row.is-switch {
+    grid-template-columns: minmax(0, 1fr) auto;
 }
 
 .settings-row.is-switch .settings-row-control {
@@ -4753,6 +4758,79 @@ html[data-vt-from="card"]::view-transition-image-pair(media-hero) {
     border-bottom: 0;
 }
 
+/* 分区与分组图标：中性底的小方块，图标用强调色，只做导航提示，不抢标题 */
+.settings-header .segmented-control .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+}
+
+.settings-group-icon {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-thumb);
+    corner-shape: squircle;
+    background: rgba(var(--media-accent-rgb), 0.12);
+    font-size: 1rem;
+    color: var(--media-accent);
+}
+
+/* 数据：清除 */
+.settings-danger .settings-group-icon {
+    background: rgba(var(--bs-danger-rgb), 0.12);
+    color: var(--bs-danger-text-emphasis);
+}
+
+.settings-reset-part label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.settings-reset-part label i {
+    color: var(--bs-secondary-color);
+}
+
+.settings-reset-note {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--media-card-border);
+    font-size: 0.8125rem;
+    color: var(--bs-secondary-color);
+}
+
+.settings-reset-note[hidden] {
+    display: none;
+}
+
+.settings-reset-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px 16px;
+    padding-top: 16px;
+}
+
+.settings-reset-actions .settings-result {
+    flex: 1 1 16rem;
+    margin: 0;
+}
+
+.settings-reset-actions .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
 @media (max-width: 767.98px) {
     .settings-shell {
         padding-inline: 16px;
@@ -4782,6 +4860,16 @@ html[data-vt-from="card"]::view-transition-image-pair(media-hero) {
     .settings-group-side {
         width: 100%;
         margin-left: 0;
+    }
+
+    /* 有图标时标题不换到图标下方，状态与检测按钮对齐标题 */
+    .settings-group-icon + .min-w-0 {
+        flex-basis: calc(100% - 48px);
+    }
+
+    .settings-group-icon ~ .settings-group-side {
+        width: calc(100% - 48px);
+        margin-left: 48px;
     }
 
     .settings-group-side .chip-btn {

@@ -1,4 +1,5 @@
-// 设置页：连接 / 元数据 / AI 三个分区，按项记录修改，底部状态栏统一保存；保存后立即生效，少数项提示重启。
+// 设置页：连接 / 元数据 / AI 三个分区按项记录修改，底部状态栏统一保存，保存后立即生效，少数项提示重启；
+// “数据”分区单独提交：勾选要彻底删除的数据，输入“清除”确认后执行。
 (() => {
     const root = document.querySelector("[data-settings]");
     if (!root) return;
@@ -9,7 +10,7 @@
     const aiSwitch = form.querySelector("#set-ai-enabled");
     const aiBody = form.querySelector("[data-ai-body]");
     const SERVICE_GROUP = { alist: "alist", tmdb: "tmdb", llm: "llm", mdblist: "mdblist", ffprobe: "ffprobe", player: "player" };
-    let state = null, baseline = {}, baselineAi = false, busy = false;
+    let state = null, baseline = {}, baselineAi = false, busy = false, leaving = false;
     const cleared = new Set();
 
     const el = (tag, className, text) => {
@@ -244,6 +245,7 @@
         renderStatus(data.status);
         refreshPending();
         renderRestart(data.pending_restart, data.restart_supported);
+        renderReset(data.data);
     }
 
     async function load() {
@@ -285,6 +287,97 @@
             text: changed.length ? (restartOnly ? "已保存" : "已保存，设置已生效") : "没有需要保存的修改",
         });
     }
+
+    // ------------------------------------------------------------ 清除数据
+
+    const reset = root.querySelector("[data-reset]");
+    const resetParts = reset.querySelector("[data-reset-parts]");
+    const resetConfirm = reset.querySelector("[data-reset-confirm]");
+    const resetSubmit = reset.querySelector("[data-reset-submit]");
+    const resetResult = reset.querySelector("[data-reset-result]");
+    let resetWord = "清除", resetBusy = false;
+
+    const formatSize = bytes => {
+        if (!bytes) return "";
+        const units = ["B", "KB", "MB", "GB"];
+        let value = bytes, unit = 0;
+        while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit += 1; }
+        return `${value >= 10 || unit === 0 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`;
+    };
+
+    function renderReset(data) {
+        if (!data) return;
+        resetWord = data.confirm || resetWord;
+        const checked = new Set([...resetParts.querySelectorAll("input:checked")].map(input => input.value));
+        const first = !resetParts.childElementCount;
+        resetParts.replaceChildren(...data.parts.map(part => {
+            const row = el("div", "settings-row is-switch settings-reset-part");
+            const label = el("div", "settings-row-label");
+            const title = el("label", null);
+            title.htmlFor = `reset-${part.id}`;
+            title.append(icon(part.icon), el("span", null, part.label));
+            const size = part.exists ? formatSize(part.size) : "";
+            label.append(title, el("p", "settings-row-hint", part.exists ? (size ? `${part.hint} · ${size}` : part.hint) : `${part.hint} · 暂无数据`));
+            const control = el("div", "settings-row-control");
+            const check = el("div", "form-check m-0");
+            const input = el("input", "form-check-input");
+            Object.assign(input, { type: "checkbox", id: `reset-${part.id}`, value: part.id });
+            input.checked = first || checked.has(part.id);
+            check.append(input);
+            control.append(check);
+            row.append(label, control);
+            return row;
+        }));
+        reset.querySelector("[data-reset-cloud]").hidden = !data.cloud;
+        syncReset();
+    }
+
+    function selectedParts() {
+        return [...resetParts.querySelectorAll("input:checked")].map(input => input.value);
+    }
+
+    function syncReset() {
+        resetSubmit.disabled = resetBusy || !selectedParts().length || resetConfirm.value.trim() !== resetWord;
+    }
+
+    function showResetResult(ok, text) {
+        resetResult.replaceChildren();
+        resetResult.className = "settings-result";
+        if (!text) return;
+        resetResult.classList.add(ok ? "is-ok" : "is-fail");
+        const head = el("p", "settings-result-head");
+        head.append(icon(ok ? "check-circle-fill" : "x-circle-fill"), el("strong", null, text));
+        resetResult.append(head);
+    }
+
+    async function clearData() {
+        const parts = selectedParts();
+        if (resetBusy || !parts.length) return;
+        resetBusy = true;
+        syncReset();
+        showResetResult(true, "");
+        const cloud = parts.includes("library") && state?.data?.cloud;
+        StatusBar.progress("settings-reset", { text: cloud ? "正在清除数据并清空云端快照…" : "正在清除数据…" });
+        let result;
+        try { result = await request("/settings/clear", { parts, confirm: resetConfirm.value.trim() }); }
+        catch { result = { ok: false, message: "MovieDB 没有响应，请确认程序仍在运行。" }; }
+        resetBusy = false;
+        StatusBar.clear("settings-reset");
+        if (result.ok && result.next) {
+            leaving = true;
+            location.assign(result.next);
+            return;
+        }
+        resetConfirm.value = "";
+        const cloudFailed = result.cloud === "failed" ? "云端快照没能清空，可稍后在云端控制台处理。" : "";
+        if (result.ok) showResetResult(true, `已清除。${cloudFailed}`);
+        else showResetResult(false, result.message || "清除失败");
+        await load().catch(() => {});
+    }
+
+    reset.addEventListener("input", syncReset);
+    reset.addEventListener("change", syncReset);
+    reset.addEventListener("submit", event => { event.preventDefault(); clearData(); });
 
     // ------------------------------------------------------------ 重启
 
@@ -361,7 +454,7 @@
             refreshPending();
         });
     }
-    addEventListener("beforeunload", event => { if (dirtyCount()) event.preventDefault(); });
+    addEventListener("beforeunload", event => { if (!leaving && dirtyCount()) event.preventDefault(); });
 
     showSection(location.hash.slice(1));
     load().catch(() => window.StatusBar?.result("settings-load", { tone: "danger", text: "无法读取当前设置，请刷新页面。", duration: 0 }));
