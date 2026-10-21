@@ -84,6 +84,41 @@ def install_packages(target: Path, arch: str, cache: Path) -> None:
         shutil.rmtree(path, ignore_errors=True)
 
 
+CPU_TYPES = {"x86_64": 0x01000007, "arm64": 0x0100000C}
+
+
+def thin_binaries(root: Path, arch: str) -> int:
+    """通用二进制（pyobjc 只发布 universal2 wheel）只保留目标架构，与 `lipo -thin` 相同。
+
+    通用二进制只是把各架构的完整 Mach-O 首尾相接，前面加一张目录（大端序）；
+    取出目标架构那一段即是独立可用的文件，原有签名也随之保留（最后还会统一重签）。
+    """
+    import struct
+
+    saved = 0
+    for path in root.rglob("*"):
+        if not path.is_file() or path.is_symlink():
+            continue
+        with path.open("rb") as file:
+            header = file.read(8)
+        if len(header) < 8 or header[:4] not in (b"\xca\xfe\xba\xbe", b"\xca\xfe\xba\xbf"):
+            continue
+        wide = header[:4] == b"\xca\xfe\xba\xbf"  # fat_arch_64
+        count = struct.unpack(">I", header[4:])[0]
+        if not 0 < count < 10:  # Java 的 .class 文件也以 cafebabe 开头
+            continue
+        data = path.read_bytes()
+        entry, layout = (32, ">iiQQI") if wide else (20, ">iiIII")
+        slices = [struct.unpack_from(layout, data, 8 + index * entry) for index in range(count)]
+        match = next((item for item in slices if item[0] == CPU_TYPES[arch]), None)
+        if match is None:
+            continue
+        _cpu, _sub, offset, size, _align = match
+        path.write_bytes(data[offset:offset + size])
+        saved += len(data) - size
+    return saved
+
+
 def install_ffprobe(target: Path, source: Path) -> str:
     if not (source / "ffprobe").is_file():
         sys.exit(f"{source} 中没有 ffprobe")
@@ -187,7 +222,7 @@ def make_dmg(bundle: Path, output: Path) -> Path:
     (staging / "Applications").symlink_to("/Applications")
     output.unlink(missing_ok=True)
     command = ["hdiutil", "create", "-quiet", "-volname", "MovieDB", "-srcfolder", str(staging),
-               "-fs", "HFS+", "-format", "UDZO", "-imagekey", "zlib-level=9", "-ov", str(output)]
+               "-fs", "HFS+", "-format", "ULMO", "-ov", str(output)]  # LZMA 压缩，macOS 10.15 起支持
     for attempt in range(3):  # hdiutil 偶尔报“资源忙”，稍等重试
         if subprocess.run(command).returncode == 0:
             break
@@ -221,6 +256,7 @@ def main() -> int:
     python = resources / "runtime" / "python"
     install_python(python, args.arch, cache)
     install_packages(site_packages(python), args.arch, cache)
+    log(f"通用二进制去掉其他架构，节省 {megabytes(thin_binaries(python, args.arch))}")
     ffmpeg = install_ffprobe(resources / "runtime" / "ffmpeg", args.ffprobe_dir.resolve()) if args.ffprobe_dir else None
     count = copy_app(resources / "app")
     precompile(python, resources / "app")

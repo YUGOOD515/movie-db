@@ -44,7 +44,7 @@ macOS 上开发：`brew install uv ffmpeg`，再安装一个播放器（推荐 [
 
 **自行构建安装包**：`uv run python packaging/build_windows.py`。脚本下载 Python 嵌入版、按 Windows 平台安装依赖、复制已纳入 Git 的应用文件（不含测试与开发资料），有 `makensis`（NSIS 3）时生成安装包，否则生成免安装 zip（解压后运行 `MovieDB.cmd`）。在 Linux 上也能组装。
 
-macOS 版：`uv run python packaging/build_macos.py [--arch arm64|x86_64] [--ffprobe-dir <目录>]`，生成 `dist/MovieDB-<版本>-macOS-<架构>.dmg`。脚本下载 [python-build-standalone](https://github.com/astral-sh/python-build-standalone) 的 Python、按 macOS 平台安装依赖、预编译字节码，用 `packaging/macos/launcher.c` 编译启动器，做临时（ad-hoc）签名后打包 .dmg；Apple 芯片上两种架构都能构建。运行时不会往 .app 里写文件（签名保持有效），数据都在数据目录。
+macOS 版：`uv run python packaging/build_macos.py [--arch arm64|x86_64] [--ffprobe-dir <目录>]`，生成 `dist/MovieDB-<版本>-macOS-<架构>.dmg`。脚本下载 [python-build-standalone](https://github.com/astral-sh/python-build-standalone) 的 Python、按 macOS 平台安装依赖（通用二进制只保留目标架构）、预编译字节码，用 `packaging/macos/launcher.c` 编译启动器，做临时（ad-hoc）签名后打包 .dmg（LZMA 压缩）；Apple 芯片上两种架构都能构建。运行时不会往 .app 里写文件（签名保持有效），数据都在数据目录。
 
 ffprobe 有三种选择：
 - `--ffprobe-dir <目录>`（CI 默认）：使用 `packaging/build_ffprobe.sh` 编译的**精简版**。只保留 file/http/https 协议（https 走 Windows 自带的 Schannel）、常见封装（mkv/webm、mp4/mov、ts/m2ts、avi、flv、wmv、mpg、ogg、rmvb）和常见音视频编码，静态单文件约 8 MB，仍为 LGPL。编译：`bash packaging/build_ffprobe.sh <FFmpeg 源码> <输出目录> win64`（Linux + mingw-w64）；macOS 版用 `macos-arm64` / `macos-x86_64`（在 Mac 上编译，https 走系统自带的 Secure Transport）。CI 会用完整版 ffmpeg 生成测试小样（H.264/HEVC 10bit HDR10/AV1/VP9/MPEG-2/MPEG-4/WMV/RV，AAC/EAC3/DTS/TrueHD/FLAC/Opus/PCM 等），经本地 HTTPS（支持 Range）逐字段比对精简版与完整版的读取结果（`packaging/check_ffprobe.py`）。
