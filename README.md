@@ -20,6 +20,8 @@
 
 配置写入程序目录的 `.env`（保留原有注释与其他变量），立即生效。媒体库建好后 `/setup` 改为跳转到侧栏“管理 → 设置”：分为**连接**（AList、待关联扫描、播放器、ffprobe、云端只读快照、本机端口）、**元数据**（TMDB、MDBList、IMDb 评分）、**AI** 三栏，每组显示状态并可单独“检测”，不常用的项收在“高级”里；修改后在底部状态栏保存或放弃。已保存的密码和密钥不会回显，留空即保持不变，可选密钥可单独清除；关闭 AI 识别会一并清除其接口地址、模型与 API Key。除端口（`MOVIEDB_PORT`）外都立即生效；改端口后桌面版可在设置页或托盘菜单“重启 MovieDB”一键重启，其他启动方式需手动重启。设置只能在运行 MovieDB 的电脑上修改：经 Cloudflare Tunnel 访问时只读，云端快照不提供该页面。
 
+设置页**数据**分区可彻底删除本机数据并回到首次使用引导：媒体库（`library.db`，含关联、观看进度与收藏）、识别缓存与扫描记录（`discovery.db`）、海报与缩略图（`static/images`、`static/thumbnails`）、连接与密钥（`.env`），默认全选，输入“清除”确认后执行，不做备份。开启了云端只读快照时，清除媒体库会先发布一份空快照，云端同步清空。正在扫描时不能清除；Windows 上文件被占用会提示重启后再试。
+
 媒体库、配置、海报缓存与日志都保存在安装目录的 `app\` 下（托盘菜单“打开数据文件夹”）。覆盖安装会保留这些数据；卸载时默认只删除程序文件，可选择一并删除数据。
 
 **从源码运行**：`uv sync` 后执行 `uv run python desktop.py`（托盘需要 pystray：`uv run --with pystray python desktop.py`；没有时退化为控制台运行，Ctrl+C 退出），或继续使用 `uv run flask --app app run`。
@@ -66,7 +68,7 @@ TMDB 与 AList 凭据不得写入源码或提交到 Git。曾经进入 Git 历�
 
 详情页底部提供“删除作品”：打开弹窗后检查并展示作品简介、评分、全部季集、本地图片和观看记录，用户确认后执行。图片与演员照片支持横向浏览，以标签区分删除与共用保留；观看记录显示观看时间、播放位置与文件总时长，无记录时隐藏。AList 原视频和收藏夹本身保留。确认范围变化或超过五分钟时需要重新检查；删除成功后返回媒体资源管理页，并显示底部提醒。
 
-搜索及 IMDb 映射在进程内缓存 10 分钟（最多 128 项），相同并发请求合并。选中的对应关系可在导入时复用，缓存过期或进程重启后按原流程重新查询。演员和正式图片在导入时才获取；候选海报通过浏览器按需加载。TMDB 不可用时可直接填写 IMDb ID；缺少 IMDb 映射或本地数据时会提示原因。原有 JSON 导入及整批失败回滚行为保持不变。
+搜索及 IMDb 映射在进程内缓存 10 分钟（最多 2048 项），相同并发请求合并。选中的对应关系可在导入时复用，缓存过期或进程重启后按原流程重新查询。演员和正式图片在导入时才获取；候选海报通过浏览器按需加载。TMDB 不可用时可直接填写 IMDb ID；缺少 IMDb 映射或本地数据时会提示原因。原有 JSON 导入及整批失败回滚行为保持不变。
 
 ## 智能识别待关联
 
@@ -82,15 +84,17 @@ TMDB 与 AList 凭据不得写入源码或提交到 Git。曾经进入 Git 历�
 
 ### AI 识别的请求方式
 
-扫描时分两阶段：先对全部新目录并行跑规则识别（TMDB 搜索），再把规则拿不准的目录**合并请求**交给 AI。
+扫描时规则、AI、核对三段**流水线并行**：16 个线程跑规则识别（TMDB 搜索），拿不准的目录边产生边攒批交给 AI，AI 答案再由另一组线程用 TMDB 校验并推算季集——不必等全部规则跑完 AI 才开工。状态栏分别显示规则进度、AI 与核对中的条数。模拟 400 个目录（40% 需要 AI）时，总耗时由约 260 秒降到约 47 秒，此时瓶颈是 TMDB 的 30 次/秒限速。
 
-- **合并请求**：每次请求带最多 `LLM_BATCH_SIZE` 条（默认 20），输入输出都是 JSON：`{"items":[{"id":"1","name":…,"samples":[…],"rules":[…]}]}` → `{"items":[{"id":"1","kind":"movie|tv|other","candidates":[…]}]}`。单条“重新识别”也用同一格式。
+TMDB 查询结果（搜索 7 天、作品摘要 30 天，暂无 IMDb ID 的 1 天）缓存在 `discovery.db`，配置 AI 后重新识别、规则升级或“重新识别”时不必再搜一遍；目录类型不明时用 `/search/multi` 一次搜电影和剧集。
+
+- **合并请求**：每次请求带最多 `LLM_BATCH_SIZE` 条（DeepSeek 默认 8，其他平台 20；批次凑满或最早一条等了 1 秒即发出），输入输出都是 JSON：`{"items":[{"id":"1","name":…,"samples":[…],"rules":[…]}]}` → `{"items":[{"id":"1","kind":"movie|tv|other","candidates":[…]}]}`。单条“重新识别”也用同一格式。
 - **缓存友好**：批量与单条共用同一份固定的系统提示词，放在请求最前（Responses 的 `instructions`）；DeepSeek 上下文缓存按前缀完全匹配命中，命中部分价格约为未命中的 1/50。
 - **循环重试**：整批输出被截断、JSON 不完整或 5xx 时对半拆分再试；模型漏掉的条目合成一批再问一次。
 - **熔断与降级**：Key 无效（401）、余额不足（402）、参数错误（400/422）立即停止本轮 AI 请求；限流（429/503）先按 `Retry-After` 退避，长时间不恢复则停止。失败与跳过的条目先用规则结果，缓存签名记为“未用 AI”，下次扫描自动重试；扫描结束提示里写明失败原因与条数，以及请求次数、token 用量和缓存命中率。
 - **协议**：`LLM_API` 选择 `responses`（`/responses`）或 `chat`（`/chat/completions`），都会要求 JSON 对象输出；非 DeepSeek 平台不支持 JSON 模式时自动退回纯提示。
 
-**DeepSeek（推荐）**：`LLM_BASE_URL=https://api.deepseek.com`、`LLM_MODEL=deepseek-flash`。按官方文档专门处理：默认走 Responses API；关闭思考模式（Responses 用 `reasoning.effort=none`，Chat 用 `thinking.type=disabled`，`LLM_THINKING` 可改）；官方不限每分钟次数、只限账号并发（deepseek-flash 2500，deepseek-v4-pro 500），因此只限同时在途 4 个请求（`LLM_CONCURRENCY`），忽略 `LLM_RPM`。旧配置里的 `/v1` 会自动去掉。粗略估算：1000 个需要 AI 的目录约 50 次请求、输入约 20 万 token、输出约 8 万 token，按 deepseek-flash 价格约 0.1–0.2 美元（非高峰时段约减半）。
+**DeepSeek（推荐）**：`LLM_BASE_URL=https://api.deepseek.com`、`LLM_MODEL=deepseek-flash`。按官方文档专门处理：默认走 Responses API；关闭思考模式（Responses 用 `reasoning.effort=none`，Chat 用 `thinking.type=disabled`，`LLM_THINKING` 可改）；官方不限每分钟次数、只限账号并发（deepseek-flash 2500，deepseek-v4-pro 500），因此默认同时在途 64 个请求（`LLM_CONCURRENCY`，最多 500），忽略 `LLM_RPM`；遇到 429 并发自动减半，之后连续成功再逐步恢复。旧配置里的 `/v1` 会自动去掉。粗略估算：1000 个需要 AI 的目录约 50 次请求、输入约 20 万 token、输出约 8 万 token，按 deepseek-flash 价格约 0.1–0.2 美元（非高峰时段约减半）。
 
 设置页“检测”会真实发送一次极小的 JSON 请求，能直接发现余额不足、模型名错误等问题。
 
@@ -100,13 +104,13 @@ TMDB 与 AList 凭据不得写入源码或提交到 Git。曾经进入 Git 历�
 
 ## 外部接口限速与并行
 
-各平台的免费 API Key 都有限额，所有外部请求统一经 `connectors/throttle.py` 调度：每个服务一个令牌桶（平均速率）加并发上限；遇到 429/503 按服务端给出的 `Retry-After`、`X-RateLimit-Reset` 或 Gemini 的 `retryDelay` 暂停整个服务后重试，没有给出时指数退避加抖动。需要等待的时间超过上限（多半是每日额度用尽）时不再排队，而是暂停该服务到恢复时间，期间请求直接降级。
+各平台的免费 API Key 都有限额，所有外部请求统一经 `connectors/throttle.py` 调度：每个服务一个令牌桶（平均速率）加自适应并发上限（429/503 时减半，连续成功后逐步恢复到配置值）；遇到 429/503 按服务端给出的 `Retry-After`、`X-RateLimit-Reset` 或 Gemini 的 `retryDelay` 暂停整个服务后重试，没有给出时指数退避加抖动。需要等待的时间超过上限（多半是每日额度用尽）时不再排队，而是暂停该服务到恢复时间，期间请求直接降级。
 
 | 服务 | 已知限制 | 默认策略 | 调整 |
 | --- | --- | --- | --- |
-| TMDB API | 约 40 次/秒，超出返回 429 | 20 次/秒，8 并发；图片 CDN 另计，6 并发 | — |
+| TMDB API | 约 40 次/秒，超出返回 429 | 30 次/秒，16 并发；图片 CDN 另计，6 并发 | — |
 | AList（夸克等网盘） | AList 本身不限流，网盘驱动有风控，过快会提示“请求太频繁” | 20 次/秒，4 并发；识别“频繁”类错误后退避重试；“强制刷新”扫描时如常见频繁提示可调低到 5–10 | `ALIST_RATE`、`ALIST_CONCURRENCY` |
-| AI（DeepSeek） | 不限每分钟次数，按账号并发限制（flash 2500、v4-pro 500），超出返回 429 | 4 并发，每批最多 20 条 | `LLM_CONCURRENCY`、`LLM_BATCH_SIZE` |
+| AI（DeepSeek） | 不限每分钟次数，按账号并发限制（flash 2500、v4-pro 500），超出返回 429 | 64 并发（429 时自动减半），每批最多 8 条 | `LLM_CONCURRENCY`、`LLM_BATCH_SIZE` |
 | AI（其它 OpenAI 兼容） | 免费档通常每分钟十几到几十次、每日几十到上千次 | 每分钟 10 次，2 并发，每批最多 20 条 | `LLM_RPM`、`LLM_CONCURRENCY`、`LLM_BATCH_SIZE` |
 | MDBList | 免费档每日 1000 次，每 5 分钟最多 1000 次读取 | 3 次/秒，2 并发 | — |
 | ffprobe | 每个进程都经 AList 读取网盘文件头 | 3 个进程并行 | `FFPROBE_CONCURRENCY` |

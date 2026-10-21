@@ -14,7 +14,7 @@ SQL 代码书写准则：https://www.sqlstyle.guide/zh/
 
 录入规则：中文名按 TMDB zh-CN → TW → HK 回退；分类按 `tmdb.GENRE_NAMES` 转成 IMDb 英文分类；没有 IMDb ID 的单集不录入。重新录入时库内已有的名称、分类和季集关系保持不变，评分缺失时保留旧值。评分文件缓存在 `imdb/`（Git 忽略），超过一天自动重新下载。
 
-待关联识别的本机状态（扫描目录、扫描快照、识别缓存、忽略列表、已确认别名、源文件健康）单独存于 `discovery.db`（@models/discovery_store.py），不写入 `library.db`，以免触发云端同步。识别流程在 @services/recognition.py（名称清洗在 @services/name_cleaning.py），只产出建议，入库仍走 `media_association.complete`；AI 通过 @connectors/llm.py 调用 OpenAI 兼容接口，结果必须经 TMDB 校验。
+待关联识别的本机状态（扫描目录、扫描快照、识别缓存、忽略列表、已确认别名、源文件健康、TMDB 查询缓存）单独存于 `discovery.db`（@models/discovery_store.py），不写入 `library.db`，以免触发云端同步。识别流程在 @services/recognition.py（名称清洗在 @services/name_cleaning.py），只产出建议，入库仍走 `media_association.complete`；AI 通过 @connectors/llm.py 调用 OpenAI 兼容接口，结果必须经 TMDB 校验。批量识别 `recognize_many` 是规则 / AI / 核对三段流水线，外部请求的速率与并发统一由 @connectors/throttle.py 控制（429 时并发自动减半），不要在调用方另加限速。
 
 ## Connector
 
@@ -28,7 +28,7 @@ SQL 代码书写准则：https://www.sqlstyle.guide/zh/
 
 布局沿用 12 栏网格：`style.css` 顶部定义圆角等令牌与 `--grid-col` / `--grid-gap`，跨栏尺寸写成 `--grid-col` 的倍数。通用模板片段在 `templates/_ui.html`；`site.js` 只放全站行为，页面脚本按页拆分（`detail.js`、`manager.js` 等）。
 
-动效集中在 `effects.js`（BlurHash 占位、海报倾斜、入场动画、页面共享元素转场），首页轮播在 `home.js`；第三方库放在 `static/vendor/`（见其 README），不走 CDN。海报 / 背景图的环境色与 BlurHash 存于 `static/thumbnails/tones.json`，录入时生成、启动时补齐，模板用 `image_tone` 过滤器读取。
+动效集中在 `effects.js`（BlurHash 占位、海报倾斜、入场动画、页面共享元素转场），首页轮播在 `home.js`；第三方库放在 `static/vendor/`（见其 README），不走 CDN；评分图标放在 `static/icons/ratings/` 随仓库提交（安装包只打包 git 跟踪的文件）。海报 / 背景图的环境色与 BlurHash 存于 `static/thumbnails/tones.json`，录入时生成、启动时补齐，模板用 `image_tone` 过滤器读取。
 
 ## 设置
 
