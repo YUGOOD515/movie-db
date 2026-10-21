@@ -214,7 +214,8 @@ def _recognize_pending(key, database):
     pending = [record for record in records
                if cached.get(record["path"], {}).get("signature") != recognition.signature(record)]
     with _lock:
-        _scans[key].update(status="recognizing", recognized=0, to_recognize=len(pending), ai_pending=0)
+        _scans[key].update(status="recognizing", recognized=0, to_recognize=len(pending),
+                           rule_done=0, ai_pending=0, verifying=0)
     if not pending:
         return
     try:
@@ -225,24 +226,21 @@ def _recognize_pending(key, database):
     def saved(record, result):
         store.save_recognition(database, record["path"],
                                recognition.signature(record, ai=recognition.ai_used(result)), result)
-        with _lock:
-            state = _scans[key]
-            state["recognized"] += 1
-            if state.get("ai_pending"):  # 规则阶段全部结束后才进入 AI 阶段，此后每条都来自 AI 批次
-                state["ai_pending"] -= 1
 
-    def stage(name, count):
+    def progress(counts):
+        # 规则、AI、核对三段并行：分别显示各段进度，recognized 为已完成（含失败）的条数。
         with _lock:
-            _scans[key]["ai_pending"] = count
+            _scans[key].update(recognized=counts["done"], rule_done=counts["rules"],
+                               ai_pending=counts["ai"], verifying=counts["verifying"])
 
     try:
-        stats = recognition.recognize_many(database, pending, titles=titles, on_result=saved, on_stage=stage)
+        stats = recognition.recognize_many(database, pending, titles=titles, on_result=saved, on_progress=progress)
     except RuntimeError:
         # TMDB 未配置：停止识别，保留规则清洗后的搜索词。
         return
     with _lock:
         state = _scans[key]
-        state["ai_pending"] = 0
+        state.update(ai_pending=0, verifying=0, rule_done=state.get("to_recognize", 0))
         state["ai_summary"] = _ai_summary(stats)
         if stats["deferred"]:
             state["warnings"].append(
@@ -331,7 +329,8 @@ def _run_scan(key, database, refresh):
 
 def _empty_state(status):
     return {"status": status, "root": "", "roots": [], "records": [], "ignored": [], "warnings": [],
-            "done": 0, "total": 0, "recognized": 0, "to_recognize": 0, "ai_pending": 0, "ai_summary": ""}
+            "done": 0, "total": 0, "recognized": 0, "to_recognize": 0, "rule_done": 0, "ai_pending": 0, "verifying": 0,
+            "ai_summary": ""}
 
 
 def start_scan(database, refresh=False):

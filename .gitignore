@@ -13,7 +13,8 @@ wheels/
 !.env.example
 
 static/images/
-static/icons/
+static/icons/*
+!static/icons/ratings/
 static/thumbnails/
 movie.db
 backups/

@@ -125,6 +125,7 @@ app = Flask(__name__)
 app.config.update(
     DATABASE=DATABASE_PATH,
     IMAGE_ROOT=IMAGE_ROOT,
+    THUMBNAIL_ROOT=BASE_DIR / "static" / "thumbnails",
     SECRET_KEY=os.environ.get("FLASK_SECRET_KEY") or secrets.token_hex(32),
     READ_ONLY=READ_ONLY,
     # 只读快照的元数据：同步时间、AList 地址与已生成的缩略图清单。
@@ -293,7 +294,11 @@ def settings_state():
     denied = _setup_guard()
     if denied:
         return denied
-    return jsonify(_settings.state(restart_supported=callable(app.config.get("RESTART_HANDLER"))))
+    from services import data_reset
+
+    state = _settings.state(restart_supported=callable(app.config.get("RESTART_HANDLER")))
+    state["data"] = data_reset.describe(app)
+    return jsonify(state)
 
 
 @app.post("/settings/save")
@@ -312,6 +317,26 @@ def settings_save():
         return jsonify(ok=False, message=f"写入配置失败：{error.strerror or error}"), 500
     result["applied"] = _settings.apply(result["changed"], app)
     result["status"] = _settings.statuses()
+    return jsonify(result)
+
+
+@app.post("/settings/clear")
+def settings_clear():
+    """彻底删除所选的本机数据（不备份）；清除媒体库或连接设置后回到首次使用引导。"""
+    from services import data_reset
+
+    denied = _setup_guard()
+    if denied:
+        return denied
+    payload = request.get_json(silent=True) or {}
+    if str(payload.get("confirm") or "").strip() != data_reset.CONFIRM_WORD:
+        return jsonify(ok=False, message=f"请输入“{data_reset.CONFIRM_WORD}”确认。"), 400
+    try:
+        result = data_reset.clear(app, payload.get("parts") or [])
+    except data_reset.ResetError as error:
+        return jsonify(ok=False, message=str(error)), 409
+    if result["failed"]:
+        result["message"] = f"部分文件正被占用，未能删除：{'、'.join(result['failed'])}。请重启 MovieDB 后再试。"
     return jsonify(result)
 
 

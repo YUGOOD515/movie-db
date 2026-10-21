@@ -9,8 +9,11 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import queue
 import re
+import sqlite3
 import threading
+import time
 from contextlib import closing
 from difflib import SequenceMatcher
 from pathlib import PurePosixPath
@@ -104,18 +107,49 @@ def _score(candidate: dict, query: str, year: int | None, expected: str | None) 
     return round(max(0.0, min(score, 1.0)), 3)
 
 
-def _search(queries: list[str], year: int | None, expected: str | None) -> list[dict]:
-    types = [expected] if expected else ["tv", "movie"]
+# TMDB 查询的持久缓存（discovery.db）：配置 AI 后重识别、规则版本升级或“重新识别”时不必再搜一遍。
+SEARCH_TTL = 7 * 86400
+SUMMARY_TTL = 30 * 86400
+MISSING_TTL = 86400  # 暂无 IMDb ID 的作品一天后再查，TMDB 补录后能及时用上
+
+
+def _remembered(database, key: str, ttl, fetch):
+    if database is None:
+        return fetch()
+    try:
+        hit = store.cache_get(database, key)
+    except sqlite3.Error:
+        hit = None
+    if hit is not None:
+        return hit
+    value = fetch()
+    try:
+        store.cache_put(database, key, value, ttl(value) if callable(ttl) else ttl)
+    except sqlite3.Error:
+        pass
+    return value
+
+
+def _search_results(database, query: str, media_type: str | None) -> list[dict]:
+    """TMDB 搜索 → 候选列表。类型未知时用 /search/multi 一次搜电影和剧集，请求数减半。"""
+    def fetch():
+        if media_type:
+            rows = [(media_type, result) for result in (tmdb.search_media(query, media_type, 1).get("results") or [])[:8]]
+        else:
+            rows = [(result["media_type"], result) for result in tmdb.search_multi(query).get("results") or []
+                    if result.get("media_type") in ("movie", "tv")][:16]
+        return [_candidate(result, kind) for kind, result in rows]
+    return _remembered(database, f"search:{media_type or 'multi'}:{tmdb.LANGUAGE}:{query}", SEARCH_TTL, fetch)
+
+
+def _search(queries: list[str], year: int | None, expected: str | None, database=None) -> list[dict]:
     scored = {}
     for query in queries:
-        for media_type in types:
-            results = tmdb.search_media(query[:100], media_type, 1).get("results") or []
-            for result in results[:8]:
-                candidate = _candidate(result, media_type)
-                candidate["score"] = _score(candidate, query, year, expected)
-                key = (media_type, candidate["tmdb_id"])
-                if key not in scored or scored[key]["score"] < candidate["score"]:
-                    scored[key] = candidate
+        for found in _search_results(database, query[:100], expected):
+            candidate = {**found, "score": _score(found, query, year, expected)}
+            key = (candidate["media_type"], candidate["tmdb_id"])
+            if key not in scored or scored[key]["score"] < candidate["score"]:
+                scored[key] = candidate
         best = max((item["score"] for item in scored.values()), default=0)
         if best >= 0.95:
             break
@@ -183,12 +217,12 @@ def _ask_ai(record: dict, hints: dict, english: str | None, *, usage: dict | Non
     return found["1"]
 
 
-def _verify_ai(answer: dict, expected: str | None) -> list[dict]:
+def _verify_ai(answer: dict, expected: str | None, database=None) -> list[dict]:
     media_type = answer["kind"] if answer["kind"] in ("movie", "tv") else expected
     verified = []
     for guess in answer["candidates"]:
         queries = [value for value in (guess["title"], guess["original_title"]) if value]
-        for candidate in _search(queries, guess["year"], media_type)[:2]:
+        for candidate in _search(queries, guess["year"], media_type, database)[:2]:
             candidate["score"] = round(min(AI_CEILING, candidate["score"]), 3)
             verified.append(candidate)
     verified.sort(key=lambda item: -item["score"])
@@ -221,8 +255,11 @@ def _library_match(titles: list[dict], queries: list[str], expected: str | None)
             "media_type": "movie" if title["title_type"] == "movie" else "tv", "tmdb_id": title["tmdb_id"]}
 
 
-def _resolve(candidate: dict) -> dict | None:
-    summary = tmdb.fetch_title_summary(candidate["media_type"], candidate["tmdb_id"])
+def _resolve(candidate: dict, database=None) -> dict | None:
+    summary = _remembered(
+        database, f"summary:{candidate['media_type']}:{candidate['tmdb_id']}",
+        lambda value: SUMMARY_TTL if value.get("title_id") else MISSING_TTL,
+        lambda: tmdb.fetch_title_summary(candidate["media_type"], candidate["tmdb_id"]))
     if not re.fullmatch(r"tt[0-9]+", summary["title_id"] or ""):
         return None
     tmdb.remember_media_identity(summary["title_id"], candidate["media_type"], candidate["tmdb_id"])
@@ -285,7 +322,7 @@ def prepare(library_database, record: dict, *, titles: list[dict] | None = None,
     if found:
         context.update(title=found, confidence=0.9, method="library")
         return context
-    ranked = _search(queries, hints["year"], expected) if queries else []
+    ranked = _search(queries, hints["year"], expected, library_database) if queries else []
     context["ranked"] = ranked
     context["needs_ai"] = bool((not ranked or ranked[0]["score"] < AI_THRESHOLD) and use_ai and llm.is_configured())
     return context
@@ -304,7 +341,7 @@ def finish(library_database, context: dict, answer: dict | None = None) -> dict:
         if answer and answer["kind"] == "other" and not answer["candidates"]:
             result["not_media"] = True
         elif answer:
-            verified = _verify_ai(answer, context["expected"])
+            verified = _verify_ai(answer, context["expected"], library_database)
             if verified and (not ranked or verified[0]["score"] > ranked[0]["score"]):
                 ranked, method = verified + ranked, "ai"
         seen = set()
@@ -314,7 +351,7 @@ def finish(library_database, context: dict, answer: dict | None = None) -> dict:
                 continue
             seen.add(key)
             if title is None:
-                resolved = _resolve(candidate)
+                resolved = _resolve(candidate, library_database)
                 if resolved:
                     title, confidence = resolved, candidate["score"]
                     method = method or "rule"
@@ -363,33 +400,51 @@ def recognize(library_database, record: dict, *, titles: list[dict] | None = Non
     return finish(library_database, context, answer)
 
 
-def _chunks(items: list, size: int) -> list[list]:
-    return [items[index:index + size] for index in range(0, len(items), size)]
+# AI 批次凑满 LLM_BATCH_SIZE 或最早一条已等待这么久时就发出，规则还在跑时 AI 已经开工。
+BATCH_WAIT = 1.0
 
 
 def recognize_many(library_database, records: list[dict], *, titles: list[dict] | None = None,
-                   on_result=None, on_stage=None, workers: int = 3) -> dict:
-    """批量识别：先并行跑规则，再把需要 AI 的记录合并成批请求。
+                   on_result=None, on_progress=None, workers: int = 16) -> dict:
+    """批量识别（流水线）：规则、AI、TMDB 核对三段同时进行。
 
-    - 合并请求：每批最多 LLM_BATCH_SIZE 条（默认 20），共享固定的系统提示词前缀，利于命中上下文缓存；
-    - 批次并发：同时 LLM_CONCURRENCY 批（DeepSeek 默认 4，其它平台 2）；
+    - 规则：workers 个线程并行清洗与搜索 TMDB（整体受 throttle 的 TMDB 速率约束），不需要 AI 的记录当场完成；
+    - 合并请求：需要 AI 的记录边产生边攒批，每批最多 LLM_BATCH_SIZE 条（DeepSeek 默认 8），
+      凑满或最早一条等待 BATCH_WAIT 秒即发出；共享固定的系统提示词前缀，利于命中上下文缓存；
+    - 批次并发：同时 LLM_CONCURRENCY 批（DeepSeek 默认 64，遇到 429 自动减半再逐步恢复）；
+    - 核对：AI 答案交给另一组线程用 TMDB 校验、推算季集，不占用 AI 并发；
     - 循环重试：整批失败（输出截断、JSON 不完整、5xx）时对半拆分再试，模型漏掉的条目单独重试一次；
     - 熔断：Key 无效 / 余额不足立即停止后续 AI 请求；限流到额度恢复前同样停止，结果记为“未用 AI”。
-    on_result(record, result) 每完成一条调用一次；TMDB 未配置（RuntimeError）向上抛出。
+    on_result(record, result) 每完成一条调用一次；on_progress(progress) 在各阶段计数变化时调用，
+    progress = {total, done, rules, ai, verifying}（ai 为排队或请求中的条数）。TMDB 未配置（RuntimeError）向上抛出。
     """
-    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from concurrent.futures import ThreadPoolExecutor
 
     stats = {"needs_ai": 0, "requests": 0, "ai": 0, "deferred": 0, "failed": 0, "error": "", "usage": {}}
+    progress = {"total": len(records), "done": 0, "rules": 0, "ai": 0, "verifying": 0}
     lock = threading.Lock()
     stopped: list[Exception] = []  # 熔断原因；非空后不再发起新的 AI 请求
+    errors: list[RuntimeError] = []
+    arrivals: queue.Queue = queue.Queue()
+
+    def bump(**changes):
+        with lock:
+            for name, delta in changes.items():
+                progress[name] += delta
+            snapshot = dict(progress)
+        if on_progress:
+            on_progress(snapshot)
 
     def emit(context, answer=None):
         try:
             result = finish(library_database, context, answer)
-        except RuntimeError:
-            raise
+        except RuntimeError as error:
+            errors.append(error)
+            return None
         except Exception:
             return None  # TMDB 网络错误：不缓存，下次扫描重试
+        finally:
+            bump(done=1)
         if result.get("method") == "ai":
             with lock:
                 stats["ai"] += 1
@@ -398,93 +453,127 @@ def recognize_many(library_database, records: list[dict], *, titles: list[dict] 
         return result
 
     def first_stage(record):
+        context = None
         try:
-            context = prepare(library_database, record, titles=titles)
-        except RuntimeError:
-            raise
+            if not errors:
+                context = prepare(library_database, record, titles=titles)
+        except RuntimeError as error:
+            errors.append(error)
         except Exception:
-            return None
-        if context["needs_ai"]:
-            return context
-        emit(context)
-        return None
-
-    waiting = []
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = [pool.submit(first_stage, record) for record in records]
-        try:
-            for future in as_completed(futures):
-                context = future.result()
-                if context is not None:
-                    waiting.append(context)
-        except RuntimeError:
-            for other in futures:
-                other.cancel()
-            raise
-    stats["needs_ai"] = len(waiting)
-    if not waiting:
-        return stats
-    if on_stage:
-        on_stage("ai", len(waiting))
-
-    def fail(contexts, error):
-        key = "ai_deferred" if isinstance(error, throttle.RateLimitError) else "ai_error"
-        with lock:
-            stats["deferred" if key == "ai_deferred" else "failed"] += len(contexts)
-            stats["error"] = stats["error"] or str(error)
-        for context in contexts:
-            context["result"][key] = True if key == "ai_deferred" else (str(error) or "AI 请求失败。")
+            bump(done=1)  # TMDB 网络错误：不缓存，下次扫描重试
+        if context is not None and context["needs_ai"]:
+            bump(ai=1)
+            arrivals.put(context)
+        arrivals.put(None)  # 先放记录再放完成标记：主线程收齐标记时，需要 AI 的记录必然都已取到
+        if context is not None and not context["needs_ai"]:
             emit(context)
 
-    def ask(contexts, depth=0):
-        """请求一批并逐条交给 emit；拆分与漏项重试都在这里循环完成。"""
-        if stopped:
-            fail(contexts, stopped[0])
-            return
-        try:
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="recognize-verify") as checks, \
+         ThreadPoolExecutor(max_workers=max(1, llm.concurrency()), thread_name_prefix="recognize-ai") as asks, \
+         ThreadPoolExecutor(max_workers=workers, thread_name_prefix="recognize-rule") as rules:
+
+        def verify(context, answer=None):
+            bump(ai=-1, verifying=1)
+
+            def run():
+                try:
+                    emit(context, answer)
+                finally:
+                    bump(verifying=-1)
+            checks.submit(run)
+
+        def fail(contexts, error):
+            key = "ai_deferred" if isinstance(error, throttle.RateLimitError) else "ai_error"
             with lock:
-                stats["requests"] += 1
-            found = ask_batch([ai_item(context) for context in contexts], usage=stats["usage"])
-        except throttle.RateLimitError as error:
-            stopped.append(error)
-            fail(contexts, error)
-            return
-        except llm.LlmError as error:
-            if error.fatal or not error.retry:
-                # Key 无效、余额不足、参数不被接受：每批都会同样失败，停止本轮 AI 请求。
+                stats["deferred" if key == "ai_deferred" else "failed"] += len(contexts)
+                stats["error"] = stats["error"] or str(error)
+            for context in contexts:
+                context["result"][key] = True if key == "ai_deferred" else (str(error) or "AI 请求失败。")
+                verify(context)
+
+        def ask(contexts, depth=0):
+            """请求一批并把答案交给核对线程；拆分与漏项重试都在这里循环完成。"""
+            if stopped:
+                fail(contexts, stopped[0])
+                return
+            try:
+                with lock:
+                    stats["requests"] += 1
+                found = ask_batch([ai_item(context) for context in contexts], usage=stats["usage"])
+            except throttle.RateLimitError as error:
                 stopped.append(error)
                 fail(contexts, error)
                 return
-            if len(contexts) > 1 and depth < 4:
-                middle = len(contexts) // 2
-                ask(contexts[:middle], depth + 1)
-                ask(contexts[middle:], depth + 1)
+            except llm.LlmError as error:
+                if error.fatal or not error.retry:
+                    # Key 无效、余额不足、参数不被接受：每批都会同样失败，停止本轮 AI 请求。
+                    stopped.append(error)
+                    fail(contexts, error)
+                    return
+                if len(contexts) > 1 and depth < 4:
+                    middle = len(contexts) // 2
+                    ask(contexts[:middle], depth + 1)
+                    ask(contexts[middle:], depth + 1)
+                    return
+                fail(contexts, error)
                 return
-            fail(contexts, error)
-            return
-        except (requests.RequestException, ValueError, KeyError, TypeError) as error:
-            if len(contexts) > 1 and depth < 4:
-                middle = len(contexts) // 2
-                ask(contexts[:middle], depth + 1)
-                ask(contexts[middle:], depth + 1)
+            except (requests.RequestException, ValueError, KeyError, TypeError) as error:
+                if len(contexts) > 1 and depth < 4:
+                    middle = len(contexts) // 2
+                    ask(contexts[:middle], depth + 1)
+                    ask(contexts[middle:], depth + 1)
+                    return
+                fail(contexts, error if str(error) else ValueError("AI 返回内容无法解析。"))
                 return
-            fail(contexts, error if str(error) else ValueError("AI 返回内容无法解析。"))
-            return
-        missing = []
-        for index, context in enumerate(contexts, 1):
-            answer = found.get(str(index))
-            if answer is None:
-                missing.append(context)
-            else:
-                emit(context, answer)
-        if missing and len(contexts) > 1 and depth < 4:
-            # 模型漏掉的条目：合成一批再问一次（只剩一条时即单条请求）。
-            ask(missing, depth + 1)
-        elif missing:
-            fail(missing, ValueError("AI 没有给出这一项的结果。"))
+            missing = []
+            for index, context in enumerate(contexts, 1):
+                answer = found.get(str(index))
+                if answer is None:
+                    missing.append(context)
+                else:
+                    verify(context, answer)
+            if missing and len(contexts) > 1 and depth < 4:
+                # 模型漏掉的条目：合成一批再问一次（只剩一条时即单条请求）。
+                ask(missing, depth + 1)
+            elif missing:
+                fail(missing, ValueError("AI 没有给出这一项的结果。"))
 
-    with ThreadPoolExecutor(max_workers=llm.concurrency()) as pool:
-        futures = [pool.submit(ask, chunk) for chunk in _chunks(waiting, llm.batch_size())]
-        for future in as_completed(futures):
-            future.result()
+        batches = []
+        size = llm.batch_size()
+        buffer: list[dict] = []
+        oldest = 0.0
+
+        def flush():
+            nonlocal buffer
+            if buffer:
+                with lock:
+                    stats["needs_ai"] += len(buffer)
+                batches.append(asks.submit(ask, buffer))
+                buffer = []
+
+        for record in records:
+            rules.submit(first_stage, record)
+        remaining = len(records)
+        while remaining:
+            timeout = max(0.0, oldest + BATCH_WAIT - time.monotonic()) if buffer else None
+            try:
+                item = arrivals.get(timeout=timeout)
+            except queue.Empty:
+                flush()
+                continue
+            if item is None:
+                remaining -= 1
+                bump(rules=1)
+                continue
+            if not buffer:
+                oldest = time.monotonic()
+            buffer.append(item)
+            if len(buffer) >= size:
+                flush()
+        if not errors:
+            flush()
+        for batch in batches:
+            batch.result()
+    if errors:
+        raise errors[0]
     return stats
