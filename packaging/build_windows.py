@@ -1,7 +1,10 @@
 """组装 Windows 安装包：嵌入式 Python + 依赖 + ffprobe + 应用代码，再用 NSIS 打包。
 
     uv run python packaging/build_windows.py              # 输出到 dist/
-    uv run python packaging/build_windows.py --no-ffprobe # 不内置 ffprobe（安装包约小 45MB）
+    uv run python packaging/build_windows.py --no-ffprobe # 不内置 ffprobe
+    uv run python packaging/build_windows.py --ffprobe-dir <目录>
+        # 使用 packaging/build_ffprobe.sh 编译的精简版 ffprobe（单文件约 5 MB，CI 默认）；
+        # 不指定时下载 BtbN 的完整 LGPL 版（约 160 MB）
 
 Windows 与 Linux 上都能组装（依赖按 Windows 平台下载二进制 wheel）；有 makensis 时生成
 MovieDB-Setup-<版本>.exe，否则只生成免安装的 zip。下载的文件缓存在 .cache/packaging/。
@@ -106,6 +109,20 @@ def install_packages(target: Path, cache: Path) -> None:
         shutil.rmtree(path, ignore_errors=True)
 
 
+def install_slim_ffprobe(target: Path, source: Path) -> str:
+    """复制精简版 ffprobe（静态单文件）及其许可证与编译说明。"""
+    if not (source / "ffprobe.exe").is_file():
+        sys.exit(f"{source} 中没有 ffprobe.exe")
+    target.mkdir(parents=True, exist_ok=True)
+    for name in ("ffprobe.exe", "LICENSE.txt", "SOURCE.txt"):
+        if (source / name).is_file():
+            shutil.copy2(source / name, target / name)
+    first = ((source / "SOURCE.txt").read_text(encoding="utf-8").splitlines() or ["精简版"])[0] \
+        if (source / "SOURCE.txt").is_file() else "精简版"
+    match = re.search(r"FFmpeg ([0-9][0-9.]*)", first)
+    return f"精简版 {match.group(1) if match else ''}".strip()
+
+
 def install_ffprobe(target: Path, cache: Path) -> str:
     url = ffmpeg_url()
     archive = download(url, cache / Path(url).name)
@@ -181,6 +198,7 @@ def main() -> int:
     parser.add_argument("--out", type=Path, default=ROOT / "dist")
     parser.add_argument("--cache", type=Path, default=ROOT / ".cache" / "packaging")
     parser.add_argument("--no-ffprobe", action="store_true", help="不内置 ffprobe")
+    parser.add_argument("--ffprobe-dir", type=Path, help="使用 build_ffprobe.sh 编译的精简版 ffprobe 所在目录")
     parser.add_argument("--zip", action="store_true", help="同时生成免安装 zip（没有 makensis 时总会生成）")
     args = parser.parse_args()
 
@@ -192,7 +210,12 @@ def main() -> int:
 
     install_python(stage / "runtime" / "python", cache)
     install_packages(stage / "runtime" / "python" / "Lib" / "site-packages", cache)
-    ffmpeg = None if args.no_ffprobe else install_ffprobe(stage / "runtime" / "ffmpeg", cache)
+    if args.no_ffprobe:
+        ffmpeg = None
+    elif args.ffprobe_dir:
+        ffmpeg = install_slim_ffprobe(stage / "runtime" / "ffmpeg", args.ffprobe_dir.resolve())
+    else:
+        ffmpeg = install_ffprobe(stage / "runtime" / "ffmpeg", cache)
     count = copy_app(stage / "app")
     write_icon(stage / "moviedb.ico")
     (stage / "MovieDB.cmd").write_text(  # 免安装版的启动方式；安装版使用开始菜单快捷方式

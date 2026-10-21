@@ -23,7 +23,12 @@
 
 **从源码运行**：`uv sync` 后执行 `uv run python desktop.py`（托盘需要 pystray：`uv run --with pystray python desktop.py`；没有时退化为控制台运行，Ctrl+C 退出），或继续使用 `uv run flask --app app run`。
 
-**自行构建安装包**：`uv run python packaging/build_windows.py`。脚本下载 Python 嵌入版与 FFmpeg（LGPL 共享库版，仅取 ffprobe）、按 Windows 平台安装依赖、复制已纳入 Git 的应用文件（不含测试与开发资料），有 `makensis`（NSIS 3）时生成安装包，否则生成免安装 zip（解压后运行 `MovieDB.cmd`）。`--no-ffprobe` 不内置 ffprobe，安装包从约 56MB 降到约 15MB。在 Linux 上也能组装。
+**自行构建安装包**：`uv run python packaging/build_windows.py`。脚本下载 Python 嵌入版、按 Windows 平台安装依赖、复制已纳入 Git 的应用文件（不含测试与开发资料），有 `makensis`（NSIS 3）时生成安装包，否则生成免安装 zip（解压后运行 `MovieDB.cmd`）。在 Linux 上也能组装。
+
+ffprobe 有三种选择：
+- `--ffprobe-dir <目录>`（CI 默认）：使用 `packaging/build_ffprobe.sh` 编译的**精简版**。只保留 file/http/https 协议（https 走 Windows 自带的 Schannel）、常见封装（mkv/webm、mp4/mov、ts/m2ts、avi、flv、wmv、mpg、ogg、rmvb）和常见音视频编码，静态单文件约 5 MB，仍为 LGPL。编译：`bash packaging/build_ffprobe.sh <FFmpeg 源码> <输出目录> win64`（Linux + mingw-w64）。CI 会用完整版 ffmpeg 生成测试小样（H.264/HEVC 10bit HDR10/AV1/VP9/MPEG-2/MPEG-4/WMV/RV，AAC/EAC3/DTS/TrueHD/FLAC/Opus/PCM 等），经本地 HTTPS（支持 Range）逐字段比对精简版与完整版的读取结果（`packaging/check_ffprobe.py`）。
+- 不指定：下载 BtbN 的完整 LGPL 版（约 160 MB）。
+- `--no-ffprobe`：不内置，可在 `.env` 用 `FFPROBE_PATH` 指向自己的 ffprobe。精简版不认识的少见格式只会缺少画质信息，不影响导入；需要时同样可用 `FFPROBE_PATH` 换成完整版。
 
 ## 本地配置
 
