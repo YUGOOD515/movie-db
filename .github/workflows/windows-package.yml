@@ -42,8 +42,17 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq mingw-w64 > /dev/null
-          curl -sSfL "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" | tar xJ
-          bash packaging/build_ffprobe.sh "ffmpeg-${FFMPEG_VERSION}" ffprobe-out win64
+          curl -sSfL --retry 3 -o ffmpeg.tar.xz "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" || { echo "::error title=下载 FFmpeg 源码失败::"; exit 1; }
+          tar xJf ffmpeg.tar.xz
+          set +e
+          bash packaging/build_ffprobe.sh "ffmpeg-${FFMPEG_VERSION}" ffprobe-out win64 > build.log 2>&1
+          code=$?
+          cat build.log
+          if [ $code -ne 0 ]; then
+            # 失败原因写成注释，未登录也能在运行摘要里看到
+            echo "::error title=ffprobe 编译失败::$(tail -40 build.log | sed ':a;N;$!ba;s/%/%25/g;s/\r//g;s/\n/%0A/g')"
+            exit 1
+          fi
 
       - name: 测试小样与基准结果
         run: |
