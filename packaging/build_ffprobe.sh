@@ -47,8 +47,8 @@ build=$(mktemp -d)
 trap 'rm -rf "$build"' EXIT
 cd "$build"
 "$SRC/configure" "${flags[@]}" > configure.log || { tail -40 configure.log; tail -60 ffbuild/config.log; exit 1; }
-make -j"$(nproc)" ffprobe > make.log 2>&1 || { tail -60 make.log; exit 1; }
 exe=ffprobe; [ "$TARGET" = win64 ] && exe=ffprobe.exe
+make -j"$(nproc)" "$exe" > make.log 2>&1 || { tail -60 make.log; exit 1; }
 strip_tool=strip; [ "$TARGET" = win64 ] && strip_tool=x86_64-w64-mingw32-strip
 "$strip_tool" -o "$OUT/$exe" "$exe"
 # LGPL：随二进制附上许可证、源码地址与完整编译参数，便于他人重新编译替换。
