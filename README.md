@@ -29,6 +29,8 @@ uv run flask --app app run
 
 配置 `ALIST_DIR` 后，应用启动时会先检查 `ALIST_ORIGIN`。如果 AList 尚未运行，应用会在该目录执行 `alist.exe start`，并等待服务可用；已运行的实例不会重复启动。未配置 `ALIST_DIR`，或将 `ALIST_AUTOSTART` 设为 `0` 时，保持原来的手动启动方式。AList 作为独立后台进程运行，Flask 退出时不会自动停止它。
 
+更新代码后可运行 `uv run python scripts/check_env.py` 核对 `.env` 与 `.env.example`：只比较变量名、不输出值，列出缺少、未登记（示例中没有）、重复以及可选未设置的变量。
+
 TMDB 与 AList 凭据不得写入源码或提交到 Git。曾经进入 Git 历史的凭据应在对应服务中轮换。
 
 ## 按名称关联媒体
