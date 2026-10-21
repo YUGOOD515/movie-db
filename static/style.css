@@ -1971,6 +1971,25 @@ body.detail-overview-open [data-episode-target] {
     opacity: 0.45;
 }
 
+/* 概览卡片：图片有未保存的修改时在标题旁标出，保存/放弃在底部状态栏。 */
+.artwork-pending-badge {
+    display: none;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.1rem 0.5rem;
+    border-radius: var(--radius-pill);
+    corner-shape: squircle;
+    color: var(--media-accent);
+    background-color: rgba(var(--media-accent-rgb), 0.12);
+    font-size: 0.75rem;
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.overview-card.has-pending .artwork-pending-badge {
+    display: inline-flex;
+}
+
 /* 统一状态栏（static/status-bar.js）：固定在视口底部居中，不随页面流动。
    z-index 低于下拉菜单（1000），菜单可以盖在状态栏上方。 */
 .status-dock {
@@ -1996,16 +2015,23 @@ body.detail-overview-open [data-episode-target] {
     display: none;
 }
 
+/* 同心圆角：外圆角 = 内部控件圆角 + 内边距 + 边框。
+   内部控件统一 2rem 高、圆角为高度一半（胶囊），四周留同样的内边距，
+   外框圆角正好等于自身高度一半，内外弧线同心、视觉上连续。 */
 .status-bar {
+    --status-pad: 0.5rem;
+    --status-control: 2rem;
+    --status-inner-radius: calc(var(--status-control) / 2);
+    --status-border: 1px;
     position: relative;
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    min-height: 3.25rem;
-    padding: 0.5rem 0.5rem 0.5rem 1rem;
+    min-height: calc(var(--status-control) + 2 * (var(--status-pad) + var(--status-border)));
+    padding: var(--status-pad) var(--status-pad) var(--status-pad) calc(var(--status-pad) + 0.75rem);
     overflow: hidden;
-    border: 1px solid var(--media-card-border);
-    border-radius: var(--radius-control);
+    border: var(--status-border) solid var(--media-card-border);
+    border-radius: calc(var(--status-inner-radius) + var(--status-pad) + var(--status-border));
     corner-shape: squircle;
     background-color: rgba(var(--bs-body-bg-rgb), 0.86);
     box-shadow: var(--toast-shadow, 0 8px 24px rgba(0, 0, 0, 0.16));
@@ -2014,6 +2040,11 @@ body.detail-overview-open [data-episode-target] {
     font-size: 0.875rem;
     pointer-events: auto;
     transition: opacity 0.2s var(--ease-out), transform 0.2s var(--ease-out);
+}
+
+/* 没有右侧按钮时，右边距与左边一致。 */
+.status-bar:not(:has(.status-bar-actions)) {
+    padding-right: calc(var(--status-pad) + 0.75rem);
 }
 
 .status-bar.is-entering,
@@ -2087,14 +2118,27 @@ body.detail-overview-open [data-episode-target] {
     gap: 0.375rem;
 }
 
+.status-bar-actions .btn {
+    --bs-btn-padding-y: 0;
+    --bs-btn-font-size: 0.8125rem;
+    display: inline-flex;
+    align-items: center;
+    height: var(--status-control);
+    border-radius: var(--status-inner-radius);
+}
+
 .status-bar-actions .media-primary-action {
-    padding-inline: 1.25rem !important;
+    padding-inline: 1.125rem !important;
+}
+
+.status-bar-actions .chip-btn {
+    padding-inline: 0.875rem !important;
 }
 
 .status-bar-close {
-    width: 2rem;
-    height: 2rem;
-    border-radius: var(--radius-control);
+    justify-content: center;
+    width: var(--status-control);
+    padding: 0;
 }
 
 .status-bar-close:hover {

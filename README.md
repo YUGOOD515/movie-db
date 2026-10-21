@@ -150,7 +150,7 @@ cd ..\router; npx wrangler deploy
 - 海报 / 背景图先显示 BlurHash 模糊占位，再淡入原图；色调表 `static/thumbnails/tones.json` 在录入时生成，启动时自动为旧图片补齐（设置 `MOVIEDB_TONES_DISABLED=1` 可跳过）。
 - 桌面端海报悬停倾斜、列表进入视口时依次浮现、卡片到详情页的共享元素转场（View Transitions，Chrome / Edge / Safari 18+）。系统开启「减少动态效果」时自动关闭。
 - 第三方库（Embla Carousel、Motion、vanilla-tilt、BlurHash，均为 MIT）随仓库放在 `static/vendor/`。
-- 媒体资源管理页使用统一的底部状态栏（`static/status-bar.js`）：固定在视口底部居中，页面底部自动留出空间，下拉菜单显示在状态栏之上。上层显示后台任务（扫描 AList、刷新评分、关联结果），下层显示当前视图的操作。预设有 `selection`（已选 N 项 + 批量操作）、`check`（校验结果 + 提交）、`progress`（确定 / 不确定进度）、`result`（成功 / 警告 / 失败，可自动收起，悬停时暂停）、`notice`（建议操作）和 `pending`（未保存的修改：放弃 / 保存），按 key 调用 `StatusBar.<预设>(key, …)` 更新、`StatusBar.clear(key)` 收起。评分刷新进度在概览和关联标签页都会接续显示。
+- 媒体资源管理页使用统一的底部状态栏（`static/status-bar.js`）：固定在视口底部居中，页面底部自动留出空间，下拉菜单显示在状态栏之上。上层显示后台任务（扫描 AList、刷新评分、关联结果），下层显示当前视图的操作。预设有 `selection`（已选 N 项 + 批量操作）、`check`（校验结果 + 提交）、`progress`（确定 / 不确定进度）、`result`（成功 / 警告 / 失败，可自动收起，悬停时暂停）、`notice`（建议操作）和 `pending`（未保存的修改：放弃 / 保存），按 key 调用 `StatusBar.<预设>(key, …)` 更新、`StatusBar.clear(key)` 收起。评分刷新进度在概览和关联标签页都会接续显示。状态栏外圆角 = 内部控件圆角 + 内边距 + 边框（控件 2rem 胶囊、内边距 0.5rem），内外弧线同心。概览卡片试用图片后，卡片标题旁显示“未保存”，底部状态栏提供“放弃 / 保存”（多部作品可一次保存），离开页面前会提醒。
 - 圆角统一使用超椭圆（`corner-shape: squircle`）。子元素继承父级圆角时需一并写 `corner-shape: inherit`，并把半径减去父级边框宽度，否则悬停底色在四角会露出缝隙。
 
 ## 使用与归档说明（2026-10-14）
