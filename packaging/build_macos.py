@@ -174,7 +174,7 @@ def sign(bundle: Path) -> None:
                 if path.is_file() and not path.is_symlink() and _is_macho(path)]
     for start in range(0, len(binaries), 200):
         subprocess.run(["codesign", "--force", "--sign", "-", "--timestamp=none", *binaries[start:start + 200]],
-                       check=True, capture_output=True)
+                       check=True)
     subprocess.run(["codesign", "--force", "--sign", "-", "--timestamp=none", str(bundle)], check=True)
     subprocess.run(["codesign", "--verify", "--deep", "--strict", str(bundle)], check=True)
 

@@ -288,7 +288,7 @@ jobs:
           code=$?
           cat build.log
           if [ $code -ne 0 ]; then
-            echo "::error title=ffprobe 编译失败（${{ matrix.arch }}）::$(tail -40 build.log | sed ':a;N;$!ba;s/%/%25/g;s/\r//g;s/\n/%0A/g')"
+            echo "::error title=ffprobe 编译失败（${{ matrix.arch }}）::$(tail -40 build.log | awk '{ gsub(/%/, "%25"); gsub(/\r/, ""); printf "%s%%0A", $0 }')"
             exit 1
           fi
 
@@ -301,7 +301,7 @@ jobs:
         run: |
           set -o pipefail
           uv run --frozen python packaging/build_macos.py --arch "${{ matrix.arch }}" --ffprobe-dir ffprobe-mac 2>&1 | tee build.log || {
-            echo "::error title=构建失败（${{ matrix.arch }}）::$(tail -25 build.log | sed ':a;N;$!ba;s/%/%25/g;s/\r//g;s/\n/%0A/g')"
+            echo "::error title=构建失败（${{ matrix.arch }}）::$(tail -25 build.log | awk '{ gsub(/%/, "%25"); gsub(/\r/, ""); printf "%s%%0A", $0 }')"
             exit 1
           }
 
@@ -326,7 +326,7 @@ jobs:
           export FFPROBE_PATH="$APP/Contents/Resources/runtime/ffmpeg/ffprobe"
           "$FFPROBE_PATH" -hide_banner -version | head -1
           uv run --frozen python packaging/check_ffprobe.py verify ffslim/samples ffslim/samples/expected.json --https 2>&1 | tee probe.log
-          test "${PIPESTATUS[0]}" -eq 0 || { echo "::error title=ffprobe 结果不一致（${{ matrix.arch }}）::$(tail -25 probe.log | sed ':a;N;$!ba;s/%/%25/g;s/\r//g;s/\n/%0A/g')"; exit 1; }
+          test "${PIPESTATUS[0]}" -eq 0 || { echo "::error title=ffprobe 结果不一致（${{ matrix.arch }}）::$(tail -25 probe.log | awk '{ gsub(/%/, "%25"); gsub(/\r/, ""); printf "%s%%0A", $0 }')"; exit 1; }
 
       - name: 启动、首次设置与数据位置
         run: |

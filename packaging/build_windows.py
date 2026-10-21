@@ -17,6 +17,7 @@ import json
 import os
 import re
 import shutil
+import ssl
 import subprocess
 import sys
 import tomllib
@@ -42,6 +43,19 @@ def log(message: str) -> None:
     print(message, flush=True)
 
 
+def _tls_context() -> ssl.SSLContext | None:
+    """python.org 的 macOS 版 Python 默认没有根证书，有 certifi（requests 的依赖）时用它。"""
+    try:
+        import certifi
+    except ImportError:
+        return None
+    return ssl.create_default_context(cafile=certifi.where())
+
+
+def urlopen(request, timeout: int):
+    return urllib.request.urlopen(request, timeout=timeout, context=_tls_context())
+
+
 def download(url: str, target: Path) -> Path:
     if target.exists() and target.stat().st_size > 0:
         return target
@@ -49,7 +63,7 @@ def download(url: str, target: Path) -> Path:
     log(f"下载 {url}")
     request = urllib.request.Request(url, headers={"User-Agent": "moviedb-packager"})
     temporary = target.with_suffix(target.suffix + ".part")
-    with urllib.request.urlopen(request, timeout=120) as response, temporary.open("wb") as file:
+    with urlopen(request, timeout=120) as response, temporary.open("wb") as file:
         shutil.copyfileobj(response, file, 1024 * 1024)
     temporary.replace(target)
     return target
@@ -63,7 +77,7 @@ def ffmpeg_url() -> str:
     if os.environ.get("GITHUB_TOKEN"):
         headers["Authorization"] = f"Bearer {os.environ['GITHUB_TOKEN']}"
     try:
-        with urllib.request.urlopen(urllib.request.Request(FFMPEG_RELEASE, headers=headers), timeout=30) as response:
+        with urlopen(urllib.request.Request(FFMPEG_RELEASE, headers=headers), timeout=30) as response:
             assets = json.load(response).get("assets", [])
     except (OSError, ValueError):
         return FFMPEG_FALLBACK
