@@ -16,7 +16,7 @@ from services import env_file, setup_wizard
 HTML = {"Accept": "text/html,application/xhtml+xml,*/*;q=0.8"}
 SAME_ORIGIN = {"Origin": "http://localhost"}
 MANAGED = ("ALIST_ORIGIN", "ALIST_USERNAME", "ALIST_PASSWORD", "ALIST_PATH_PASSWORD", "TMDB_TOKEN", "TMDB_PROXY",
-           "LLM_BASE_URL", "LLM_API_KEY", "LLM_MODEL", "LLM_RPM", "MDBLIST_APIKEY", "FLASK_SECRET_KEY", "FFPROBE_PATH")
+           "LLM_BASE_URL", "LLM_API_KEY", "LLM_MODEL", "LLM_RPM", "LLM_API", "LLM_CONCURRENCY", "MDBLIST_APIKEY", "FLASK_SECRET_KEY", "FFPROBE_PATH")
 TOKEN = "eyJ" + "a" * 120
 
 
@@ -185,11 +185,32 @@ def test_tmdb_session_uses_proxy_only_when_configured(monkeypatch):
 def test_llm_check_flags_unknown_model(setup_env):
     payload = {"data": [{"id": "glm-4-flash"}, {"id": "glm-4-plus"}]}
     form = {"LLM_BASE_URL": "https://open.bigmodel.cn/api/paas/v4", "LLM_API_KEY": "k", "LLM_MODEL": "glm-4-flash"}
-    with patch.object(requests, "get", return_value=_response(200, payload)):
-        assert setup_wizard.test_llm(form)["details"] == ["模型可用"]
+    answer = {"choices": [{"message": {"content": '{"ok": true}'}}], "usage": {"prompt_tokens": 20, "completion_tokens": 5}}
+    with patch.object(requests, "get", return_value=_response(200, payload)), \
+         patch.object(requests, "post", return_value=_response(200, answer)) as post:
+        result = setup_wizard.test_llm(form)
+        assert result["ok"] and not result["warnings"]
+        assert result["details"][0].startswith("Chat Completions")
+        assert post.call_args.args[0] == "https://open.bigmodel.cn/api/paas/v4/chat/completions"
         assert setup_wizard.test_llm({**form, "LLM_MODEL": "GLM-4"})["warnings"]
     with patch.object(requests, "get", return_value=_response(401)):
         assert not setup_wizard.test_llm(form)["ok"]
+
+
+def test_llm_check_deepseek_uses_responses_without_thinking(setup_env):
+    form = {"LLM_BASE_URL": "https://api.deepseek.com/v1", "LLM_API_KEY": "k", "LLM_MODEL": "deepseek-flash"}
+    answer = {"status": "completed", "output_text": '{"ok": true}', "usage": {"input_tokens": 20, "output_tokens": 5}}
+    with patch.object(requests, "get", return_value=_response(200, {"data": [{"id": "deepseek-flash"}]})), \
+         patch.object(requests, "post", return_value=_response(200, answer)) as post:
+        result = setup_wizard.test_llm(form)
+    assert result["ok"] and "已关闭思考模式，按并发限流" in result["details"]
+    assert post.call_args.args[0] == "https://api.deepseek.com/responses"
+    body = post.call_args.kwargs["json"]
+    assert body["reasoning"] == {"effort": "none"} and body["text"] == {"format": {"type": "json_object"}}
+    with patch.object(requests, "get", return_value=_response(200, {"data": []})), \
+         patch.object(requests, "post", return_value=_response(402, {"error": {"message": "Insufficient Balance"}})):
+        result = setup_wizard.test_llm(form)
+    assert not result["ok"] and "余额不足" in result["message"]
 
 
 def test_unknown_test_service(setup_env):

@@ -226,13 +226,16 @@
     function setupPresets(presets, baseUrl) {
         const select = root.querySelector("[data-preset]"), keyLink = root.querySelector("[data-key-link]");
         select.replaceChildren(...presets.map(preset => new Option(preset.name, preset.id)), new Option("其他（自定义）", ""));
-        const match = presets.find(preset => preset.base_url === baseUrl);
+        // DeepSeek 旧配置可能带 /v1，同样归到 DeepSeek 预设。
+        const match = presets.find(preset => preset.base_url === baseUrl || (preset.id === "deepseek" && /\/\/api\.deepseek\.com(\/v1)?\/?$/.test(baseUrl || "")));
         select.value = match ? match.id : baseUrl ? "" : presets[0].id;
         let previous = match || (baseUrl ? null : presets[0]);
         const apply = fill => {
             const preset = presets.find(item => item.id === select.value);
             keyLink.hidden = !preset;
             if (preset) keyLink.href = preset.key_url;
+            // DeepSeek 只限并发不限每分钟次数，隐藏“每分钟请求上限”。
+            root.querySelector("[data-rpm-field]").hidden = preset?.rpm === false;
             if (!fill || !preset) return;
             field("LLM_BASE_URL").value = preset.base_url;
             const model = field("LLM_MODEL");

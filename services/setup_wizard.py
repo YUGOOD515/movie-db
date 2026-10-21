@@ -17,7 +17,7 @@ from urllib.parse import urlparse
 
 import requests
 
-from connectors import alist, throttle
+from connectors import alist, llm, throttle
 from services import env_file
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -32,12 +32,13 @@ PLAIN_FIELDS = ("ALIST_ORIGIN", "ALIST_USERNAME", "TMDB_PROXY", "LLM_BASE_URL", 
 
 # OpenAI 兼容接口的常见平台；model 只作输入提示。
 LLM_PRESETS = [
+    # DeepSeek 官方地址不带 /v1；默认走 Responses API、关闭思考；只限并发不限每分钟次数（rpm=False 隐藏该项）。
+    {"id": "deepseek", "name": "DeepSeek", "base_url": "https://api.deepseek.com", "model": "deepseek-flash",
+     "key_url": "https://platform.deepseek.com/api_keys", "rpm": False},
     {"id": "siliconflow", "name": "硅基流动", "base_url": "https://api.siliconflow.cn/v1", "model": "Qwen/Qwen3-8B",
      "key_url": "https://cloud.siliconflow.cn/account/ak"},
     {"id": "zhipu", "name": "智谱 GLM", "base_url": "https://open.bigmodel.cn/api/paas/v4", "model": "glm-4-flash",
      "key_url": "https://open.bigmodel.cn/usercenter/apikeys"},
-    {"id": "deepseek", "name": "DeepSeek", "base_url": "https://api.deepseek.com/v1", "model": "deepseek-chat",
-     "key_url": "https://platform.deepseek.com/api_keys"},
     {"id": "gemini", "name": "Google Gemini", "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
      "model": "gemini-2.5-flash", "key_url": "https://aistudio.google.com/apikey"},
     {"id": "openrouter", "name": "OpenRouter", "base_url": "https://openrouter.ai/api/v1",
@@ -222,24 +223,36 @@ def test_llm(form: dict) -> dict:
     base = _url(base, "接口地址")
     if not key or not model:
         raise SetupError("请填写 API Key 和模型名称。")
+    details, warnings = [], []
     try:
-        response = requests.get(base + "/models", headers={"Authorization": f"Bearer {key}"}, timeout=TIMEOUT)
+        response = requests.get(base.rstrip("/") + "/models", headers={"Authorization": f"Bearer {key}"},
+                                timeout=TIMEOUT)
     except requests.RequestException as error:
         return {"ok": False, "message": _network_message(error, "接口") + "请检查接口地址。"}
     if response.status_code in (401, 403):
         return {"ok": False, "message": "API Key 无效或没有权限。"}
-    details = []
     if response.status_code == 200:
         try:
             names = {str(item.get("id", "")).removeprefix("models/") for item in response.json().get("data") or []}
         except (ValueError, AttributeError):
             names = set()
         if names and model not in names:
-            return {"ok": True, "message": "已连接", "details": [f"可用模型 {len(names)} 个"],
-                    "warnings": [f"模型列表里没有“{model}”，请核对名称（区分大小写）。"]}
-        if names:
-            details.append("模型可用")
-    return {"ok": True, "message": "已连接", "details": details or ["接口可访问"]}
+            warnings.append(f"模型列表里没有“{model}”，请核对名称（区分大小写）。")
+    # 真实发一次极小的 JSON 请求：能发现余额不足、模型名错误、不支持 JSON 模式等问题。
+    try:
+        result = llm.probe(base, key, model)
+    except llm.LlmError as error:
+        return {"ok": False, "message": str(error), "warnings": warnings}
+    except requests.RequestException as error:
+        return {"ok": False, "message": _network_message(error, "接口") + "请稍后重试。", "warnings": warnings}
+    except ValueError as error:
+        return {"ok": True, "message": "已连接", "details": ["接口可访问"],
+                "warnings": [*warnings, f"测试请求未返回有效 JSON（{error}），识别时可能失败。"]}
+    details.append(f"{'Responses API' if result['api'] == 'responses' else 'Chat Completions'} · "
+                   f"{result['elapsed']:g} 秒")
+    if result["provider"] == "deepseek":
+        details.append("已关闭思考模式，按并发限流")
+    return {"ok": True, "message": "已连接", "details": details, "warnings": warnings}
 
 
 def test_mdblist(form: dict) -> dict:
@@ -290,10 +303,13 @@ def save(form: dict, database: Path) -> dict:
         key, model = _field(form, "LLM_API_KEY"), _field(form, "LLM_MODEL")
         if not (base and key and model):
             raise SetupError("启用 AI 识别需要填写接口地址、API Key 和模型名称。")
-        rpm = _field(form, "LLM_RPM") or "10"
-        if not rpm.isdigit() or not 1 <= int(rpm) <= 1000:
+        rpm = _field(form, "LLM_RPM")
+        if llm.provider(base) == "deepseek":
+            base = re.sub(r"/v1/?$", "", base.rstrip("/"))  # 官方地址不带 /v1
+            rpm = ""  # DeepSeek 不限每分钟次数，只限并发
+        elif rpm and (not rpm.isdigit() or not 1 <= int(rpm) <= 1000):
             raise SetupError("每分钟请求上限需要是 1–1000 的整数。")
-        updates.update(LLM_BASE_URL=base, LLM_API_KEY=key, LLM_MODEL=model, LLM_RPM=rpm)
+        updates.update(LLM_BASE_URL=base, LLM_API_KEY=key, LLM_MODEL=model, LLM_RPM=rpm or None)
     else:
         updates.update(LLM_BASE_URL=None, LLM_API_KEY=None, LLM_MODEL=None, LLM_RPM=None)
     if form.get("mdblist_enabled"):

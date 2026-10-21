@@ -115,7 +115,7 @@
                                 <input class="form-control" id="setup-LLM_BASE_URL" name="LLM_BASE_URL" type="url" inputmode="url" placeholder="https://…/v1" spellcheck="false">
                             </div>
                             <div>{{ secret("LLM_API_KEY", "API Key") }}</div>
-                            <div>
+                            <div data-rpm-field>
                                 <label class="form-label" for="setup-LLM_RPM">每分钟请求上限</label>
                                 <input class="form-control" id="setup-LLM_RPM" name="LLM_RPM" type="number" min="1" max="1000" step="1" placeholder="10">
                                 <div class="form-text">免费额度通常按分钟限次，超出后自动改用规则识别。</div>

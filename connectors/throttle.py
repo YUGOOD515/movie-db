@@ -5,6 +5,8 @@
 - AList：本身不限流，但夸克等网盘驱动有风控，过快会返回“请求太频繁”之类的错误。
 - LLM（OpenAI 兼容）：免费档通常是每分钟十几到几十次、每日几十到上千次，超出返回 429，
   并在 Retry-After / X-RateLimit-Reset / retryDelay 中给出恢复时间。
+  DeepSeek 官方不限每分钟次数，只限账号并发（deepseek-flash 2500、deepseek-v4-pro 500），
+  超出返回 429，服务器繁忙返回 503；因此只限并发（默认 4，LLM_CONCURRENCY），忽略 LLM_RPM。
 - MDBList：免费档每日 1000 次，且每 5 分钟最多 1000 次读取。
 
 每个服务一只令牌桶（平均速率）加一个信号量（同时在途请求数）。遇到 429/503 时按服务端给出的
@@ -76,8 +78,17 @@ class Policy:
     attempts: int = 4    # 含首次在内的最多尝试次数
 
 
+def _llm_policy() -> Policy:
+    base_url = os.environ.get("LLM_BASE_URL", "")
+    deepseek = re.search(r"//([a-z0-9-]+\.)*deepseek\.com(?:[:/]|$)", base_url.strip().lower()) is not None
+    if deepseek:
+        # 按并发限流：速率只做防抖（每秒 20 次），真正的约束是同时在途数。
+        return Policy(rate=20, burst=4, concurrency=int(_env_float("LLM_CONCURRENCY", 4)), max_wait=90)
+    return Policy(rate=_env_float("LLM_RPM", 10) / 60, burst=1,
+                  concurrency=int(_env_float("LLM_CONCURRENCY", 2)), max_wait=90)
+
+
 def _policies() -> dict[str, Policy]:
-    llm_rpm = _env_float("LLM_RPM", 10)
     return {
         "tmdb": Policy(rate=20, burst=10, concurrency=8, max_wait=30),
         "tmdb-image": Policy(rate=20, burst=10, concurrency=6, max_wait=30),
@@ -88,7 +99,7 @@ def _policies() -> dict[str, Policy]:
             concurrency=int(_env_float("ALIST_CONCURRENCY", 4)),
             max_wait=30,
         ),
-        "llm": Policy(rate=llm_rpm / 60, burst=1, concurrency=2, max_wait=90),
+        "llm": _llm_policy(),
         "mdblist": Policy(rate=3, burst=3, concurrency=2, max_wait=60),
     }
 

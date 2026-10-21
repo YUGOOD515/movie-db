@@ -194,6 +194,17 @@ def _health_from_scan(associated, roots, listings):
     return rows
 
 
+def _ai_summary(stats: dict) -> str:
+    usage = stats.get("usage") or {}
+    if not stats.get("requests"):
+        return ""
+    text = f"AI 识别 {stats['needs_ai']} 项，采用 {stats['ai']} 项，共 {stats['requests']} 次请求"
+    if usage.get("input_tokens"):
+        hit = usage.get("cached_tokens", 0) / usage["input_tokens"]
+        text += f"，输入 {usage['input_tokens']} token（缓存命中 {hit:.0%}），输出 {usage.get('output_tokens', 0)} token"
+    return text
+
+
 def _recognize_pending(key, database):
     from services import recognition
 
@@ -203,7 +214,7 @@ def _recognize_pending(key, database):
     pending = [record for record in records
                if cached.get(record["path"], {}).get("signature") != recognition.signature(record)]
     with _lock:
-        _scans[key].update(status="recognizing", recognized=0, to_recognize=len(pending))
+        _scans[key].update(status="recognizing", recognized=0, to_recognize=len(pending), ai_pending=0)
     if not pending:
         return
     try:
@@ -211,38 +222,34 @@ def _recognize_pending(key, database):
     except Exception:
         titles = []
 
-    deferred = []
-
-    def work(record):
-        try:
-            result = recognition.recognize(database, record, titles=titles)
-        except RuntimeError:
-            raise
-        except Exception:
-            # 网络错误或 TMDB 限流：不缓存，下次扫描重试。
-            return None
-        if result.get("ai_deferred"):
-            deferred.append(record["path"])
+    def saved(record, result):
         store.save_recognition(database, record["path"],
-                               recognition.signature(record, ai=False if result.get("ai_deferred") else None), result)
-        return result
-
-    with ThreadPoolExecutor(max_workers=3) as pool:
-        futures = [pool.submit(work, record) for record in pending]
-        for future in as_completed(futures):
-            try:
-                future.result()
-            except RuntimeError:
-                # TMDB 未配置：停止识别，保留规则清洗后的搜索词。
-                for other in futures:
-                    other.cancel()
-                break
-            with _lock:
-                _scans[key]["recognized"] += 1
-    if deferred:
+                               recognition.signature(record, ai=recognition.ai_used(result)), result)
         with _lock:
-            _scans[key]["warnings"].append(
-                f"AI 接口限流或今日额度已用尽，{len(deferred)} 项暂用规则识别结果；额度恢复后重新扫描会自动补识别。")
+            state = _scans[key]
+            state["recognized"] += 1
+            if state.get("ai_pending"):  # 规则阶段全部结束后才进入 AI 阶段，此后每条都来自 AI 批次
+                state["ai_pending"] -= 1
+
+    def stage(name, count):
+        with _lock:
+            _scans[key]["ai_pending"] = count
+
+    try:
+        stats = recognition.recognize_many(database, pending, titles=titles, on_result=saved, on_stage=stage)
+    except RuntimeError:
+        # TMDB 未配置：停止识别，保留规则清洗后的搜索词。
+        return
+    with _lock:
+        state = _scans[key]
+        state["ai_pending"] = 0
+        state["ai_summary"] = _ai_summary(stats)
+        if stats["deferred"]:
+            state["warnings"].append(
+                f"AI 接口限流或额度已用尽，{stats['deferred']} 项暂用规则识别结果；恢复后重新扫描会自动补识别。")
+        if stats["failed"]:
+            state["warnings"].append(
+                f"AI 识别失败 {stats['failed']} 项：{stats['error']} 这些项暂用规则结果，重新扫描会再试。")
 
 
 def _run_scan(key, database, refresh):
@@ -324,7 +331,7 @@ def _run_scan(key, database, refresh):
 
 def _empty_state(status):
     return {"status": status, "root": "", "roots": [], "records": [], "ignored": [], "warnings": [],
-            "done": 0, "total": 0, "recognized": 0, "to_recognize": 0}
+            "done": 0, "total": 0, "recognized": 0, "to_recognize": 0, "ai_pending": 0, "ai_summary": ""}
 
 
 def start_scan(database, refresh=False):

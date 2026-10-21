@@ -14,7 +14,7 @@
 
 1. **连接 AList**：填写地址、账号，测试时会检查登录、根目录可见的存储，以及“签名所有”是否开启（导入取播放链接需要）。
 2. **TMDB 元数据**：填写 API 读访问令牌；误填 32 位 API Key 会直接提示。访问不了 TMDB 时可填 `TMDB_PROXY`（只对 TMDB 生效）。
-3. **增强功能（可选）**：AI 识别可选硅基流动、智谱、DeepSeek、Gemini、OpenRouter、OpenAI 等预设，测试时核对模型名；MDBList 多平台评分。
+3. **增强功能（可选）**：AI 识别推荐 DeepSeek（也可选硅基流动、智谱、Gemini、OpenRouter、OpenAI 等预设），测试时真实发一次请求并核对模型名；MDBList 多平台评分。
 4. **完成**：汇总各项测试结果、ffprobe 状态与媒体库位置，保存后自动创建空媒体库，并直接打开“添加扫描目录”。
 
 配置写入程序目录的 `.env`（保留原有注释与其他变量），立即生效，无需重启。之后可从侧栏“管理 → 设置”修改；已保存的密码和密钥不会回显，留空即保持不变。设置只能在运行 MovieDB 的电脑上修改：经 Cloudflare Tunnel 访问时只读，云端快照不提供该页面。
@@ -72,7 +72,21 @@ TMDB 与 AList 凭据不得写入源码或提交到 Git。曾经进入 Git 历�
 
 每行的“⋯”菜单提供更换作品、重新识别和忽略。
 
-识别顺序为：库内已有关联 → 曾确认过的同名目录 → 库内同名作品 → TMDB 规则搜索 → AI。配置 `LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL` 后，规则得分低于 0.75 的目录才会请求 AI；AI 给出的候选仍回到 TMDB 校验，置信度最高 0.9。`LLM_API` 选择 `chat`（`/chat/completions`）或 `responses`（`/responses`），不支持 JSON 模式的兼容服务会自动退回纯提示。
+识别顺序为：库内已有关联 → 曾确认过的同名目录 → 库内同名作品 → TMDB 规则搜索 → AI。配置 `LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL` 后，规则得分低于 0.75 的目录才会请求 AI；AI 给出的候选仍回到 TMDB 校验，置信度最高 0.9。
+
+### AI 识别的请求方式
+
+扫描时分两阶段：先对全部新目录并行跑规则识别（TMDB 搜索），再把规则拿不准的目录**合并请求**交给 AI。
+
+- **合并请求**：每次请求带最多 `LLM_BATCH_SIZE` 条（默认 20），输入输出都是 JSON：`{"items":[{"id":"1","name":…,"samples":[…],"rules":[…]}]}` → `{"items":[{"id":"1","kind":"movie|tv|other","candidates":[…]}]}`。单条“重新识别”也用同一格式。
+- **缓存友好**：批量与单条共用同一份固定的系统提示词，放在请求最前（Responses 的 `instructions`）；DeepSeek 上下文缓存按前缀完全匹配命中，命中部分价格约为未命中的 1/50。
+- **循环重试**：整批输出被截断、JSON 不完整或 5xx 时对半拆分再试；模型漏掉的条目合成一批再问一次。
+- **熔断与降级**：Key 无效（401）、余额不足（402）、参数错误（400/422）立即停止本轮 AI 请求；限流（429/503）先按 `Retry-After` 退避，长时间不恢复则停止。失败与跳过的条目先用规则结果，缓存签名记为“未用 AI”，下次扫描自动重试；扫描结束提示里写明失败原因与条数，以及请求次数、token 用量和缓存命中率。
+- **协议**：`LLM_API` 选择 `responses`（`/responses`）或 `chat`（`/chat/completions`），都会要求 JSON 对象输出；非 DeepSeek 平台不支持 JSON 模式时自动退回纯提示。
+
+**DeepSeek（推荐）**：`LLM_BASE_URL=https://api.deepseek.com`、`LLM_MODEL=deepseek-flash`。按官方文档专门处理：默认走 Responses API；关闭思考模式（Responses 用 `reasoning.effort=none`，Chat 用 `thinking.type=disabled`，`LLM_THINKING` 可改）；官方不限每分钟次数、只限账号并发（deepseek-flash 2500，deepseek-v4-pro 500），因此只限同时在途 4 个请求（`LLM_CONCURRENCY`），忽略 `LLM_RPM`。旧配置里的 `/v1` 会自动去掉。粗略估算：1000 个需要 AI 的目录约 50 次请求、输入约 20 万 token、输出约 8 万 token，按 deepseek-flash 价格约 0.1–0.2 美元（非高峰时段约减半）。
+
+设置页“测试连接”会真实发送一次极小的 JSON 请求，能直接发现余额不足、模型名错误等问题。
 
 确认关联后记住原目录名，下次同名目录直接识别。忽略的条目收在“已忽略”标签页，可随时恢复。识别结果按目录内容签名缓存，内容未变不会重复识别。扫描时顺带检查已关联文件：AList 明确返回不存在才标记为“失效”，网络错误不改变状态；媒体资源管理页可按“失效”筛选，源文件不会被删除。
 
@@ -86,7 +100,8 @@ TMDB 与 AList 凭据不得写入源码或提交到 Git。曾经进入 Git 历�
 | --- | --- | --- | --- |
 | TMDB API | 约 40 次/秒，超出返回 429 | 20 次/秒，8 并发；图片 CDN 另计，6 并发 | — |
 | AList（夸克等网盘） | AList 本身不限流，网盘驱动有风控，过快会提示“请求太频繁” | 20 次/秒，4 并发；识别“频繁”类错误后退避重试；“强制刷新”扫描时如常见频繁提示可调低到 5–10 | `ALIST_RATE`、`ALIST_CONCURRENCY` |
-| AI（OpenAI 兼容） | 免费档通常每分钟十几到几十次、每日几十到上千次 | 每分钟 10 次，2 并发 | `LLM_RPM` |
+| AI（DeepSeek） | 不限每分钟次数，按账号并发限制（flash 2500、v4-pro 500），超出返回 429 | 4 并发，每批最多 20 条 | `LLM_CONCURRENCY`、`LLM_BATCH_SIZE` |
+| AI（其它 OpenAI 兼容） | 免费档通常每分钟十几到几十次、每日几十到上千次 | 每分钟 10 次，2 并发，每批最多 20 条 | `LLM_RPM`、`LLM_CONCURRENCY`、`LLM_BATCH_SIZE` |
 | MDBList | 免费档每日 1000 次，每 5 分钟最多 1000 次读取 | 3 次/秒，2 并发 | — |
 | ffprobe | 每个进程都经 AList 读取网盘文件头 | 3 个进程并行 | `FFPROBE_CONCURRENCY` |
 

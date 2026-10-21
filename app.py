@@ -604,7 +604,8 @@ def recognize_discovery_record():
         return jsonify(error="TMDB 或 AI 服务暂时无法访问，请稍后重试。"), 502
     except RuntimeError:
         return jsonify(error="TMDB 尚未配置。"), 503
-    _discovery_store.save_recognition(app.config["DATABASE"], path, _recognition.signature(record), result)
+    _discovery_store.save_recognition(app.config["DATABASE"], path,
+                                      _recognition.signature(record, ai=_recognition.ai_used(result)), result)
     return jsonify(result)
 
 
