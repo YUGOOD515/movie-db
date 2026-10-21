@@ -129,7 +129,9 @@ def _search(queries: list[str], year: int | None, expected: str | None) -> list[
 
 
 def _ai_item(record: dict, hints: dict, english: str | None) -> dict:
-    samples = [item["name"] for item in sorted(record["files"], key=lambda item: item["path"])[:6]]
+    # 示例文件名取前 3 个加最后 1 个：同一剧集的文件名高度相似，多给只会增加输入 token。
+    names = [item["name"] for item in sorted(record["files"], key=lambda item: item["path"])]
+    samples = names if len(names) <= 4 else [*names[:3], names[-1]]
     item = {"name": record["name"], "videos": len(record["files"]), "samples": samples}
     if hints.get("queries"):
         item["rules"] = hints["queries"][:3]
