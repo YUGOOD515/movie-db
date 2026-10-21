@@ -82,8 +82,9 @@ def _policies() -> dict[str, Policy]:
         "tmdb": Policy(rate=20, burst=10, concurrency=8, max_wait=30),
         "tmdb-image": Policy(rate=20, burst=10, concurrency=6, max_wait=30),
         "alist": Policy(
-            rate=_env_float("ALIST_RATE", 5),
-            burst=4,
+            # 目录读取多数命中 AList 自身缓存，速率不是网盘风控的关键；同时在途数才是，保持 4。
+            rate=_env_float("ALIST_RATE", 20),
+            burst=8,
             concurrency=int(_env_float("ALIST_CONCURRENCY", 4)),
             max_wait=30,
         ),
