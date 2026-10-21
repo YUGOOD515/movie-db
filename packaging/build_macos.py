@@ -92,8 +92,8 @@ def install_ffprobe(target: Path, source: Path) -> str:
         if (source / name).is_file():
             shutil.copy2(source / name, target / name)
     (target / "ffprobe").chmod(0o755)
-    first = (source / "SOURCE.txt").read_text(encoding="utf-8").splitlines()[0] \
-        if (source / "SOURCE.txt").is_file() else ""
+    notes = (source / "SOURCE.txt").read_text(encoding="utf-8") if (source / "SOURCE.txt").is_file() else ""
+    first = (notes.splitlines() or [""])[0]
     version = first.split("FFmpeg ", 1)[1].split("（", 1)[0] if "FFmpeg " in first else ""
     return f"精简版 {version}".strip()
 

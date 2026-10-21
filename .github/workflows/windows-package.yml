@@ -299,6 +299,7 @@ jobs:
 
       - name: 构建
         run: |
+          ls -l ffprobe-mac && head -2 ffprobe-mac/SOURCE.txt
           set -o pipefail
           uv run --frozen python packaging/build_macos.py --arch "${{ matrix.arch }}" --ffprobe-dir ffprobe-mac 2>&1 | tee build.log || {
             echo "::error title=构建失败（${{ matrix.arch }}）::$(tail -25 build.log | awk '{ gsub(/%/, "%25"); gsub(/\r/, ""); printf "%s%%0A", $0 }')"
