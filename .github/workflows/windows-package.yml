@@ -2,7 +2,7 @@ name: Windows 安装包
 
 on:
   push:
-    branches: [feat/onboarding]
+    branches: [feat/onboarding, feat/ai-batch]
     paths:
       - packaging/**
       - desktop.py
