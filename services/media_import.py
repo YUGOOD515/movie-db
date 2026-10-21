@@ -5,14 +5,14 @@ import re
 import shutil
 import sqlite3
 import tempfile
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import FIRST_EXCEPTION, ThreadPoolExecutor, as_completed, wait
 from contextlib import closing
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import requests
 
-from connectors import alist, imdb_ratings, media_probe, tmdb
+from connectors import alist, imdb_ratings, media_probe, throttle, tmdb
 from models.database import connect_database, connect_writable
 from models.library import import_media_bundle
 from queries.association import get_series_episodes
@@ -319,12 +319,13 @@ def _validate_title_id(title_id: str) -> str:
     return title_id
 
 
-def _prepare_file(
+def _check_file(
     library_db: sqlite3.Connection,
     target_title_id: str,
     alist_url: str,
     seen_alist_paths: set[str] | None = None,
-) -> tuple[str, dict]:
+) -> str:
+    """本地校验：解析直链、批内去重、是否已关联其他作品。只读库，不联网。"""
     alist_path = alist.parse_alist_url(alist_url)
 
     if seen_alist_paths is not None:
@@ -338,21 +339,24 @@ def _prepare_file(
     ).fetchone()
     if existing is not None and existing["title_id"] != target_title_id:
         raise MediaImportError("该 AList 文件已关联其他影视条目。")
-
-    alist.validate_alist_video_url(alist_url)
-    video_url = alist.get_video_link(alist_path)
-    return alist_path, media_probe.probe_video(video_url)
+    return alist_path
 
 
-def _prepare_context_images(
+def _probe_file(alist_url: str, alist_path: str, raw_url: str = "") -> dict:
+    """联网读取媒体信息。raw_url 由调用方刚从 AList 取得时，可跳过直链校验与再次取链。"""
+    if not raw_url:
+        alist.validate_alist_video_url(alist_url)
+        raw_url = alist.get_video_link(alist_path)
+    return media_probe.probe_video(raw_url)
+
+
+def _stage_context_images(
     context: ImportContext,
-    library_db: sqlite3.Connection,
+    artwork: list[dict],
     image_root: Path,
     staging_root: Path,
 ) -> None:
-    if context.images_prepared:
-        return
-    artwork = _new_artwork(library_db, context.artwork)
+    """下载并暂存作品图片与演员照（只联网与写临时目录，可在线程中执行）。"""
     context.artwork, artwork_files = _stage_new_artwork(
         artwork,
         image_root,
@@ -374,14 +378,20 @@ def _prepare_items(
     items: list[dict],
     progress: dict,
     on_progress=None,
+    raw_urls: dict[str, str] | None = None,
 ) -> list[PreparedMediaImport]:
-    """联网解析、探测并暂存图片；全部完成后才进入写事务。progress 记录当前条目供报错。
+    """联网解析、探测并暂存图片；全部完成后才进入写事务。progress 记录出错条目供报错。
 
-    on_progress(phase, done, total) 在每个条目准备完成后调用，供界面显示真实进度。
+    1. 逐条在本线程完成本地校验与作品元数据（SQLite 连接只在本线程使用，TMDB 按作品缓存）；
+    2. 各文件的 ffprobe 在有界线程池中并行（FFPROBE_CONCURRENCY，默认 3），同时另开线程
+       下载每个作品的图片；结果仍按原顺序组装，任一失败即取消未开始的任务。
+    on_progress(phase, done, total) 在每个文件探测完成后调用。raw_urls 为调用方刚从 AList
+    取得的 {alist_path: raw_url}，可省去重复的校验与取链请求。
     """
     contexts: dict[str, ImportContext] = {}
     seen_alist_paths: set[str] = set()
-    prepared_items = []
+    planned = []
+    image_jobs = []
     for index, item in enumerate(items, start=1):
         progress.update(index=index, title_id="")
         title_id = _validate_title_id(item.get("title_id") or "")
@@ -393,26 +403,61 @@ def _prepare_items(
             item.get("season_number", ""),
             item.get("episode_number", ""),
         )
-        alist_path, probe = _prepare_file(
-            library_db,
-            target["title_id"],
-            item.get("alist_url", ""),
-            seen_alist_paths,
+        alist_url = item.get("alist_url", "")
+        alist_path = _check_file(library_db, target["title_id"], alist_url, seen_alist_paths)
+        if not context.images_prepared:
+            context.images_prepared = True
+            image_jobs.append((index, title_id, context, _new_artwork(library_db, context.artwork)))
+        planned.append((index, title_id, target, alist_url, alist_path, context))
+
+    total = len(planned)
+    probes: dict[int, dict] = {}
+    failures: list[tuple[int, str, Exception]] = []
+    workers = min(throttle.ffprobe_workers(), max(1, total))
+    with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="media-probe") as probe_pool, \
+            ThreadPoolExecutor(max_workers=2, thread_name_prefix="media-images") as image_pool:
+        image_futures = {
+            image_pool.submit(_stage_context_images, context, artwork, image_root, staging_root): (index, title_id)
+            for index, title_id, context, artwork in image_jobs
+        }
+        probe_futures = {
+            probe_pool.submit(_probe_file, alist_url, alist_path, (raw_urls or {}).get(alist_path, "")): (index, title_id)
+            for index, title_id, _, alist_url, alist_path, _ in planned
+        }
+        for future in as_completed(probe_futures):
+            index, title_id = probe_futures[future]
+            error = future.exception()
+            if error is not None:
+                failures.append((index, title_id, error))
+                for other in (*probe_futures, *image_futures):
+                    other.cancel()
+                break
+            probes[index] = future.result()
+            if on_progress:
+                on_progress("probe", len(probes), total)
+        if not failures:
+            done, _ = wait(image_futures, return_when=FIRST_EXCEPTION)
+            for future in done:
+                if future.exception() is not None:
+                    index, title_id = image_futures[future]
+                    failures.append((index, title_id, future.exception()))
+    if failures:
+        # 并行时以序号最小的失败为准，报错位置稳定可复现。
+        index, title_id, error = min(failures, key=lambda failure: failure[0])
+        progress.update(index=index, title_id=title_id)
+        raise error
+
+    return [
+        PreparedMediaImport(
+            index=index,
+            input_title_id=title_id,
+            target=target,
+            alist_path=alist_path,
+            probe=probes[index],
+            bundle=context,
         )
-        _prepare_context_images(context, library_db, image_root, staging_root)
-        prepared_items.append(
-            PreparedMediaImport(
-                index=index,
-                input_title_id=title_id,
-                target=target,
-                alist_path=alist_path,
-                probe=probe,
-                bundle=context,
-            )
-        )
-        if on_progress:
-            on_progress("probe", index, len(items))
-    return prepared_items
+        for index, title_id, target, _, alist_path, context in planned
+    ]
 
 
 def _write_prepared_import(
@@ -507,11 +552,14 @@ def _persist_prepared_imports(
         for prepared in prepared_items
         for image in prepared.bundle.artwork
     }
-    for local_path in thumbnail_paths:
+    def build_thumbnail(local_path: str) -> None:
         try:
             ensure_thumbnail(local_path, static_root=image_root.parent)
         except Exception as error:
             logger.warning("Failed to build thumbnail for %s: %s", local_path, error)
+
+    with ThreadPoolExecutor(max_workers=4, thread_name_prefix="thumbnails") as pool:
+        list(pool.map(build_thumbnail, sorted(thumbnail_paths)))
     try:
         ensure_tones(thumbnail_paths, static_root=image_root.parent)
     except Exception as error:
@@ -528,7 +576,8 @@ IMPORT_ERRORS = (
 )
 
 
-def _run_import(library_database, image_root, items: list[dict], progress: dict, on_progress=None) -> list[dict]:
+def _run_import(library_database, image_root, items: list[dict], progress: dict, on_progress=None,
+                raw_urls: dict[str, str] | None = None) -> list[dict]:
     library_database = Path(library_database)
     image_root = Path(image_root)
     image_root.parent.mkdir(parents=True, exist_ok=True)
@@ -545,6 +594,7 @@ def _run_import(library_database, image_root, items: list[dict], progress: dict,
             items,
             progress,
             on_progress,
+            raw_urls,
         )
         if on_progress:
             on_progress("write", 0, len(items))
@@ -618,10 +668,12 @@ def import_media_batch(
     image_root: str | Path,
     items: list[dict],
     on_progress=None,
+    raw_urls: dict[str, str] | None = None,
 ) -> dict:
+    """raw_urls 只供服务端内部传入（刚从 AList 取得的 {alist_path: raw_url}），不接受请求数据。"""
     progress = {"index": 0, "title_id": ""}
     try:
-        successes = _run_import(library_database, image_root, items, progress, on_progress)
+        successes = _run_import(library_database, image_root, items, progress, on_progress, raw_urls)
     except _PersistenceError as error:
         failure = {"index": error.index, "title_id": error.title_id, "message": str(error)}
     except IMPORT_ERRORS as error:

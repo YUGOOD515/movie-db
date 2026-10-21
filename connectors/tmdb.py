@@ -4,13 +4,15 @@ import logging
 import os
 import re
 from collections import OrderedDict
-from concurrent.futures import Future
+from concurrent.futures import Future, ThreadPoolExecutor
 from copy import deepcopy
 from pathlib import Path
-from threading import Lock
+from threading import Lock, local
 from time import monotonic
 
 import requests
+
+from connectors import throttle
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -22,6 +24,7 @@ REQUEST_TIMEOUT = 20
 ARTWORK_LIMIT = 5
 CAST_LIMIT = 24
 DOWNLOAD_ATTEMPTS = 3
+IMAGE_WORKERS = 4
 # append_to_response 官方上限为 20 项。
 APPEND_LIMIT = 20
 TITLE_ID_PATTERN = re.compile(r"tt[0-9]+")
@@ -156,8 +159,9 @@ def _session() -> requests.Session:
 
 
 def _get(session: requests.Session, endpoint: str, params: dict) -> dict:
-    response = session.get(
-        TMDB_API + endpoint, params=params, timeout=REQUEST_TIMEOUT
+    response = throttle.call(
+        "tmdb",
+        lambda: session.get(TMDB_API + endpoint, params=params, timeout=REQUEST_TIMEOUT),
     )
     response.raise_for_status()
     return response.json()
@@ -606,7 +610,10 @@ def _download_image(session: requests.Session, image_url: str, target_path: Path
     last_error = None
     for _ in range(DOWNLOAD_ATTEMPTS):
         try:
-            with session.get(image_url, timeout=REQUEST_TIMEOUT) as response:
+            with throttle.call(
+                "tmdb-image",
+                lambda: session.get(image_url, timeout=REQUEST_TIMEOUT, stream=True),
+            ) as response:
                 response.raise_for_status()
                 content_type = response.headers.get("Content-Type", "")
                 if not content_type.startswith("image/"):
@@ -617,6 +624,9 @@ def _download_image(session: requests.Session, image_url: str, target_path: Path
                             image_file.write(chunk)
             temporary_path.replace(target_path)
             return
+        except throttle.RateLimitError:
+            temporary_path.unlink(missing_ok=True)
+            raise
         except (requests.RequestException, ValueError) as error:
             temporary_path.unlink(missing_ok=True)
             last_error = error
@@ -659,25 +669,48 @@ def download_metadata_images(
     for episode in metadata.get("episodes") or []:
         rows.extend(episode.get("title_artwork") or [])
 
-    own_session = session is None
-    session = session or _session()
     stats = {"downloaded": 0, "skipped": 0, "failed": 0}
+    stats_lock = Lock()
+    pending, queued = [], set()
+    for row in rows:
+        target_path = _target_path(image_root, row)
+        if target_path.exists() or target_path in queued:
+            stats["skipped"] += 1
+        else:
+            queued.add(target_path)
+            pending.append((row, target_path))
+
+    # 图片来自 CDN，可适度并行；共享 session 时沿用调用方的，否则每个线程各自一个。
+    own_sessions, sessions = [], local()
+
+    def current_session() -> requests.Session:
+        if session is not None:
+            return session
+        if not hasattr(sessions, "value"):
+            sessions.value = _session()
+            own_sessions.append(sessions.value)
+        return sessions.value
+
+    def download(job) -> None:
+        row, target_path = job
+        try:
+            _download_image(current_session(), _download_url(row), target_path)
+            outcome = "downloaded"
+        except (requests.RequestException, ValueError) as error:
+            logger.warning("下载失败 %s: %s", row["local_path"], error)
+            outcome = "failed"
+        with stats_lock:
+            stats[outcome] += 1
 
     try:
-        for row in rows:
-            target_path = _target_path(image_root, row)
-            if target_path.exists():
-                stats["skipped"] += 1
-                continue
-
-            try:
-                _download_image(session, _download_url(row), target_path)
-                stats["downloaded"] += 1
-            except (requests.RequestException, ValueError) as error:
-                logger.warning("下载失败 %s: %s", row["local_path"], error)
-                stats["failed"] += 1
+        if len(pending) > 1:
+            with ThreadPoolExecutor(max_workers=IMAGE_WORKERS, thread_name_prefix="tmdb-image") as pool:
+                list(pool.map(download, pending))
+        else:
+            for job in pending:
+                download(job)
     finally:
-        if own_session:
-            session.close()
+        for own in own_sessions:
+            own.close()
 
     return stats

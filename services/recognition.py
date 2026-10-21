@@ -15,7 +15,7 @@ from pathlib import PurePosixPath
 
 import requests
 
-from connectors import llm, tmdb
+from connectors import llm, throttle, tmdb
 from models import discovery_store as store
 from models.database import connect_database
 from services.name_cleaning import (
@@ -35,10 +35,12 @@ SYSTEM_PROMPT = """你是影视资源整理助手。网盘分享的目录名常�
 candidates 最多 3 个，按可能性排序；不是电影或剧集（软件、素材、综艺花絮等）时 kind 为 other 且 candidates 为空。"""
 
 
-def signature(record: dict) -> str:
+def signature(record: dict, *, ai: bool | None = None) -> str:
+    """识别缓存键。ai=False 表示本次没能用上 AI（未配置或额度用尽），AI 可用后签名不再匹配会重识别。"""
     files = sorted(item["path"] for item in record["files"])
     digest = hashlib.sha1("\n".join([record["name"], *files]).encode("utf-8")).hexdigest()[:16]
-    return f"v{VERSION}:{digest}:{int(llm.is_configured())}"
+    used = llm.is_configured() if ai is None else ai
+    return f"v{VERSION}:{digest}:{int(used)}"
 
 
 def alias_key(name: str) -> str:
@@ -242,6 +244,9 @@ def recognize(library_database, record: dict, *, titles: list[dict] | None = Non
         if (not ranked or ranked[0]["score"] < AI_THRESHOLD) and use_ai and llm.is_configured():
             try:
                 answer = _ask_ai(record, hints, english)
+            except throttle.RateLimitError:
+                # 免费额度用尽：先用规则结果，签名记为“未用 AI”，额度恢复后的扫描会自动补识别。
+                answer, result["ai_deferred"] = None, True
             except (requests.RequestException, ValueError, KeyError, TypeError):
                 answer = None
             if answer and answer["kind"] == "other" and not answer["candidates"]:

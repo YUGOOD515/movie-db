@@ -1,5 +1,6 @@
 import json
 import os
+import threading
 import unittest
 from contextlib import closing
 from unittest.mock import patch
@@ -102,7 +103,7 @@ class AssociationIntegrationTest(unittest.TestCase):
         paths = ["/share/Movie.mkv", "/share/S01E01.mkv", "/share/S01E02.mkv"]
         self.seed_discovery(paths)
         with patch.object(alist, "configured_token", return_value="test"), \
-             patch.object(alist, "get_signed_url", side_effect=lambda path, token: alist.get_origin() + "/d" + path + "?sign=test"), \
+             patch.object(alist, "get_file", side_effect=lambda path, token: {"signed_url": alist.get_origin() + "/d" + path + "?sign=test", "raw_url": ""}), \
              patch.object(alist, "validate_alist_video_url"), \
              patch.object(alist, "get_video_link", return_value="https://video.test/file.mkv"), \
              patch.object(media_probe, "probe_video", return_value={"duration_ms": 1000}), \
@@ -127,7 +128,7 @@ class AssociationIntegrationTest(unittest.TestCase):
         self.seed_discovery(paths)
         before = self.database_path.read_bytes()
         with patch.object(alist, "configured_token", return_value="test"), \
-             patch.object(alist, "get_signed_url", side_effect=lambda path, token: alist.get_origin() + "/d" + path + "?sign=secret"), \
+             patch.object(alist, "get_file", side_effect=lambda path, token: {"signed_url": alist.get_origin() + "/d" + path + "?sign=secret", "raw_url": ""}), \
              patch.object(alist, "validate_alist_video_url"), \
              patch.object(alist, "get_video_link", return_value="https://video.test/file.mkv"), \
              patch.object(media_probe, "probe_video", side_effect=[{"duration_ms": 1000}, requests.Timeout("sign=secret")]), \
@@ -143,7 +144,7 @@ class AssociationIntegrationTest(unittest.TestCase):
         paths = ["/share/S01E01.mkv", "/share/S01E02.mkv"]
         self.seed_discovery(paths)
         with patch.object(alist, "configured_token", return_value="test"), \
-             patch.object(alist, "get_signed_url", side_effect=lambda path, token: alist.get_origin() + "/d" + path + "?sign=secret"), \
+             patch.object(alist, "get_file", side_effect=lambda path, token: {"signed_url": alist.get_origin() + "/d" + path + "?sign=secret", "raw_url": ""}), \
              patch.object(alist, "validate_alist_video_url"), \
              patch.object(alist, "get_video_link", return_value="https://video.test/file.mkv"), \
              patch.object(media_probe, "probe_video", return_value={"duration_ms": 1000}), \
@@ -161,3 +162,30 @@ class AssociationIntegrationTest(unittest.TestCase):
         self.assertEqual(len(again), 1)
         self.assertFalse(again[0]["result"]["valid"])
         self.assertIn("error", self.client.post("/manager/association/complete?stream=1", json={"items": []}).get_data(as_text=True))
+
+    def test_association_probes_in_parallel_with_single_alist_lookup(self):
+        paths = ["/share/S01E01.mkv", "/share/S01E02.mkv"]
+        self.seed_discovery(paths)
+        barrier = threading.Barrier(2, timeout=5)
+        probed = []
+
+        def probe(url):
+            barrier.wait()  # 两个探测必须同时在途，串行时会超时
+            probed.append(url)
+            return {"duration_ms": 1000}
+
+        lookup = lambda path, token: {"signed_url": alist.get_origin() + "/d" + path + "?sign=s",
+                                      "raw_url": "https://raw.test" + path}
+        with patch.object(alist, "configured_token", return_value="test"), \
+             patch.object(alist, "get_file", side_effect=lookup) as get_file, \
+             patch.object(alist, "validate_alist_video_url") as validate, \
+             patch.object(alist, "get_video_link") as video_link, \
+             patch.object(media_probe, "probe_video", side_effect=probe), \
+             patch.object(media_import, "fetch_title_rating", return_value={"status": "unavailable"}):
+            payload = {"title_id": "tt9000002", "items": [{"path": path, "season_number": 1, "episode_number": index} for index, path in enumerate(paths, 1)]}
+            response = self.client.post("/manager/association/complete", json=payload)
+        self.assertEqual(response.json["imported"], 2)
+        self.assertEqual(get_file.call_count, 2)
+        validate.assert_not_called()
+        video_link.assert_not_called()
+        self.assertEqual(sorted(probed), ["https://raw.test" + path for path in paths])

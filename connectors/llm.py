@@ -13,6 +13,8 @@ import re
 
 import requests
 
+from connectors import throttle
+
 REQUEST_TIMEOUT = 60
 _FENCE = re.compile(r"^```(?:json)?\s*|\s*```$", re.IGNORECASE)
 
@@ -64,10 +66,11 @@ def _responses_text(payload: dict) -> str:
 
 
 def _post(settings: dict, endpoint: str, body: dict) -> requests.Response:
-    return requests.post(
+    # 免费额度按分钟 / 按天计：经 throttle 平滑请求，额度用尽时抛 RateLimitError 供调用方降级。
+    return throttle.call("llm", lambda: requests.post(
         f"{settings['base_url']}{endpoint}", json=body, timeout=REQUEST_TIMEOUT,
         headers={"Authorization": f"Bearer {settings['api_key']}", "Content-Type": "application/json"},
-    )
+    ))
 
 
 def complete_json(system: str, user: str) -> dict:
