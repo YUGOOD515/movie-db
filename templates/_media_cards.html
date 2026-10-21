@@ -154,15 +154,16 @@
 
             <header class="overview-card-header">
                 <div class="overview-card-info">
-                    <h2 class="overview-card-title h6 mb-0 text-truncate" title="查看《{{ item.name }}》详情">
-                        <a class="text-reset text-decoration-none hover-primary fw-semibold" href="{{ item.detail_url }}">{{ item.name }}</a>
+                    <h2 class="overview-card-title h6 mb-0">
+                        <a class="overview-card-link" href="{{ item.detail_url }}" title="查看《{{ item.name }}》详情"><span class="text-truncate">{{ item.name }}</span><i class="bi bi-chevron-right" aria-hidden="true"></i></a>
                     </h2>
                     <div class="overview-card-meta text-truncate text-body-secondary">
-                        <span>{{ item.type_label }}{% if item.year %} · {{ item.year }}{% endif %}</span> · <span class="overview-card-ids">{{ item.title_id }}{% if item.tmdb_id %} · {{ item.tmdb_id }}{% endif %}</span>
+                        <span>{{ item.type_label }}{% if item.year %} · {{ item.year }}{% endif %}</span> · <span class="overview-card-ids">{{ item.title_id }}</span>{% if item.tmdb_id %} · <span class="overview-card-ids">TMDB {{ item.tmdb_id }}</span>{% endif %}
                     </div>
                 </div>
-                <div class="flex-shrink-0">
-                    <button type="submit" class="btn btn-sm chip-btn d-none" data-artwork-confirm aria-label="确认保存修改"><i class="bi bi-check2 me-1" aria-hidden="true"></i>保存</button>
+                <div class="flex-shrink-0 d-flex align-items-center gap-2">
+                    {% if item.missing %}<span class="health-badge" title="{{ item.missing }} 个源文件已失效"><i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i><span class="visually-hidden">个源文件已失效：</span>{{ item.missing }}</span>{% endif %}
+                    <span class="artwork-pending-badge" data-artwork-pending><i class="bi bi-pencil" aria-hidden="true"></i>未保存</span>
                 </div>
             </header>
 

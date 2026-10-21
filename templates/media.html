@@ -66,7 +66,7 @@
 {% endblock %}
 
 {% block main %}
-    <div class="container-xl text-start">
+    <div class="container-xl text-start"{% if not read_only %} data-rating-status-url="{{ url_for('manager_rating_refresh_status') }}"{% endif %}>
         <header class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-5">
             <div class="d-flex align-items-center gap-3">
                 <h1 class="h3 mb-0">媒体资源管理</h1>
@@ -117,15 +117,20 @@
                 <div class="overview-header d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
                     <h2 class="h5 mb-0" id="overview-list-heading">媒体列表</h2>
                     <div class="d-flex align-items-center gap-3">
+                        {% if missing_total %}
+                        <a class="btn btn-sm chip-btn health-chip{{ ' active' if health }}" href="{{ url_for('media', tab='overview', health=None if health else 'missing', q=overview.query or None, type=None if overview.media_type == 'all' else overview.media_type) }}"{% if health %} aria-pressed="true"{% endif %}>
+                            <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>失效 {{ missing_total }}{% if health %}<i class="bi bi-x" aria-hidden="true"></i>{% endif %}
+                        </a>
+                        {% endif %}
                         <span class="small text-body-secondary" id="overview-count-label">共 {{ overview.media_items|length }} 部作品</span>
                         <button
-                            class="btn btn-sm btn-outline-secondary"
+                            class="btn btn-sm chip-btn"
                             type="button"
                             data-rating-refresh
                             data-start-url="{{ url_for('refresh_manager_ratings') }}"
                             data-status-url="{{ url_for('manager_rating_refresh_status') }}"
                         >
-                            <i class="bi bi-arrow-repeat me-1" aria-hidden="true"></i>刷新评分
+                            <i class="bi bi-arrow-repeat" aria-hidden="true"></i>刷新评分
                         </button>
                     </div>
                 </div>
@@ -149,21 +154,22 @@
             {{ empty_state("本地 MovieDB 未连接，关联与录入暂不可用。", "cloud-slash", "电脑上的 MovieDB 与 Tunnel 在线后，刷新页面即可恢复完整功能。") }}
             {% else %}
             {% include "_association_flow.html" %}
-            <details class="association-section" aria-labelledby="associate-heading">
-                <summary class="small text-body-secondary mb-3" id="associate-heading">手动录入 / JSON 导入</summary>
-                <div class="d-flex flex-wrap align-items-end justify-content-between gap-3 mb-4">
-                    <div>
-                        <h2 class="h6 mb-1">录入与关联</h2>
-                    </div>
+            <section class="association-section d-none" data-manual-panel aria-labelledby="associate-heading">
+                <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
+                    <nav class="association-crumbs mb-0" aria-label="位置">
+                        <button type="button" class="btn btn-link association-crumb" data-manual-close><i class="bi bi-chevron-left" aria-hidden="true"></i>待关联</button>
+                        <span class="association-crumb-sep" aria-hidden="true">/</span>
+                        <h2 class="h6 mb-0" id="associate-heading">手动录入</h2>
+                    </nav>
                     <div class="d-flex flex-wrap align-items-center gap-2">
-                        <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="modal" data-bs-target="#title-picker">
-                            <i class="bi bi-search me-1" aria-hidden="true"></i>通过 TMDB 搜索添加
+                        <button class="btn btn-sm chip-btn" type="button" data-bs-toggle="modal" data-bs-target="#title-picker">
+                            <i class="bi bi-search" aria-hidden="true"></i>通过 TMDB 搜索添加
                         </button>
-                        <label class="btn btn-sm btn-outline-secondary mb-0" for="batch-json-file">
-                            <i class="bi bi-upload me-1" aria-hidden="true"></i>上传 JSON
+                        <label class="btn btn-sm chip-btn mb-0" for="batch-json-file">
+                            <i class="bi bi-upload" aria-hidden="true"></i>上传 JSON
                         </label>
-                        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('static', filename='templates/media_import_template.json') }}" download>
-                            <i class="bi bi-download me-1" aria-hidden="true"></i>JSON 模板
+                        <a class="btn btn-sm chip-btn" href="{{ url_for('static', filename='templates/media_import_template.json') }}" download>
+                            <i class="bi bi-download" aria-hidden="true"></i>JSON 模板
                         </a>
                     </div>
                 </div>
@@ -191,12 +197,12 @@
                     {{ batch_import_row() }}
                 </template>
 
-            </details>
+            </section>
                 <div class="modal fade" id="title-picker" tabindex="-1" aria-labelledby="title-picker-heading" aria-hidden="true"
                      data-search-url="{{ url_for('search_import_titles') }}" data-select-url="{{ url_for('select_import_title') }}">
-                    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+                    <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
                         <div class="modal-content squircle-card">
-                            <div class="modal-header">
+                            <div class="modal-header border-0 pb-2">
                                 <h2 class="modal-title fs-5" id="title-picker-heading">通过 TMDB 搜索添加</h2>
                                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
                             </div>
@@ -214,11 +220,11 @@
                                             <input class="btn-check" type="radio" name="search_type" id="search-type-tv" value="tv">
                                             <label class="btn btn-sm" for="search-type-tv">剧集</label>
                                         </div>
-                                        <button class="btn btn-sm btn-outline-secondary" type="submit">搜索</button>
+                                        <button class="btn btn-sm chip-btn" type="submit"><i class="bi bi-search" aria-hidden="true"></i>搜索</button>
                                     </form>
-                                <p class="small text-body-secondary" role="status" aria-live="polite" data-title-search-status>输入名称后点击搜索。</p>
+                                <p class="small text-body-secondary" role="status" aria-live="polite" data-title-search-status>输入名称后按回车搜索。</p>
                                 <div class="d-flex flex-column gap-2" data-title-search-results></div>
-                                <button class="btn btn-sm btn-outline-secondary mt-3 d-none" type="button" data-title-search-more>加载更多</button>
+                                <div class="d-flex justify-content-center"><button class="btn btn-sm chip-btn mt-3 d-none" type="button" data-title-search-more>加载更多</button></div>
                                 </div>
                                 <form class="d-none" data-title-record-form>
                                     <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
@@ -226,12 +232,12 @@
                                             <h3 class="h6 mb-1" data-title-record-name></h3>
                                             <p class="small text-body-secondary mb-0" data-title-record-id></p>
                                         </div>
-                                        <button class="btn btn-sm btn-outline-secondary text-nowrap" type="button" data-title-back>重新选择</button>
+                                        <button class="btn btn-sm chip-btn text-nowrap" type="button" data-title-back><i class="bi bi-arrow-left" aria-hidden="true"></i>重新选择</button>
                                     </div>
                                     <div class="d-none mb-3" data-title-episode-fields>
                                         <div class="d-flex flex-column gap-2" data-title-episode-rows></div>
                                         <div class="d-flex align-items-center gap-2 mt-3">
-                                            <button class="btn btn-sm btn-outline-secondary" type="button" data-title-episode-add>添加单集</button>
+                                            <button class="btn btn-sm chip-btn" type="button" data-title-episode-add><i class="bi bi-plus-lg" aria-hidden="true"></i>添加单集</button>
                                             <span class="small text-body-secondary" data-title-episode-count></span>
                                         </div>
                                     </div>
@@ -274,6 +280,7 @@
 {% endblock %}
 
 {% block scripts %}
+    <script src="{{ url_for('static', filename='status-bar.js') }}"></script>
     <script src="{{ url_for('static', filename='manager.js') }}"></script>
     {% if active_tab == 'associate' and not read_only %}
     <script src="{{ url_for('static', filename='title-search.js') }}" defer></script>

@@ -14,6 +14,8 @@ SQL 代码书写准则：https://www.sqlstyle.guide/zh/
 
 录入规则：中文名按 TMDB zh-CN → TW → HK 回退；分类按 `tmdb.GENRE_NAMES` 转成 IMDb 英文分类；没有 IMDb ID 的单集不录入。重新录入时库内已有的名称、分类和季集关系保持不变，评分缺失时保留旧值。评分文件缓存在 `imdb/`（Git 忽略），超过一天自动重新下载。
 
+待关联识别的本机状态（扫描目录、扫描快照、识别缓存、忽略列表、已确认别名、源文件健康）单独存于 `discovery.db`（@models/discovery_store.py），不写入 `library.db`，以免触发云端同步。识别流程在 @services/recognition.py（名称清洗在 @services/name_cleaning.py），只产出建议，入库仍走 `media_association.complete`；AI 通过 @connectors/llm.py 调用 OpenAI 兼容接口，结果必须经 TMDB 校验。
+
 ## Connector
 
 采用 Flask + Jinja 三层结构：@app.py 路由只做"查询 → 整理 → 渲染"编排；@queries/ 只查数据库，@viewmodels/ 把查询结果整理成页面形状（poster/backdrop 卡片、进度、徽章、播放文案），Jinja 只负责 HTML 显示，不做业务判断。

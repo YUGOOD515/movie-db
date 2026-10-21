@@ -1,98 +1,142 @@
 <section id="media-association" class="mb-4"
          data-discovery-url="{{ url_for('discover_import_media') }}"
          data-metadata-url="{{ url_for('import_title_metadata') }}"
-         data-check-url="{{ url_for('associate_discovered_media', action='check') }}"
-         data-complete-url="{{ url_for('associate_discovered_media', action='complete') }}">
+         data-complete-url="{{ url_for('associate_discovered_media', action='complete') }}"
+         data-roots-url="{{ url_for('update_discovery_roots') }}"
+         data-browse-url="{{ url_for('browse_discovery_folders') }}"
+         data-ignore-url="{{ url_for('ignore_discovery_record') }}"
+         data-recognize-url="{{ url_for('recognize_discovery_record') }}"
+         data-poster-url="{{ url_for('import_title_poster') }}">
     <div data-discovery-panel>
         <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
-            <div>
-                <h2 class="h5 mb-1">待关联内容 <span class="small text-body-secondary" data-discovery-count></span></h2>
-                <span class="small text-body-secondary" data-discovery-root>来自：分享</span>
+            <div class="d-flex align-items-center gap-3 min-w-0">
+                <h2 class="h5 mb-0 d-flex align-items-center gap-2">待关联<span class="discovery-count" data-discovery-count></span></h2>
             </div>
-            <button type="button" class="btn btn-sm btn-outline-secondary" data-discovery-refresh><i class="bi bi-arrow-clockwise me-1" aria-hidden="true"></i><span data-discovery-refresh-label>刷新</span></button>
+            <div class="d-flex align-items-center gap-2">
+                <label class="discovery-search">
+                    <i class="bi bi-search" aria-hidden="true"></i>
+                    <input class="form-control form-control-sm" type="search" placeholder="筛选" aria-label="筛选待关联内容" data-discovery-filter>
+                </label>
+                <button type="button" class="btn icon-btn discovery-icon-btn" data-discovery-refresh aria-label="重新扫描" title="重新扫描"><i class="bi bi-arrow-clockwise" aria-hidden="true"></i></button>
+                <div class="dropdown">
+                    <button type="button" class="btn icon-btn discovery-icon-btn" data-bs-toggle="dropdown" aria-expanded="false" aria-label="更多" title="更多"><i class="bi bi-three-dots" aria-hidden="true"></i></button>
+                    <ul class="dropdown-menu dropdown-menu-end media-menu">
+                        <li><button type="button" class="dropdown-item d-flex align-items-center gap-2" data-manual-open><i class="bi bi-pencil-square" aria-hidden="true"></i>手动录入</button></li>
+                        <li><button type="button" class="dropdown-item d-flex align-items-center gap-2" data-manual-upload><i class="bi bi-upload" aria-hidden="true"></i>上传 JSON</button></li>
+                        <li><a class="dropdown-item d-flex align-items-center gap-2" href="{{ url_for('static', filename='templates/media_import_template.json') }}" download><i class="bi bi-download" aria-hidden="true"></i>JSON 模板</a></li>
+                    </ul>
+                </div>
+            </div>
         </div>
-        <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
-            <input class="form-control form-control-sm discovery-filter" type="search" placeholder="筛选文件或文件夹" aria-label="筛选待关联内容" data-discovery-filter>
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-4">
+            <div class="d-flex flex-wrap align-items-center gap-2" data-discovery-roots aria-label="扫描目录">
+                <button type="button" class="btn btn-sm chip-btn root-add" data-root-add title="添加扫描目录"><i class="bi bi-plus-lg" aria-hidden="true"></i><span>添加目录</span></button>
+            </div>
+            <a class="discovery-missing d-none" href="{{ url_for('media', tab='overview', health='missing') }}" data-discovery-missing><i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i><span></span><i class="bi bi-chevron-right" aria-hidden="true"></i></a>
         </div>
-        <div class="table-responsive squircle-card border">
-            <table class="table table-hover align-middle mb-0 discovery-table">
-                <thead class="small text-body-secondary"><tr><th scope="col" class="ps-3">新增内容</th><th scope="col">视频</th><th scope="col">新增时间</th><th scope="col"><span class="visually-hidden">操作</span></th></tr></thead>
-                <tbody data-discovery-rows></tbody>
-            </table>
-            <p class="text-body-secondary text-center p-4 mb-0 d-none" data-discovery-empty>没有待关联的视频</p>
+        <div class="discovery-tabs d-flex flex-wrap gap-2 mb-3" role="tablist" aria-label="待关联分组" data-discovery-tabs></div>
+        <div role="tabpanel" data-discovery-list></div>
+        <div class="discovery-empty text-center text-body-secondary d-none" data-discovery-empty>
+            <i class="bi bi-check2-circle d-block mb-2" aria-hidden="true"></i><span></span>
+        </div>
+    </div>
+
+    <div class="modal fade" id="root-browser" tabindex="-1" aria-labelledby="root-browser-heading" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+            <div class="modal-content squircle-card">
+                <div class="modal-header border-0 pb-2">
+                    <h2 class="modal-title fs-5" id="root-browser-heading">扫描目录</h2>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+                </div>
+                <nav class="root-crumbs-bar" aria-label="当前位置"><ol class="root-crumbs d-flex flex-wrap align-items-center gap-1 list-unstyled mb-0 small" data-root-crumbs></ol></nav>
+                <div class="modal-body pt-2">
+                    <ul class="root-folders list-unstyled mb-0" data-root-folders></ul>
+                </div>
+                <div class="modal-footer root-browser-footer">
+                    <span class="root-browser-target small text-body-secondary text-truncate" data-root-target></span>
+                    <button type="button" class="btn btn-sm chip-btn" data-bs-dismiss="modal">取消</button>
+                    <button type="button" class="btn btn-sm media-primary-action px-3" data-root-choose>添加此目录</button>
+                </div>
+            </div>
         </div>
     </div>
 
     <section class="d-none" data-association-editor aria-labelledby="association-task-heading">
-        <div class="d-flex flex-wrap align-items-start justify-content-between gap-3 mb-3">
-            <div class="min-w-0">
-                <div class="d-flex flex-wrap align-items-center gap-3 mb-1">
-                    <h2 class="h5 mb-0 text-break" id="association-task-heading" data-task-name></h2>
-                    <button type="button" class="btn btn-sm btn-outline-secondary" data-task-pick><i class="bi bi-search me-1" aria-hidden="true"></i>重新搜索匹配</button>
-                </div>
-                <p class="small text-body-secondary mb-0" data-task-path></p>
+        <nav class="association-crumbs mb-3" aria-label="位置">
+            <button type="button" class="btn btn-link association-crumb" data-task-close><i class="bi bi-chevron-left" aria-hidden="true"></i>待关联</button>
+            <span class="association-crumb-sep" aria-hidden="true">/</span>
+            <span class="text-truncate" data-task-name></span>
+        </nav>
+        <div class="match-card squircle-card mb-4">
+            <span class="match-poster" data-task-poster><i class="bi bi-film" aria-hidden="true"></i></span>
+            <div class="match-body min-w-0">
+                <h2 class="h5 mb-1 d-flex align-items-center gap-2" id="association-task-heading"><span class="text-truncate" data-task-title>选择电影或剧集</span><span class="discovery-tag d-none" data-task-ai><i class="bi bi-stars" aria-hidden="true"></i>AI</span></h2>
+                <p class="small text-body-secondary mb-0" data-task-title-meta></p>
+                <p class="small text-body-secondary mb-0 mt-2 text-truncate" data-task-path></p>
             </div>
-            <button class="btn btn-sm btn-outline-secondary" type="button" data-task-close>返回待关联</button>
+            <div class="match-actions">
+                <a class="btn btn-sm chip-btn d-none" target="_blank" rel="noopener" data-task-tmdb>TMDb<i class="bi bi-box-arrow-up-right" aria-hidden="true"></i></a>
+                <button type="button" class="btn btn-sm chip-btn" data-task-pick><i class="bi bi-arrow-left-right" aria-hidden="true"></i>更换</button>
+            </div>
         </div>
-        <div class="squircle-card border p-3 mb-4">
-            <div class="d-flex align-items-start justify-content-between gap-3">
-                <div class="min-w-0"><h3 class="h6 mb-1" data-task-title>选择电影或剧集</h3><span class="small text-body-secondary" data-task-title-meta></span></div>
-                <img class="flex-shrink-0" src="{{ url_for('static', filename='imdb.png') }}" alt="IMDb" height="20">
+        <div class="files-toolbar d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+            <div class="d-flex align-items-center gap-2 min-w-0">
+                <label class="small d-flex align-items-center gap-2 mb-0 flex-shrink-0"><input type="checkbox" class="form-check-input mt-0" data-files-all checked><span data-files-count></span></label>
+                <span class="files-summary small text-body-secondary text-truncate" data-rule-summary></span>
             </div>
-            <section class="d-none mt-3 pt-3 border-top" data-available-panel aria-label="IMDb 可用季集">
-                <div class="d-flex gap-4 overflow-x-auto align-items-start small" data-available-episodes tabindex="0" aria-label="各季全部集名"></div>
+            <div class="d-flex flex-wrap align-items-center gap-2">
+                <button type="button" class="btn btn-sm chip-btn d-none" data-rule-reset><i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i>撤销修改</button>
+                <button type="button" class="btn btn-sm chip-btn d-none" aria-pressed="false" data-files-errors></button>
+                <button type="button" class="btn btn-sm chip-btn d-none" aria-expanded="false" aria-controls="rule-editor" data-rule-panel data-rule-toggle><i class="bi bi-sliders" aria-hidden="true"></i>识别规则<i class="bi bi-chevron-down" aria-hidden="true"></i></button>
+            </div>
+        </div>
+        <div class="rule-editor squircle-card mb-3 d-none" id="rule-editor" data-rule-editor>
+            <div class="rule-suggest d-none" role="status" data-rule-suggest></div>
+            <section class="rule-row" aria-labelledby="rule-sample-label">
+                <div class="rule-row-head">
+                    <span class="rule-label" id="rule-sample-label">样例</span>
+                    <div class="rule-sample-nav">
+                        <button type="button" class="btn icon-btn rule-nav-btn" aria-label="上一个样例" data-sample-step="-1"><i class="bi bi-chevron-left" aria-hidden="true"></i></button>
+                        <span class="rule-sample-index" data-sample-index></span>
+                        <button type="button" class="btn icon-btn rule-nav-btn" aria-label="下一个样例" data-sample-step="1"><i class="bi bi-chevron-right" aria-hidden="true"></i></button>
+                    </div>
+                    <span class="rule-hint" data-sample-hint></span>
+                </div>
+                <div class="rule-sample" data-rule-sample></div>
             </section>
-        </div>
-        <section class="d-none mb-4" data-rule-panel aria-labelledby="rule-heading">
-            <h3 class="h6 mb-3" id="rule-heading">匹配季集</h3>
-            <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
-                <span class="small" id="rule-preset-label">文件名规则</span>
-                <div class="dropdown">
-                    <button id="rule-preset" type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle rule-preset" data-bs-toggle="dropdown" aria-expanded="false" aria-labelledby="rule-preset-label rule-preset" data-rule-preset></button>
-                    <ul class="dropdown-menu media-menu" data-rule-presets aria-labelledby="rule-preset-label"></ul>
+            <section class="rule-row" aria-labelledby="rule-pattern-label">
+                <div class="rule-row-head">
+                    <span class="rule-label" id="rule-pattern-label">规则</span>
+                    <div class="rule-pattern" data-rule-pattern></div>
+                    <div class="rule-row-actions">
+                        <div class="dropdown">
+                            <button id="rule-preset" type="button" class="btn btn-sm chip-btn rule-preset" data-bs-toggle="dropdown" aria-expanded="false" aria-label="常用格式" title="套用常用格式" data-rule-preset></button>
+                            <ul class="dropdown-menu dropdown-menu-end media-menu" data-rule-presets aria-label="常用格式"></ul>
+                        </div>
+                    </div>
                 </div>
-                <label class="small ms-sm-2" for="default-season">默认季号</label>
-                <input id="default-season" class="form-control form-control-sm position-input" type="number" min="0" step="1" data-default-season>
-            </div>
-            <div class="d-flex flex-wrap align-items-center gap-2 mb-2" data-rule-blocks aria-label="文件名匹配块" aria-describedby="rule-drag-help"></div>
-            <span id="rule-drag-help" class="visually-hidden">按住匹配块拖动排序，也可聚焦匹配块后按 Alt 加方向键调整顺序。</span>
-            <div class="d-flex flex-wrap gap-1 mb-3" data-rule-palette aria-label="添加匹配块"></div>
-        </section>
-        <h3 class="h6 mb-3">文件与目标</h3>
-        <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
-            <div class="d-flex flex-wrap align-items-center gap-3">
-                <label class="small d-flex align-items-center gap-2"><input type="checkbox" class="form-check-input mt-0" data-files-all checked>全选</label>
-                <span class="small" data-files-count></span>
-                <label class="small d-flex align-items-center gap-2"><input type="checkbox" class="form-check-input mt-0" data-files-errors>只看需检查</label>
-            </div>
-            <button type="button" class="btn btn-sm btn-outline-secondary d-none" data-rule-reset>重置人工修正</button>
+                <span id="rule-drag-help" class="visually-hidden">点击片段可修改类型、文字或删除；按住拖动，或按 Alt 加方向键调整顺序。</span>
+            </section>
+            <section class="rule-row" aria-labelledby="rule-season-label">
+                <div class="rule-row-head">
+                    <span class="rule-label" id="rule-season-label">季号</span>
+                    <div class="segmented-control" role="group" aria-label="季号来源" data-season-source>
+                        <button type="button" class="btn btn-sm" data-value="file">文件名</button>
+                        <button type="button" class="btn btn-sm" data-value="folder">文件夹</button>
+                        <button type="button" class="btn btn-sm" data-value="fixed">固定</button>
+                    </div>
+                    <label class="rule-inline small" for="default-season"><span data-season-fallback>读不出时用</span>第<input id="default-season" class="form-control form-control-sm rule-number" type="number" min="0" step="1" data-default-season>季</label>
+                    <label class="rule-inline small d-none" for="single-offset" data-single-offset>集号<input id="single-offset" class="form-control form-control-sm rule-number" type="number" step="1" placeholder="+0" data-offset-input>偏移</label>
+                </div>
+                <div class="rule-folders d-none" data-rule-folders></div>
+            </section>
+            <div class="rule-result" role="status" aria-live="polite" data-rule-result></div>
         </div>
-        <div class="table-responsive squircle-card border mb-3">
+        <div class="table-responsive squircle-card association-files-card">
             <table class="table align-middle mb-0 association-files">
-                <thead class="small"><tr><th scope="col"><span class="visually-hidden">选择</span></th><th scope="col">文件</th><th scope="col" data-position-heading>季</th><th scope="col" data-position-heading>集</th><th scope="col">目标 / 状态</th></tr></thead>
+                <thead class="small text-body-secondary"><tr><th scope="col"><span class="visually-hidden">选择</span></th><th scope="col">文件</th><th scope="col" data-position-heading>季集</th><th scope="col">对应</th></tr></thead>
                 <tbody data-task-files></tbody>
             </table>
         </div>
-        <div class="d-flex flex-wrap justify-content-end gap-2">
-            <button type="button" class="btn btn-sm btn-outline-secondary d-none" data-task-edit>返回修改</button>
-            <button type="button" class="btn btn-sm media-primary-action px-4" data-task-check disabled>检查结果</button>
-            <button type="button" class="btn btn-sm media-primary-action px-4 d-none" data-task-complete>完成关联</button>
-        </div>
     </section>
-    <div class="modal fade" id="episode-correction" tabindex="-1" aria-labelledby="episode-correction-heading" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content squircle-card">
-                <div class="modal-header">
-                    <h2 class="modal-title fs-5" id="episode-correction-heading">修正目标季集</h2>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
-                </div>
-                <div class="modal-body">
-                    <p class="small text-break mb-2" data-correction-name></p>
-                    <p class="small text-body-secondary mb-3" data-correction-reason></p>
-                    <label class="form-label small" for="correction-target">IMDb 目标季集</label>
-                    <div data-correction-target></div>
-                </div>
-            </div>
-        </div>
-    </div>
 </section>

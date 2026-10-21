@@ -373,8 +373,12 @@ def _prepare_items(
     staging_root: Path,
     items: list[dict],
     progress: dict,
+    on_progress=None,
 ) -> list[PreparedMediaImport]:
-    """联网解析、探测并暂存图片；全部完成后才进入写事务。progress 记录当前条目供报错。"""
+    """联网解析、探测并暂存图片；全部完成后才进入写事务。progress 记录当前条目供报错。
+
+    on_progress(phase, done, total) 在每个条目准备完成后调用，供界面显示真实进度。
+    """
     contexts: dict[str, ImportContext] = {}
     seen_alist_paths: set[str] = set()
     prepared_items = []
@@ -406,6 +410,8 @@ def _prepare_items(
                 bundle=context,
             )
         )
+        if on_progress:
+            on_progress("probe", index, len(items))
     return prepared_items
 
 
@@ -522,7 +528,7 @@ IMPORT_ERRORS = (
 )
 
 
-def _run_import(library_database, image_root, items: list[dict], progress: dict) -> list[dict]:
+def _run_import(library_database, image_root, items: list[dict], progress: dict, on_progress=None) -> list[dict]:
     library_database = Path(library_database)
     image_root = Path(image_root)
     image_root.parent.mkdir(parents=True, exist_ok=True)
@@ -538,7 +544,10 @@ def _run_import(library_database, image_root, items: list[dict], progress: dict)
             Path(temporary_directory),
             items,
             progress,
+            on_progress,
         )
+        if on_progress:
+            on_progress("write", 0, len(items))
         results = _persist_prepared_imports(library_database, image_root, prepared_items)
     return [{"index": prepared.index, **result} for prepared, result in zip(prepared_items, results)]
 
@@ -608,10 +617,11 @@ def import_media_batch(
     library_database: str | Path,
     image_root: str | Path,
     items: list[dict],
+    on_progress=None,
 ) -> dict:
     progress = {"index": 0, "title_id": ""}
     try:
-        successes = _run_import(library_database, image_root, items, progress)
+        successes = _run_import(library_database, image_root, items, progress, on_progress)
     except _PersistenceError as error:
         failure = {"index": error.index, "title_id": error.title_id, "message": str(error)}
     except IMPORT_ERRORS as error:

@@ -1,6 +1,7 @@
 """Progressive, read-only AList discovery. A failed subtree stays visibly incomplete."""
 
 import os
+import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import closing
 from datetime import datetime
@@ -10,6 +11,7 @@ from threading import Lock, Thread
 import requests
 
 from connectors import alist
+from models import discovery_store as store
 from models.database import connect_database
 from queries.association import get_associated_paths
 
@@ -127,32 +129,160 @@ def group_pending(path, entry, files, associated):
     return records
 
 
+def split_collection(record):
+    """“流浪地球 全2部”这类一个目录多部电影：每个文件片名都不同且没有集号时拆成单独记录。"""
+    from services.name_cleaning import folder_hints, has_episode_marker, normalize
+
+    files = record["files"]
+    if record["kind"] != "folder" or not 2 <= len(files) <= 30:
+        return [record]
+    if any(has_episode_marker(item["name"]) for item in files):
+        return [record]
+    titles = []
+    for item in files:
+        queries = folder_hints(PurePosixPath(item["name"]).stem)["queries"]
+        title = normalize(queries[0]) if queries else ""
+        if len(re.sub(r"[0-9]", "", title)) < 2:
+            return [record]
+        titles.append(re.sub(r"(?:19|20)\d{2}$", "", title))
+    if len(set(titles)) != len(titles):
+        return [record]
+    return [{**item, "kind": "file", "files": [item], "suggestion": None, "collection": record["name"]}
+            for item in files]
+
+
+def scan_roots(database, token):
+    """返回 [(路径, 是否自动识别)]；用户未选择目录时沿用「来自：分享」自动识别。"""
+    roots = store.list_roots(database)
+    if roots:
+        return [(root, False) for root in roots]
+    return [(find_share_root(token), True)]
+
+
+def _health_from_scan(associated, roots, listings):
+    """扫描已经列出了目录树，借此判断已入库文件是否还在，不额外请求 AList。"""
+    rows = []
+    for path, info in associated.items():
+        for root in roots:
+            if not path.startswith(root + "/"):
+                continue
+            listing = listings.get(root)
+            if listing is None:
+                break
+            entry = path[len(root) + 1:].split("/", 1)[0]
+            if entry not in listing["entries"]:
+                rows.append((path, info["title_id"], "missing"))
+            elif entry in listing["complete"]:
+                rows.append((path, info["title_id"], "ok" if path in listing["seen"] else "missing"))
+            break
+    return rows
+
+
+def _recognize_pending(key, database):
+    from services import recognition
+
+    with _lock:
+        records = list(_scans[key]["records"])
+    cached = store.load_recognitions(database)
+    pending = [record for record in records
+               if cached.get(record["path"], {}).get("signature") != recognition.signature(record)]
+    with _lock:
+        _scans[key].update(status="recognizing", recognized=0, to_recognize=len(pending))
+    if not pending:
+        return
+    try:
+        titles = recognition._library_titles(database)
+    except Exception:
+        titles = []
+
+    def work(record):
+        try:
+            result = recognition.recognize(database, record, titles=titles)
+        except RuntimeError:
+            raise
+        except Exception:
+            return None
+        store.save_recognition(database, record["path"], recognition.signature(record), result)
+        return result
+
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        futures = [pool.submit(work, record) for record in pending]
+        for future in as_completed(futures):
+            try:
+                future.result()
+            except RuntimeError:
+                # TMDB 未配置：停止识别，保留规则清洗后的搜索词。
+                for other in futures:
+                    other.cancel()
+                break
+            with _lock:
+                _scans[key]["recognized"] += 1
+
+
 def _run_scan(key, database, refresh):
     try:
         token = alist.configured_token()
-        root = find_share_root(token)
-        entries = alist.list_directory(root, token,
-            path_password=os.environ.get("ALIST_PATH_PASSWORD", ""), refresh=refresh)
+        roots = scan_roots(database, token)
+        with _lock:
+            _scans[key].update(roots=[{"path": path, "auto": auto} for path, auto in roots],
+                               root=roots[0][0] if roots else "")
+        listings, plan = {}, []
+        for root, _ in roots:
+            try:
+                entries = alist.list_directory(root, token,
+                    path_password=os.environ.get("ALIST_PATH_PASSWORD", ""), refresh=refresh)
+            except (requests.RequestException, RuntimeError, ValueError):
+                with _lock:
+                    _scans[key]["warnings"].append(f"{root}：读取失败，请检查目录是否存在。")
+                continue
+            listings[root] = {"entries": {entry["name"] for entry in entries}, "complete": set(), "seen": set()}
+            plan.extend((root, entry) for entry in entries)
         with closing(connect_database(database)) as db:
             associated = get_associated_paths(db)
+        ignored = store.ignored_paths(database)
         with _lock:
-            _scans[key].update(root=root, total=len(entries))
-        def scan(entry):
+            _scans[key].update(total=len(plan))
+
+        def scan(root, entry):
             path = str(PurePosixPath(root) / entry["name"])
             if entry.get("is_dir"):
                 files, warnings = collect_folder(path, token, refresh)
             else:
                 files = [_file(path, entry)] if PurePosixPath(path).suffix.lower() in alist.VIDEO_EXTENSIONS else []
                 warnings = []
-            return group_pending(path, entry, files, associated), warnings
+            records = [split for record in group_pending(path, entry, files, associated)
+                       for split in split_collection(record)]
+            return root, entry["name"], records, warnings, {item["path"] for item in files}
+
         with ThreadPoolExecutor(max_workers=4) as pool:
-            for future in as_completed([pool.submit(scan, entry) for entry in entries]):
-                records, warnings = future.result()
+            for future in as_completed([pool.submit(scan, root, entry) for root, entry in plan]):
+                root, name, records, warnings, seen = future.result()
                 with _lock:
                     state = _scans[key]
-                    state["records"].extend(records)
+                    for record in records:
+                        record["root"] = root
+                        if record["path"] in ignored:
+                            state["ignored"].append({"path": record["path"], "name": record["name"],
+                                                     "count": len(record["files"])})
+                        else:
+                            state["records"].append(record)
                     state["warnings"].extend(warnings)
                     state["done"] += 1
+                    if not warnings:
+                        listings[root]["complete"].add(name)
+                    listings[root]["seen"].update(seen)
+        health = _health_from_scan(associated, list(listings), listings)
+        if health:
+            store.save_health(database, health)
+        try:
+            from services.media_health import check_outside
+            check_outside(database, token, list(listings))
+        except Exception:
+            pass
+        with _lock:
+            snapshot = {field: _scans[key][field] for field in ("roots", "root", "records", "ignored", "warnings")}
+        store.save_snapshot(database, snapshot)
+        _recognize_pending(key, database)
         with _lock:
             _scans[key]["status"] = "complete"
     except (OSError, requests.RequestException, RuntimeError, ValueError) as error:
@@ -164,19 +294,136 @@ def _run_scan(key, database, refresh):
             _scans[key].update(status="error", error="扫描失败，请检查媒体库及 AList 配置后重试。")
 
 
+def _empty_state(status):
+    return {"status": status, "root": "", "roots": [], "records": [], "ignored": [], "warnings": [],
+            "done": 0, "total": 0, "recognized": 0, "to_recognize": 0}
+
+
 def start_scan(database, refresh=False):
     key = str(database)
     with _lock:
-        if _scans.get(key, {}).get("status") == "running":
-            return
-        _scans[key] = {"status": "running", "root": "", "records": [], "warnings": [], "done": 0, "total": 0}
+        if _scans.get(key, {}).get("status") in ("running", "recognizing"):
+            return False
+        _scans[key] = _empty_state("running")
     Thread(target=_run_scan, args=(key, database, refresh), daemon=True).start()
+    return True
 
 
-def scan_status(database):
+def _restore(key, database):
+    """进程重启后先展示上次扫描结果，后台扫描完成前列表不会空白。"""
+    try:
+        snapshot = store.load_snapshot(database)
+    except Exception:
+        snapshot = None
+    if not snapshot:
+        return None
+    state = {**_empty_state("complete"), **snapshot, "restored": True}
+    _scans[key] = state
+    return state
+
+
+def scan_status(database, *, prune=True):
+    key = str(database)
+    with _lock:
+        state = _scans.get(key) or _restore(key, database)
+        if state is None:
+            return _empty_state("idle")
+        state = {**_empty_state(state["status"]), **state,
+                 "records": list(state["records"]), "warnings": list(state["warnings"]),
+                 "ignored": list(state.get("ignored") or [])}
+    records = state["records"]
+    if prune and state["status"] != "running":
+        try:
+            with closing(connect_database(database)) as db:
+                associated = get_associated_paths(db)
+        except Exception:
+            associated = {}
+        records = []
+        for record in state["records"]:
+            files = [item for item in record["files"] if item["path"] not in associated]
+            if files:
+                records.append({**record, "files": files} if len(files) != len(record["files"]) else record)
+    if prune:
+        try:
+            cached = store.load_recognitions(database)
+        except Exception:
+            cached = {}
+        from services.recognition import signature
+
+        merged = []
+        for record in records:
+            found = cached.get(record["path"])
+            if found and found.get("signature") == signature(record):
+                found = {name: value for name, value in found.items() if name != "signature"}
+                merged.append({**record, "recognition": found})
+            else:
+                merged.append(record)
+        records = merged
+    state["records"] = sorted(records, key=lambda item: (-item["sort_time"], item["path"]))
+    if prune:
+        from services.media_health import missing_by_title
+        state["missing"] = sum(missing_by_title(database).values())
+        from connectors import llm
+        state["ai"] = llm.describe()
+    return state
+
+
+def set_ignored(database, path, name, ignored):
+    canonical_path(path)
+    store.set_ignored(database, path, name, ignored)
     with _lock:
         state = _scans.get(str(database))
-        if state is None:
-            return {"status": "idle", "records": [], "warnings": []}
-        return {**state, "records": sorted(state["records"], key=lambda item: (-item["sort_time"], item["path"])),
-                "warnings": list(state["warnings"])}
+        if not state:
+            return
+        if ignored:
+            moved = [record for record in state["records"] if record["path"] == path]
+            state["records"] = [record for record in state["records"] if record["path"] != path]
+            state.setdefault("ignored", []).extend(
+                {"path": record["path"], "name": record["name"], "count": len(record["files"])} for record in moved)
+        else:
+            state["ignored"] = [item for item in state.get("ignored") or [] if item["path"] != path]
+
+
+def find_record(database, path):
+    for record in scan_status(database, prune=False)["records"]:
+        if record["path"] == path:
+            return record
+    return None
+
+
+def browse(path, token):
+    path = canonical_path(path) if path != "/" else "/"
+    entries = alist.list_directory(path, token, path_password=os.environ.get("ALIST_PATH_PASSWORD", ""))
+    folders = sorted((item["name"] for item in entries if item.get("is_dir") and item.get("name")),
+                     key=lambda name: name.casefold())
+    parent = str(PurePosixPath(path).parent) if path != "/" else None
+    return {"path": path, "parent": parent,
+            "folders": [{"name": name, "path": str(PurePosixPath(path) / name)} for name in folders[:500]]}
+
+
+_autoscan_started = set()
+
+
+def start_autoscan(database, *, attempts=24, delay=5):
+    """启动时在后台扫描一次：等 AList 就绪后扫描、检查失效文件并预识别。"""
+    import time
+
+    key = str(database)
+    if key in _autoscan_started or os.environ.get("MOVIEDB_AUTOSCAN", "1").strip() == "0":
+        return False
+    if not (os.environ.get("ALIST_USERNAME", "").strip() and os.environ.get("ALIST_PASSWORD", "")):
+        return False
+    _autoscan_started.add(key)
+
+    def wait_and_scan():
+        for _ in range(attempts):
+            try:
+                alist.configured_token()
+            except (requests.RequestException, RuntimeError, ValueError):
+                time.sleep(delay)
+                continue
+            start_scan(database)
+            return
+
+    Thread(target=wait_and_scan, daemon=True).start()
+    return True

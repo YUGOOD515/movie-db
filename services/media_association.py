@@ -42,7 +42,7 @@ def check_association(library_database, payload):
     if not isinstance(items, list) or not 1 <= len(items) <= MAX_BATCH_ITEMS:
         raise ValueError(f"请选择 1–{MAX_BATCH_ITEMS} 个视频。")
     title = title_metadata(library_database, payload.get("title_id"))
-    discovered = {item["path"] for record in scan_status(library_database)["records"] for item in record["files"]}
+    discovered = {item["path"] for record in scan_status(library_database, prune=False)["records"] for item in record["files"]}
     with closing(connect_database(library_database)) as db:
         associated = get_associated_paths(db)
     positions = {}
@@ -85,14 +85,32 @@ def check_association(library_database, payload):
     return {"title": title, "rows": rows, "valid": all(not row["error"] for row in rows)}
 
 
-def complete_association(*, library_database, image_root, payload):
+def _learn_alias(library_database, source_name, title):
+    """记住“乱码目录名 → 作品”的人工确认结果，下次同名目录直接识别。"""
+    from models import discovery_store as store
+    from services.recognition import alias_key
+
+    key = alias_key(source_name)
+    if key:
+        try:
+            store.save_alias(library_database, key, {name: title.get(name) for name in
+                                                     ("title_id", "name", "year", "media_type")})
+        except Exception:
+            pass
+
+
+def complete_association(*, library_database, image_root, payload, on_progress=None):
+    """校验后整批导入。on_progress(phase, done, total)：link 取直链、probe 读取媒体信息、write 写入。"""
+    report = on_progress or (lambda *_: None)
     checked = check_association(library_database, payload)
     if not checked["valid"]:
         return checked
     token = alist.configured_token()
     items = []
     is_series = checked["title"]["media_type"] == "tv"
-    for row in checked["rows"]:
+    total = len(checked["rows"])
+    report("link", 0, total)
+    for done, row in enumerate(checked["rows"], 1):
         try:
             link = alist.get_signed_url(row["path"], token)
         except Exception:
@@ -102,12 +120,17 @@ def complete_association(*, library_database, image_root, payload):
         items.append({"title_id": checked["title"]["title_id"], "alist_url": link,
                       "season_number": str(row["season_number"]) if is_series else "",
                       "episode_number": str(row["episode_number"]) if is_series else ""})
-    result = import_media_batch(library_database=library_database, image_root=image_root, items=items)
+        report("link", done, total)
+    result = import_media_batch(library_database=library_database, image_root=image_root, items=items,
+                                on_progress=on_progress)
     for failure in result["failures"]:
         index = failure["index"] - 1
         if 0 <= index < len(checked["rows"]):
             # Connector exceptions can contain signed URLs: keep the browser error safe.
             checked["rows"][index]["error"] = "导入失败，请检查视频可访问性和元数据服务后重试。"
+    source = payload.get("source_name")
+    if not result["failures"] and isinstance(source, str) and source.strip():
+        _learn_alias(library_database, source, checked["title"])
     return {**checked, "valid": not result["failures"],
             "imported": len(result["successes"]),
             "error": "批量导入失败，全部内容均未写入。" if result["failures"] else ""}
