@@ -1,0 +1,168 @@
+{% extends "layout.html" %}
+
+{% block html_attrs %}{% if first_run %} data-first-run{% endif %}{% endblock %}
+{% block title %}: 设置{% endblock %}
+{% block main_class %}setup-main py-5{% endblock %}
+
+{% macro secret(name, label, hint=none, autocomplete="off") %}
+    <label class="form-label" for="setup-{{ name }}">{{ label }}</label>
+    <div class="setup-secret">
+        <input class="form-control" id="setup-{{ name }}" name="{{ name }}" type="password" autocomplete="{{ autocomplete }}" spellcheck="false" data-secret>
+        <button class="setup-reveal" type="button" data-reveal aria-label="显示{{ label }}" title="显示"><i class="bi bi-eye" aria-hidden="true"></i></button>
+    </div>
+    {% if hint %}<div class="form-text">{{ hint }}</div>{% endif %}
+{% endmacro %}
+
+{% macro test_row(service) %}
+    <div class="setup-test" data-test-row="{{ service }}">
+        <button class="btn btn-sm chip-btn" type="button" data-test="{{ service }}"><i class="bi bi-plug" aria-hidden="true"></i><span>测试连接</span></button>
+        <div class="setup-result" data-result="{{ service }}" role="status" aria-live="polite"></div>
+    </div>
+{% endmacro %}
+
+{% block main %}
+<div class="setup-shell" data-setup data-first-run="{{ 1 if first_run else 0 }}">
+    <header class="setup-header">
+        {% if first_run %}
+            <p class="setup-eyebrow">MovieDB</p>
+            <h1 class="setup-title">欢迎，先连接你的片库</h1>
+            <p class="setup-lead">MovieDB 从 AList 读取网盘里的影片，再用 TMDB 补全海报、简介和演员。几分钟就能设置好，之后随时可以在“设置”里修改。</p>
+        {% else %}
+            <h1 class="setup-title">设置</h1>
+            <p class="setup-lead">修改连接信息后可先测试，再保存。已保存的密码和密钥不会显示，留空即保持不变。</p>
+        {% endif %}
+    </header>
+
+    {% if remote %}
+        <div class="setup-banner"><i class="bi bi-shield-lock" aria-hidden="true"></i><span>出于安全考虑，设置只能在运行 MovieDB 的电脑上修改。</span></div>
+    {% endif %}
+
+    <div class="setup-grid">
+        <nav class="setup-steps" aria-label="设置步骤">
+            <ol>
+                <li><button type="button" data-step-link="0"><span class="setup-step-mark" data-step-mark>1</span><span class="setup-step-text"><strong>连接 AList</strong><small>影片来源</small></span></button></li>
+                <li><button type="button" data-step-link="1"><span class="setup-step-mark" data-step-mark>2</span><span class="setup-step-text"><strong>TMDB 元数据</strong><small>海报、简介与演员</small></span></button></li>
+                <li><button type="button" data-step-link="2"><span class="setup-step-mark" data-step-mark>3</span><span class="setup-step-text"><strong>增强功能</strong><small>可选</small></span></button></li>
+                <li><button type="button" data-step-link="3"><span class="setup-step-mark" data-step-mark>4</span><span class="setup-step-text"><strong>完成</strong><small>检查并保存</small></span></button></li>
+            </ol>
+        </nav>
+
+        <form class="setup-card squircle-card" data-setup-form autocomplete="off" novalidate>
+            <section class="setup-panel" data-step="0" aria-labelledby="setup-step-alist">
+                <h2 class="setup-panel-title" id="setup-step-alist">连接 AList</h2>
+                <p class="setup-panel-lead">AList 把夸克等网盘挂载成文件夹，MovieDB 通过它浏览和播放影片。请先启动 AList，并在后台“设置 → 全局”中开启“签名所有”。</p>
+                <div class="setup-fields">
+                    <div class="setup-field-wide">
+                        <label class="form-label" for="setup-ALIST_ORIGIN">AList 地址</label>
+                        <input class="form-control" id="setup-ALIST_ORIGIN" name="ALIST_ORIGIN" type="url" inputmode="url" placeholder="http://127.0.0.1:5244" spellcheck="false">
+                    </div>
+                    <div>
+                        <label class="form-label" for="setup-ALIST_USERNAME">用户名</label>
+                        <input class="form-control" id="setup-ALIST_USERNAME" name="ALIST_USERNAME" type="text" autocomplete="username" spellcheck="false">
+                    </div>
+                    <div>{{ secret("ALIST_PASSWORD", "密码", autocomplete="current-password") }}</div>
+                    <details class="setup-more setup-field-wide" data-more="path-password">
+                        <summary>目录设置了访问密码？</summary>
+                        <div class="pt-2">{{ secret("ALIST_PATH_PASSWORD", "路径密码", "AList 中为目录设置的“元信息 → 密码”，没有则留空。") }}</div>
+                    </details>
+                </div>
+                {{ test_row("alist") }}
+            </section>
+
+            <section class="setup-panel" data-step="1" aria-labelledby="setup-step-tmdb" hidden>
+                <h2 class="setup-panel-title" id="setup-step-tmdb">TMDB 元数据</h2>
+                <p class="setup-panel-lead">在 TMDB 注册后，打开 <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">设置 → API</a>，复制较长的“API 读访问令牌”（API Read Access Token），不是 32 位的 API Key。</p>
+                <div class="setup-fields">
+                    <div class="setup-field-wide">{{ secret("TMDB_TOKEN", "API 读访问令牌") }}</div>
+                    <details class="setup-more setup-field-wide" data-more="proxy">
+                        <summary>无法直接访问 TMDB？使用代理</summary>
+                        <div class="pt-2">
+                            <label class="form-label" for="setup-TMDB_PROXY">代理地址</label>
+                            <input class="form-control" id="setup-TMDB_PROXY" name="TMDB_PROXY" type="url" inputmode="url" placeholder="http://127.0.0.1:7890" spellcheck="false">
+                            <div class="form-text">只用于访问 TMDB，填写代理软件提供的 HTTP 端口。</div>
+                        </div>
+                    </details>
+                </div>
+                {{ test_row("tmdb") }}
+            </section>
+
+            <section class="setup-panel" data-step="2" aria-labelledby="setup-step-extra" hidden>
+                <h2 class="setup-panel-title" id="setup-step-extra">增强功能</h2>
+                <p class="setup-panel-lead">都可以跳过，之后再到“设置”中开启。</p>
+
+                <div class="setup-feature" data-feature="ai">
+                    <div class="setup-feature-head">
+                        <span class="setup-feature-icon"><i class="bi bi-stars" aria-hidden="true"></i></span>
+                        <div class="min-w-0">
+                            <label class="setup-feature-title" for="setup-ai">AI 识别</label>
+                            <p class="setup-feature-text">文件名规则拿不准时，交给大模型判断片名、年份和季集。</p>
+                        </div>
+                        <div class="form-check form-switch m-0"><input class="form-check-input" id="setup-ai" name="ai_enabled" type="checkbox" role="switch"></div>
+                    </div>
+                    <div class="setup-feature-body" data-feature-body hidden>
+                        <div class="setup-fields">
+                            <div>
+                                <label class="form-label" for="setup-preset">平台</label>
+                                <select class="form-select" id="setup-preset" data-preset></select>
+                                <div class="form-text"><a href="#" target="_blank" rel="noopener" data-key-link hidden>获取 API Key</a></div>
+                            </div>
+                            <div>
+                                <label class="form-label" for="setup-LLM_MODEL">模型</label>
+                                <input class="form-control" id="setup-LLM_MODEL" name="LLM_MODEL" type="text" spellcheck="false">
+                            </div>
+                            <div class="setup-field-wide">
+                                <label class="form-label" for="setup-LLM_BASE_URL">接口地址</label>
+                                <input class="form-control" id="setup-LLM_BASE_URL" name="LLM_BASE_URL" type="url" inputmode="url" placeholder="https://…/v1" spellcheck="false">
+                            </div>
+                            <div>{{ secret("LLM_API_KEY", "API Key") }}</div>
+                            <div>
+                                <label class="form-label" for="setup-LLM_RPM">每分钟请求上限</label>
+                                <input class="form-control" id="setup-LLM_RPM" name="LLM_RPM" type="number" min="1" max="1000" step="1" placeholder="10">
+                                <div class="form-text">免费额度通常按分钟限次，超出后自动改用规则识别。</div>
+                            </div>
+                        </div>
+                        {{ test_row("llm") }}
+                    </div>
+                </div>
+
+                <div class="setup-feature" data-feature="mdblist">
+                    <div class="setup-feature-head">
+                        <span class="setup-feature-icon"><i class="bi bi-bar-chart" aria-hidden="true"></i></span>
+                        <div class="min-w-0">
+                            <label class="setup-feature-title" for="setup-mdblist">多平台评分</label>
+                            <p class="setup-feature-text">通过 MDBList 补充烂番茄、Metacritic 等评分，免费账号每天 1000 次。</p>
+                        </div>
+                        <div class="form-check form-switch m-0"><input class="form-check-input" id="setup-mdblist" name="mdblist_enabled" type="checkbox" role="switch"></div>
+                    </div>
+                    <div class="setup-feature-body" data-feature-body hidden>
+                        <div class="setup-fields">
+                            <div class="setup-field-wide">{{ secret("MDBLIST_APIKEY", "MDBList API Key", "在 mdblist.com 登录后，于 Preferences → API Access 中生成。") }}</div>
+                        </div>
+                        {{ test_row("mdblist") }}
+                    </div>
+                </div>
+            </section>
+
+            <section class="setup-panel" data-step="3" aria-labelledby="setup-step-done" hidden>
+                <h2 class="setup-panel-title" id="setup-step-done">检查并保存</h2>
+                <p class="setup-panel-lead">配置会保存到程序目录的 .env 文件。</p>
+                <ul class="setup-checklist" data-checklist></ul>
+                <div class="setup-result setup-save-result" data-result="save" role="status" aria-live="polite"></div>
+            </section>
+
+            <footer class="setup-actions">
+                <button class="btn chip-btn" type="button" data-prev><i class="bi bi-arrow-left" aria-hidden="true"></i><span>上一步</span></button>
+                <span class="setup-actions-spacer"></span>
+                {% if not first_run %}
+                    <button class="btn chip-btn" type="button" data-save-now><span>保存</span></button>
+                {% endif %}
+                <button class="btn media-primary-action" type="button" data-next><span>下一步</span><i class="bi bi-arrow-right" aria-hidden="true"></i></button>
+            </footer>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+    <script src="{{ url_for('static', filename='setup.js') }}"></script>
+{% endblock %}

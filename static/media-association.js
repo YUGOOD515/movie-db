@@ -1579,6 +1579,12 @@
     $("[data-manual-upload]").addEventListener("click", () => { showView("manual"); document.getElementById("batch-json-file")?.click(); });
     document.querySelector("[data-manual-close]")?.addEventListener("click", () => { showView("list"); renderList(); });
     window.addEventListener("beforeunload", event => { if (busy || confirming) { event.preventDefault(); event.returnValue = ""; } });
+    // 引导页完成后带 add_root=1 跳转过来：直接打开“添加目录”，并从地址栏去掉该参数。
+    const pageUrl = new URL(location.href), wantsRoot = pageUrl.searchParams.has("add_root");
+    if (wantsRoot) { pageUrl.searchParams.delete("add_root"); history.replaceState(history.state, "", pageUrl); }
     // 打开页面先显示已有结果（启动时的后台扫描或上次快照），没有结果时才开始扫描。
-    discover().then(data => { if (data && (data.status === "idle" || data.restored)) discover(true); });
+    discover().then(data => {
+        if (wantsRoot) $("[data-root-add]").click();
+        if (data && (data.status === "idle" || data.restored)) discover(true);
+    });
 })();

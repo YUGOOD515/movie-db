@@ -155,6 +155,10 @@ def _session() -> requests.Session:
     session.headers.update(
         {"accept": "application/json", "Authorization": f"Bearer {_token()}"}
     )
+    # 只对 TMDB（接口与图片）走代理，本机 AList 等请求不受影响。
+    proxy = os.environ.get("TMDB_PROXY", "").strip()
+    if proxy:
+        session.proxies.update({"http": proxy, "https": proxy})
     return session
 
 
