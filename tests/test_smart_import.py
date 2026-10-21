@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 
 import requests
 import test_library_app as fixtures
-from connectors import alist, llm, tmdb
+from connectors import alist, llm, throttle, tmdb
 from models import discovery_store as store
 from services import media_association, media_discovery as discovery, media_health, recognition
 from services.name_cleaning import english_title, folder_hints, guess_position, normalize
@@ -107,6 +107,53 @@ class LlmTest(unittest.TestCase):
         self.assertEqual((body["instructions"], body["input"]), ("system", "user"))
         self.assertEqual(llm.describe()["api"], "chat")
 
+    def test_deepseek_defaults_to_responses_without_thinking(self):
+        payload = {"status": "completed", "output_text": '{"items": []}',
+                   "usage": {"input_tokens": 1000, "input_tokens_details": {"cached_tokens": 800}, "output_tokens": 50}}
+        usage = {}
+        with patch.dict(os.environ, {"LLM_BASE_URL": "https://api.deepseek.com/v1", "LLM_MODEL": "deepseek-flash"}), \
+             patch.object(llm.requests, "post", return_value=self.response(200, payload)) as post:
+            self.assertEqual(llm.complete_json("system", "user", max_tokens=500, usage=usage), {"items": []})
+            self.assertEqual(llm.describe()["api"], "responses")
+        self.assertEqual(post.call_args.args[0], "https://api.deepseek.com/responses")
+        body = post.call_args.kwargs["json"]
+        self.assertEqual(body["reasoning"], {"effort": "none"})
+        self.assertEqual(body["text"], {"format": {"type": "json_object"}})
+        self.assertEqual((body["instructions"], body["input"], body["max_output_tokens"]), ("system", "user", 500))
+        self.assertEqual(usage, {"requests": 1, "input_tokens": 1000, "cached_tokens": 800, "output_tokens": 50})
+
+    def test_deepseek_chat_disables_thinking_and_classifies_errors(self):
+        chat = {"choices": [{"message": {"content": '{"ok": true}'}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 10, "prompt_cache_hit_tokens": 4, "completion_tokens": 3}}
+        with patch.dict(os.environ, {"LLM_BASE_URL": "https://api.deepseek.com", "LLM_API": "chat"}):
+            with patch.object(llm.requests, "post", return_value=self.response(200, chat)) as post:
+                llm.complete_json("s", "u")
+            body = post.call_args.kwargs["json"]
+            self.assertEqual(post.call_args.args[0], "https://api.deepseek.com/chat/completions")
+            self.assertEqual((body["thinking"], body["response_format"]), ({"type": "disabled"}, {"type": "json_object"}))
+            for status, fatal in ((401, True), (402, True), (422, False), (500, False)):
+                with patch.object(llm.requests, "post", return_value=self.response(status, {"error": {"message": "x"}})), \
+                     self.assertRaises(llm.LlmError) as caught:
+                    llm.complete_json("s", "u")
+                self.assertEqual((caught.exception.status, caught.exception.fatal), (status, fatal))
+            truncated = {"choices": [{"message": {"content": '{"it'}, "finish_reason": "length"}]}
+            with patch.object(llm.requests, "post", return_value=self.response(200, truncated)), \
+                 self.assertRaises(llm.LlmError) as caught:
+                llm.complete_json("s", "u")
+            self.assertTrue(caught.exception.retry)
+            empty = {"choices": [{"message": {"content": ""}}]}
+            with patch.object(llm.requests, "post", side_effect=[self.response(200, empty), self.response(200, chat)]) as post:
+                self.assertEqual(llm.complete_json("s", "u"), {"ok": True})  # JSON 模式偶发空内容，重试一次
+            self.assertEqual(post.call_count, 2)
+
+    def test_deepseek_is_limited_by_concurrency_not_rpm(self):
+        with patch.dict(os.environ, {"LLM_BASE_URL": "https://api.deepseek.com", "LLM_RPM": "10"}):
+            policy = throttle._llm_policy()
+            self.assertEqual((policy.concurrency, policy.rate), (4, 20))
+        with patch.dict(os.environ, {"LLM_BASE_URL": "https://api.siliconflow.cn/v1", "LLM_RPM": "30"}):
+            policy = throttle._llm_policy()
+            self.assertEqual((policy.concurrency, policy.rate), (2, 0.5))
+
     def test_unconfigured(self):
         with patch.dict(os.environ, {"LLM_API_KEY": ""}):
             self.assertFalse(llm.is_configured())
@@ -202,6 +249,83 @@ class RecognitionTest(unittest.TestCase):
         self.assertEqual((result["status"], result["not_media"]), ("unknown", True))
 
 
+class BatchRecognitionTest(unittest.TestCase):
+    tearDown = fixtures.LibraryIntegrationTest.tearDown
+    patch_tmdb = RecognitionTest.patch_tmdb
+
+    ANSWERS = {
+        "【厚.实 (2026)】4K": {"kind": "movie", "candidates": [{"title": "后室", "original_title": "Backrooms", "year": 2026}]},
+        "R任渔 2014": {"kind": "movie", "candidates": [{"title": "星际穿越", "original_title": "Interstellar", "year": 2014}]},
+        "Q 某某某": {"kind": "movie", "candidates": [{"title": "人生切割术", "original_title": "Severance", "year": 2022}]},
+    }
+
+    def setUp(self):
+        fixtures.LibraryIntegrationTest.setUp(self)
+        self.patch_tmdb(m301=("movie", "后室", "Backrooms", 2026), m302=("movie", "星际穿越", "Interstellar", 2014),
+                        m303=("movie", "人生切割术", "Severance", 2022))
+        for patcher in (patch.object(llm, "is_configured", return_value=True),
+                        patch.object(llm, "concurrency", return_value=1)):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.records = [record(name, ["a.mkv"]) for name in self.ANSWERS]
+
+    def run_batch(self, ask, size="20"):
+        results = {}
+        with patch.dict(os.environ, {"LLM_BATCH_SIZE": size}), patch.object(llm, "complete_json", side_effect=ask) as call:
+            stats = recognition.recognize_many(self.database_path, self.records, titles=[],
+                                               on_result=lambda item, result: results.update({item["name"]: result}))
+        return stats, results, call
+
+    def test_merges_records_into_one_request_and_retries_missing(self):
+        def ask(system, user, **kwargs):
+            items = json.loads(user)["items"]
+            answered = [{"id": item["id"], **self.ANSWERS[item["name"]]} for item in items
+                        if len(items) == 1 or item["name"] != "Q 某某某"]  # 整批时模型漏掉一项
+            return {"items": answered}
+
+        stats, results, call = self.run_batch(ask)
+        self.assertEqual(call.call_count, 2)
+        first, second = call.call_args_list
+        self.assertEqual(first.args[0], recognition.SYSTEM_PROMPT)       # 固定前缀，利于上下文缓存
+        self.assertEqual(second.args[0], recognition.SYSTEM_PROMPT)
+        self.assertEqual(len(json.loads(first.args[1])["items"]), 3)
+        self.assertEqual([item["name"] for item in json.loads(second.args[1])["items"]], ["Q 某某某"])
+        self.assertEqual(first.kwargs["max_tokens"], 200 + 3 * recognition.OUTPUT_TOKENS_PER_ITEM)
+        self.assertEqual({name: result["title"]["name"] for name, result in results.items()},
+                         {"【厚.实 (2026)】4K": "后室", "R任渔 2014": "星际穿越", "Q 某某某": "人生切割术"})
+        self.assertTrue(all(result["method"] == "ai" and recognition.ai_used(result) for result in results.values()))
+        self.assertEqual((stats["needs_ai"], stats["requests"], stats["ai"], stats["failed"]), (3, 2, 3, 0))
+
+    def test_truncated_batch_is_split(self):
+        def ask(system, user, **kwargs):
+            items = json.loads(user)["items"]
+            if len(items) > 1:
+                raise llm.LlmError("AI 输出被截断（达到输出 token 上限）。", retry=True)
+            return {"items": [{"id": "1", **self.ANSWERS[items[0]["name"]]}]}
+
+        stats, results, call = self.run_batch(ask)
+        self.assertEqual([len(json.loads(item.args[1])["items"]) for item in call.call_args_list], [3, 1, 2, 1, 1])
+        self.assertEqual(stats["ai"], 3)
+
+    def test_fatal_error_stops_requests_and_is_not_cached_as_ai(self):
+        stats, results, call = self.run_batch(
+            Mock(side_effect=llm.LlmError("AI 账号余额不足，请充值后重新识别。", status=402, fatal=True)), size="1")
+        self.assertEqual(call.call_count, 1)
+        self.assertEqual((stats["failed"], len(results)), (3, 3))
+        self.assertIn("余额不足", stats["error"])
+        for item in self.records:
+            result = results[item["name"]]
+            self.assertIn("余额不足", result["ai_error"])
+            self.assertFalse(recognition.ai_used(result))
+            self.assertEqual(recognition.signature(item, ai=recognition.ai_used(result)), recognition.signature(item, ai=False))
+
+    def test_rate_limit_defers_remaining_batches(self):
+        stats, results, call = self.run_batch(Mock(side_effect=throttle.RateLimitError("llm", 3600)), size="2")
+        self.assertEqual(call.call_count, 1)
+        self.assertEqual(stats["deferred"], 3)
+        self.assertTrue(all(result.get("ai_deferred") for result in results.values()))
+
+
 class DiscoveryStateTest(unittest.TestCase):
     setUp = fixtures.LibraryIntegrationTest.setUp
     tearDown = fixtures.LibraryIntegrationTest.tearDown
@@ -225,7 +349,8 @@ class DiscoveryStateTest(unittest.TestCase):
         with patch.object(alist, "configured_token", return_value="t"), \
              patch.object(alist, "list_directory", side_effect=lambda path, token, **kw: tree[path]), \
              patch.object(media_health, "check_outside", return_value=[]), \
-             patch.object(recognition, "recognize", return_value={"status": "review", "title": None}) as recognize:
+             patch.object(recognition, "prepare", side_effect=lambda db, item, **kw: {"record": item, "needs_ai": False}) as recognize, \
+             patch.object(recognition, "finish", return_value={"status": "review", "title": None}):
             discovery._scans[str(self.database_path)] = discovery._empty_state("running")
             discovery._run_scan(str(self.database_path), self.database_path, False)
         state = discovery.scan_status(self.database_path)

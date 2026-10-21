@@ -69,31 +69,47 @@ def _file(path, item):
             "added": added, "sort_time": sort_time, "time_source": time_source}
 
 
-def collect_folder(path, token, refresh=False):
+MAX_FOLDERS, MAX_FILES = 1000, 10000
+
+
+def collect_folder(path, token, refresh=False, pool=None):
+    """遍历 path 下全部视频。传入 pool 时每轮并行读取多个子目录（实际并发受 AList 限速约束），
+    大合集不再只占用一个线程逐个目录读取。"""
     files, warnings, pending = [], [], [path]
     visited = set()
-    while pending:
-        parent = pending.pop()
-        if parent in visited:
-            continue
-        if len(visited) >= 1000 or len(files) >= 10000:
-            warnings.append(f"{path}：达到扫描上限，结果不完整。")
-            break
-        visited.add(parent)
+    password = os.environ.get("ALIST_PATH_PASSWORD", "")
+
+    def read(parent):
         try:
-            entries = alist.list_directory(parent, token,
-                path_password=os.environ.get("ALIST_PATH_PASSWORD", ""), refresh=refresh)
+            return parent, alist.list_directory(parent, token, path_password=password, refresh=refresh)
         except (requests.RequestException, RuntimeError, ValueError):
-            warnings.append(f"{parent}：读取失败，请刷新重试。")
-            continue
-        for item in entries:
-            if not item.get("name") or "/" in item["name"] or item["name"] in (".", ".."):
+            return parent, None
+
+    while pending:
+        batch = []
+        while pending and len(batch) < 8:
+            parent = pending.pop()
+            if parent in visited:
                 continue
-            child = str(PurePosixPath(parent) / item["name"])
-            if item.get("is_dir"):
-                pending.append(child)
-            elif PurePosixPath(child).suffix.lower() in alist.VIDEO_EXTENSIONS:
-                files.append(_file(child, item))
+            if len(visited) >= MAX_FOLDERS or len(files) >= MAX_FILES:
+                warnings.append(f"{path}：达到扫描上限，结果不完整。")
+                pending.clear()
+                break
+            visited.add(parent)
+            batch.append(parent)
+        results = pool.map(read, batch) if pool is not None and len(batch) > 1 else map(read, batch)
+        for parent, entries in results:
+            if entries is None:
+                warnings.append(f"{parent}：读取失败，请刷新重试。")
+                continue
+            for item in entries:
+                if not item.get("name") or "/" in item["name"] or item["name"] in (".", ".."):
+                    continue
+                child = str(PurePosixPath(parent) / item["name"])
+                if item.get("is_dir"):
+                    pending.append(child)
+                elif PurePosixPath(child).suffix.lower() in alist.VIDEO_EXTENSIONS:
+                    files.append(_file(child, item))
     return files, warnings
 
 
@@ -178,6 +194,17 @@ def _health_from_scan(associated, roots, listings):
     return rows
 
 
+def _ai_summary(stats: dict) -> str:
+    usage = stats.get("usage") or {}
+    if not stats.get("requests"):
+        return ""
+    text = f"AI 识别 {stats['needs_ai']} 项，采用 {stats['ai']} 项，共 {stats['requests']} 次请求"
+    if usage.get("input_tokens"):
+        hit = usage.get("cached_tokens", 0) / usage["input_tokens"]
+        text += f"，输入 {usage['input_tokens']} token（缓存命中 {hit:.0%}），输出 {usage.get('output_tokens', 0)} token"
+    return text
+
+
 def _recognize_pending(key, database):
     from services import recognition
 
@@ -187,7 +214,7 @@ def _recognize_pending(key, database):
     pending = [record for record in records
                if cached.get(record["path"], {}).get("signature") != recognition.signature(record)]
     with _lock:
-        _scans[key].update(status="recognizing", recognized=0, to_recognize=len(pending))
+        _scans[key].update(status="recognizing", recognized=0, to_recognize=len(pending), ai_pending=0)
     if not pending:
         return
     try:
@@ -195,28 +222,34 @@ def _recognize_pending(key, database):
     except Exception:
         titles = []
 
-    def work(record):
-        try:
-            result = recognition.recognize(database, record, titles=titles)
-        except RuntimeError:
-            raise
-        except Exception:
-            return None
-        store.save_recognition(database, record["path"], recognition.signature(record), result)
-        return result
+    def saved(record, result):
+        store.save_recognition(database, record["path"],
+                               recognition.signature(record, ai=recognition.ai_used(result)), result)
+        with _lock:
+            state = _scans[key]
+            state["recognized"] += 1
+            if state.get("ai_pending"):  # 规则阶段全部结束后才进入 AI 阶段，此后每条都来自 AI 批次
+                state["ai_pending"] -= 1
 
-    with ThreadPoolExecutor(max_workers=3) as pool:
-        futures = [pool.submit(work, record) for record in pending]
-        for future in as_completed(futures):
-            try:
-                future.result()
-            except RuntimeError:
-                # TMDB 未配置：停止识别，保留规则清洗后的搜索词。
-                for other in futures:
-                    other.cancel()
-                break
-            with _lock:
-                _scans[key]["recognized"] += 1
+    def stage(name, count):
+        with _lock:
+            _scans[key]["ai_pending"] = count
+
+    try:
+        stats = recognition.recognize_many(database, pending, titles=titles, on_result=saved, on_stage=stage)
+    except RuntimeError:
+        # TMDB 未配置：停止识别，保留规则清洗后的搜索词。
+        return
+    with _lock:
+        state = _scans[key]
+        state["ai_pending"] = 0
+        state["ai_summary"] = _ai_summary(stats)
+        if stats["deferred"]:
+            state["warnings"].append(
+                f"AI 接口限流或额度已用尽，{stats['deferred']} 项暂用规则识别结果；恢复后重新扫描会自动补识别。")
+        if stats["failed"]:
+            state["warnings"].append(
+                f"AI 识别失败 {stats['failed']} 项：{stats['error']} 这些项暂用规则结果，重新扫描会再试。")
 
 
 def _run_scan(key, database, refresh):
@@ -246,7 +279,7 @@ def _run_scan(key, database, refresh):
         def scan(root, entry):
             path = str(PurePosixPath(root) / entry["name"])
             if entry.get("is_dir"):
-                files, warnings = collect_folder(path, token, refresh)
+                files, warnings = collect_folder(path, token, refresh, listing_pool)
             else:
                 files = [_file(path, entry)] if PurePosixPath(path).suffix.lower() in alist.VIDEO_EXTENSIONS else []
                 warnings = []
@@ -254,7 +287,9 @@ def _run_scan(key, database, refresh):
                        for split in split_collection(record)]
             return root, entry["name"], records, warnings, {item["path"] for item in files}
 
-        with ThreadPoolExecutor(max_workers=4) as pool:
+        # 顶层条目 4 路并行；目录读取共用一个池，单个大合集也能并行展开。
+        with ThreadPoolExecutor(max_workers=4, thread_name_prefix="scan") as pool, \
+                ThreadPoolExecutor(max_workers=4, thread_name_prefix="alist-list") as listing_pool:
             for future in as_completed([pool.submit(scan, root, entry) for root, entry in plan]):
                 root, name, records, warnings, seen = future.result()
                 with _lock:
@@ -296,7 +331,7 @@ def _run_scan(key, database, refresh):
 
 def _empty_state(status):
     return {"status": status, "root": "", "roots": [], "records": [], "ignored": [], "warnings": [],
-            "done": 0, "total": 0, "recognized": 0, "to_recognize": 0}
+            "done": 0, "total": 0, "recognized": 0, "to_recognize": 0, "ai_pending": 0, "ai_summary": ""}
 
 
 def start_scan(database, refresh=False):

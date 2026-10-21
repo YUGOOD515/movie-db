@@ -405,7 +405,7 @@
         refresh.classList.toggle("is-scanning", running);
         refresh.setAttribute("aria-busy", String(running));
         if (scan.status === "running") bar.progress("scan", { layer: "task", text: "正在扫描 AList", done: scan.done, total: scan.total, detail: scan.total ? `${Math.round(scan.done / scan.total * 100)}%` : "" });
-        else if (scan.status === "recognizing") bar.progress("scan", { layer: "task", text: "正在识别新内容", done: scan.recognized || 0, total: scan.to_recognize || 0 });
+        else if (scan.status === "recognizing") bar.progress("scan", { layer: "task", text: scan.ai_pending ? `AI 识别中（${scan.ai?.model || "AI"}）` : "正在识别新内容", done: scan.recognized || 0, total: scan.to_recognize || 0, detail: scan.ai_pending ? `剩 ${scan.ai_pending} 项` : "" });
         else if (bar.has("scan") && !watching) bar.clear("scan");
     }
 
@@ -427,7 +427,7 @@
                 else bar.result("scan", {
                     tone: warnings.length ? "warning" : "success",
                     text: `扫描完成 · ${records.length} 项${ready ? ` · ${ready} 项可确认` : ""}`,
-                    detail: warnings.length ? `${warnings.length} 项警告` : "",
+                    detail: [data.ai_summary, warnings.length ? `${warnings.length} 项警告` : ""].filter(Boolean).join(" · "),
                     duration: warnings.length ? 0 : 4000,
                 });
                 if (warnings.length) feedback(warnings.join("；"), "warning");
@@ -500,7 +500,8 @@
         try {
             const result = await json(root.dataset.recognizeUrl, { path: item.path });
             records = records.map(record => record.path === item.path ? { ...record, recognition: result, busy: false } : record);
-            feedback(result.title ? `识别为 ${result.title.name}` : "仍未识别，可手动关联", result.title ? "success" : "warning");
+            const aiNote = result.ai_error ? `（AI 未生效：${result.ai_error}）` : result.ai_deferred ? "（AI 限流，暂用规则结果）" : "";
+            feedback((result.title ? `识别为 ${result.title.name}` : "仍未识别，可手动关联") + aiNote, result.title && !aiNote ? "success" : "warning");
         } catch (error) {
             feedback(error.message, "danger");
         } finally {
@@ -1579,6 +1580,12 @@
     $("[data-manual-upload]").addEventListener("click", () => { showView("manual"); document.getElementById("batch-json-file")?.click(); });
     document.querySelector("[data-manual-close]")?.addEventListener("click", () => { showView("list"); renderList(); });
     window.addEventListener("beforeunload", event => { if (busy || confirming) { event.preventDefault(); event.returnValue = ""; } });
+    // 引导页完成后带 add_root=1 跳转过来：直接打开“添加目录”，并从地址栏去掉该参数。
+    const pageUrl = new URL(location.href), wantsRoot = pageUrl.searchParams.has("add_root");
+    if (wantsRoot) { pageUrl.searchParams.delete("add_root"); history.replaceState(history.state, "", pageUrl); }
     // 打开页面先显示已有结果（启动时的后台扫描或上次快照），没有结果时才开始扫描。
-    discover().then(data => { if (data && (data.status === "idle" || data.restored)) discover(true); });
+    discover().then(data => {
+        if (wantsRoot) $("[data-root-add]").click();
+        if (data && (data.status === "idle" || data.restored)) discover(true);
+    });
 })();

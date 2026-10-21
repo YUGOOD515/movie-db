@@ -33,3 +33,4 @@ discovery.db
 scratch/
 local-test-data/
 .workbuddy/
+.cache/

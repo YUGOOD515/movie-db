@@ -1,6 +1,7 @@
 """Validate discovery selections, then reuse the transactional media importer."""
 
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import closing
 from pathlib import PurePosixPath
 
@@ -106,23 +107,33 @@ def complete_association(*, library_database, image_root, payload, on_progress=N
     if not checked["valid"]:
         return checked
     token = alist.configured_token()
-    items = []
     is_series = checked["title"]["media_type"] == "tv"
-    total = len(checked["rows"])
+    rows = checked["rows"]
+    total = len(rows)
     report("link", 0, total)
-    for done, row in enumerate(checked["rows"], 1):
-        try:
-            link = alist.get_signed_url(row["path"], token)
-        except Exception:
-            row["error"] = "无法获取视频直链，请检查 AList 文件权限后重试。"
-            checked["valid"] = False
-            return checked
-        items.append({"title_id": checked["title"]["title_id"], "alist_url": link,
-                      "season_number": str(row["season_number"]) if is_series else "",
-                      "episode_number": str(row["episode_number"]) if is_series else ""})
-        report("link", done, total)
+    # 每个文件一次 fs/get，同时得到播放用签名链接与探测用 raw_url；并发受 AList 限速约束。
+    links, done = [None] * total, 0
+    with ThreadPoolExecutor(max_workers=min(4, max(1, total)), thread_name_prefix="alist-link") as pool:
+        futures = {pool.submit(alist.get_file, row["path"], token): position for position, row in enumerate(rows)}
+        for future in as_completed(futures):
+            position = futures[future]
+            try:
+                links[position] = future.result()
+            except Exception:
+                for other in futures:
+                    other.cancel()
+                rows[position]["error"] = "无法获取视频直链，请检查 AList 文件权限后重试。"
+                checked["valid"] = False
+                return checked
+            done += 1
+            report("link", done, total)
+    items = [{"title_id": checked["title"]["title_id"], "alist_url": link["signed_url"],
+              "season_number": str(row["season_number"]) if is_series else "",
+              "episode_number": str(row["episode_number"]) if is_series else ""}
+             for row, link in zip(rows, links)]
+    raw_urls = {row["path"]: link["raw_url"] for row, link in zip(rows, links) if link["raw_url"]}
     result = import_media_batch(library_database=library_database, image_root=image_root, items=items,
-                                on_progress=on_progress)
+                                on_progress=on_progress, raw_urls=raw_urls)
     for failure in result["failures"]:
         index = failure["index"] - 1
         if 0 <= index < len(checked["rows"]):
