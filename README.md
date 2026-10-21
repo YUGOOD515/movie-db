@@ -6,6 +6,25 @@
 
 中文名按 TMDB zh-CN → zh-TW → zh-HK 回退；分类转换为原有的 IMDb 英文分类（如 Sci-Fi & Fantasy → Sci-Fi, Fantasy）。TMDB 上没有 IMDb ID 的单集无法录入。重新录入已有作品时，库内已有的名称、分类和季集关系保持不变（只替换“第 N 集”这类占位名），评分取不到时保留旧值。
 
+## 安装与首次使用
+
+**Windows 安装包**：`MovieDB-Setup-<版本>.exe` 由 GitHub Actions 的“Windows 安装包”工作流构建（登录 GitHub 后在对应运行记录底部的 Artifacts 下载）。安装包自带 Python 运行环境、全部依赖和 ffprobe，按当前用户安装到 `%LOCALAPPDATA%\Programs\MovieDB`，不需要管理员权限；安装完成后从开始菜单或桌面的“MovieDB”启动，程序在系统托盘常驻（打开 MovieDB / 打开设置 / 打开数据文件夹 / 查看日志 / 退出），重复双击只会打开页面。默认端口 5000，可在 `.env` 设置 `MOVIEDB_PORT`。
+
+首次打开（还没有 `library.db`）会进入引导页：
+
+1. **连接 AList**：填写地址、账号，测试时会检查登录、根目录可见的存储，以及“签名所有”是否开启（导入取播放链接需要）。
+2. **TMDB 元数据**：填写 API 读访问令牌；误填 32 位 API Key 会直接提示。访问不了 TMDB 时可填 `TMDB_PROXY`（只对 TMDB 生效）。
+3. **增强功能（可选）**：AI 识别可选硅基流动、智谱、DeepSeek、Gemini、OpenRouter、OpenAI 等预设，测试时核对模型名；MDBList 多平台评分。
+4. **完成**：汇总各项测试结果、ffprobe 状态与媒体库位置，保存后自动创建空媒体库，并直接打开“添加扫描目录”。
+
+配置写入程序目录的 `.env`（保留原有注释与其他变量），立即生效，无需重启。之后可从侧栏“管理 → 设置”修改；已保存的密码和密钥不会回显，留空即保持不变。设置只能在运行 MovieDB 的电脑上修改：经 Cloudflare Tunnel 访问时只读，云端快照不提供该页面。
+
+媒体库、配置、海报缓存与日志都保存在安装目录的 `app\` 下（托盘菜单“打开数据文件夹”）。覆盖安装会保留这些数据；卸载时默认只删除程序文件，可选择一并删除数据。
+
+**从源码运行**：`uv sync` 后执行 `uv run python desktop.py`（托盘需要 pystray：`uv run --with pystray python desktop.py`；没有时退化为控制台运行，Ctrl+C 退出），或继续使用 `uv run flask --app app run`。
+
+**自行构建安装包**：`uv run python packaging/build_windows.py`。脚本下载 Python 嵌入版与 FFmpeg（LGPL 共享库版，仅取 ffprobe）、按 Windows 平台安装依赖、复制已纳入 Git 的应用文件（不含测试与开发资料），有 `makensis`（NSIS 3）时生成安装包，否则生成免安装 zip（解压后运行 `MovieDB.cmd`）。`--no-ffprobe` 不内置 ffprobe，安装包从约 56MB 降到约 15MB。在 Linux 上也能组装。
+
 ## 本地配置
 
 `uv run flask --app app run` 会通过 python-dotenv 自动读取项目根目录的 `.env`（变量名参考 `.env.example`）；也可以在 PowerShell 中直接设置环境变量：

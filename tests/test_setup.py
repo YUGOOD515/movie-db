@@ -195,3 +195,29 @@ def test_llm_check_flags_unknown_model(setup_env):
 def test_unknown_test_service(setup_env):
     response = setup_env["client"].post("/setup/test/nope", json={}, headers=SAME_ORIGIN)
     assert response.get_json() == {"ok": False, "message": "未知的测试项。"}
+
+
+def test_desktop_launcher_helpers(tmp_path):
+    import socket
+    import desktop
+
+    icon = desktop.make_icon(64)
+    assert icon.size == (64, 64) and icon.getpixel((32, 32))[3] == 255
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        free_port = probe.getsockname()[1]
+    assert desktop._running_instance(f"http://127.0.0.1:{free_port}") is None
+
+
+def test_uninstall_list_keeps_user_data(tmp_path):
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "packaging"))
+    import build_windows
+
+    app = tmp_path / "app"
+    (app / "services").mkdir(parents=True)
+    (app / "app.py").write_text("")
+    (app / "services" / "x.py").write_text("")
+    text = build_windows.write_uninstall_list(app, tmp_path / "list.nsh").read_text(encoding="utf-8")
+    assert 'Delete "$INSTDIR\\app\\services\\x.py"' in text and 'RMDir "$INSTDIR\\app\\services"' in text
+    assert "/r \"$INSTDIR\\app\\services\"" not in text and "library.db" not in text

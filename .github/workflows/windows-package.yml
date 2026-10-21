@@ -1,0 +1,132 @@
+name: Windows 安装包
+
+on:
+  push:
+    branches: [feat/onboarding]
+    paths:
+      - packaging/**
+      - desktop.py
+      - app.py
+      - services/**
+      - connectors/**
+      - templates/**
+      - static/**
+      - pyproject.toml
+      - uv.lock
+      - .github/workflows/windows-package.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      ALIST_AUTOSTART: "0"
+      MOVIEDB_AUTOSCAN_DISABLED: "1"
+      MOVIEDB_TONES_DISABLED: "1"
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+
+      - name: 缓存下载的 Python 与 FFmpeg
+        uses: actions/cache@v4
+        with:
+          path: .cache/packaging
+          key: packaging-${{ hashFiles('packaging/build_windows.py') }}
+
+      - name: 准备 NSIS
+        run: |
+          $nsis = "${env:ProgramFiles(x86)}\NSIS"
+          if (-not (Get-Command makensis -ErrorAction SilentlyContinue) -and -not (Test-Path "$nsis\makensis.exe")) {
+            choco install nsis -y --no-progress
+          }
+
+      - name: 构建
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: uv run --frozen python packaging/build_windows.py --zip
+
+      - name: 冒烟测试（免安装目录）
+        run: |
+          $root = "dist\MovieDB"
+          & "$root\runtime\ffmpeg\ffprobe.exe" -hide_banner -version | Select-Object -First 1
+          & "$root\runtime\python\python.exe" -c "import flask, guessit, PIL, requests, dotenv, pystray; print('依赖可导入')"
+          if ($LASTEXITCODE) { throw "依赖导入失败" }
+          $server = Start-Process "$root\runtime\python\python.exe" -ArgumentList "$root\app\desktop.py", "--no-browser", "--no-tray", "--port", "5070" -PassThru -RedirectStandardOutput smoke.log -RedirectStandardError smoke.err
+          try {
+            $ready = $false
+            for ($i = 0; $i -lt 60 -and -not $ready; $i++) {
+              Start-Sleep -Milliseconds 500
+              try { $ready = (Invoke-WebRequest http://127.0.0.1:5070/setup -UseBasicParsing).StatusCode -eq 200 } catch {}
+            }
+            if (-not $ready) { Get-Content smoke.log, smoke.err; throw "服务没有启动" }
+            $code = curl.exe -s -o NUL -w "%{http_code}" -H "Accept: text/html" http://127.0.0.1:5070/
+            if ($code -ne "302") { throw "首次使用没有跳转到引导页（HTTP $code）" }
+            $status = Invoke-RestMethod http://127.0.0.1:5070/setup/status
+            if (-not ($status.ffprobe.ok -and $status.ffprobe.bundled)) { throw "没有识别到内置 ffprobe" }
+            "引导页正常；ffprobe $($status.ffprobe.version)"
+          } finally {
+            Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: 安装、首次设置与卸载
+        run: |
+          $installer = Get-ChildItem dist\MovieDB-Setup-*.exe | Select-Object -First 1
+          Start-Process $installer.FullName -ArgumentList "/S" -Wait
+          $dir = "$env:LOCALAPPDATA\Programs\MovieDB"
+          foreach ($path in "$dir\runtime\python\pythonw.exe", "$dir\runtime\ffmpeg\ffprobe.exe", "$dir\app\desktop.py",
+                            "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\MovieDB.lnk", "$dir\Uninstall.exe") {
+            if (-not (Test-Path $path)) { throw "安装后缺少 $path" }
+          }
+          $server = Start-Process "$dir\runtime\python\pythonw.exe" -ArgumentList "`"$dir\app\desktop.py`"", "--no-browser", "--no-tray", "--port", "5071" -WorkingDirectory "$dir\app" -PassThru
+          try {
+            $ready = $false
+            for ($i = 0; $i -lt 60 -and -not $ready; $i++) {
+              Start-Sleep -Milliseconds 500
+              try { $ready = (Invoke-WebRequest http://127.0.0.1:5071/setup -UseBasicParsing).StatusCode -eq 200 } catch {}
+            }
+            if (-not $ready) { Get-Content "$dir\app\logs\moviedb.log" -ErrorAction SilentlyContinue; throw "安装版没有启动" }
+            # 模拟引导页最后一步：保存配置并建库（不连接外部服务）
+            $body = @{ ALIST_ORIGIN = "http://127.0.0.1:5244"; ALIST_USERNAME = "admin"; ALIST_PASSWORD = "ci"; TMDB_TOKEN = ("eyJ" + "a" * 100) } | ConvertTo-Json
+            $saved = Invoke-RestMethod http://127.0.0.1:5071/setup/save -Method Post -ContentType "application/json" -Body $body -Headers @{ Origin = "http://127.0.0.1:5071" }
+            if (-not $saved.library_created) { throw "保存后没有创建媒体库" }
+            $code = curl.exe -s -o NUL -w "%{http_code}" -H "Accept: text/html" http://127.0.0.1:5071/
+            if ($code -ne "200") { throw "建库后首页返回 HTTP $code" }
+            "安装版可用：已保存配置并创建媒体库"
+          } finally {
+            Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 1
+          }
+          Start-Process "$dir\Uninstall.exe" -ArgumentList "/S", "_?=$dir" -Wait
+          if (Test-Path "$dir\runtime") { throw "卸载后仍有运行时文件" }
+          if (Test-Path "$dir\app\app.py") { throw "卸载后仍有程序文件" }
+          if (-not (Test-Path "$dir\app\library.db") -or -not (Test-Path "$dir\app\.env")) { throw "卸载时误删了媒体库数据" }
+          if (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\MovieDB.lnk") { throw "卸载后快捷方式仍在" }
+          "卸载正常：程序已删除，媒体库与配置保留"
+          Get-ChildItem -Recurse -File $dir | ForEach-Object { $_.FullName.Substring($dir.Length) }
+
+      - name: 体积
+        run: |
+          foreach ($file in Get-ChildItem dist\*.exe, dist\*.zip) {
+            "::notice title=$($file.Name)::$([math]::Round($file.Length / 1MB, 1)) MB"
+          }
+          $installed = (Get-ChildItem -Recurse -File dist\MovieDB | Measure-Object Length -Sum).Sum
+          "::notice title=安装后占用::$([math]::Round($installed / 1MB, 1)) MB"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MovieDB-Windows
+          path: |
+            dist/MovieDB-Setup-*.exe
+            dist/MovieDB-*-portable.zip
+          retention-days: 14
+          compression-level: 0
