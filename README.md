@@ -1,6 +1,6 @@
 # MovieDB
 
-本地 Flask 影视资源管理网页。页面查询只读 `library.db`，写操作集中在 `models/library.py`；TMDB、AList、ffprobe 与 MPC-HC 接口位于 `connectors/`。
+本地 Flask 影视资源管理网页。页面查询只读 `library.db`，写操作集中在 `models/library.py`；TMDB、AList、ffprobe 与本机播放器（MPC-HC / IINA / mpv / VLC）接口位于 `connectors/`。支持 Windows 与 macOS。
 
 媒体管理页支持使用 IMDb Title ID 录入电影或单集。Series Title ID 需要同时提供季号和集号；Episode Title ID 会自动解析父剧集。TMDB 提供标题、年份、分类、季集结构与单集 IMDb ID、简介、演员和图片；IMDb 评分取自官方评分文件 `title.ratings.tsv.gz`（约 9 MB，首次录入时自动下载到 `imdb/`，超过一天自动更新，可用 `IMDB_RATINGS_PATH` 指定位置）。媒体管理页的“刷新评分”同时用该文件更新全部作品和单集的 IMDb 评分。不再需要本地 `imdb.db`。
 
@@ -8,7 +8,9 @@
 
 ## 安装与首次使用
 
-**Windows 安装包**：`MovieDB-Setup-<版本>.exe` 可在仓库 [Releases](https://github.com/YUGOOD515/movie-db/releases) 页面直接下载（同时提供免安装 zip）；合并到 `main` 时“Windows 安装包”工作流会按 `pyproject.toml` 的版本号自动构建并发布，各分支的构建产物也可在运行记录底部的 Artifacts 下载（需登录 GitHub）。版本变更见 [CHANGELOG.md](CHANGELOG.md)。安装包自带 Python 运行环境、全部依赖和 ffprobe，按当前用户安装到 `%LOCALAPPDATA%\Programs\MovieDB`，不需要管理员权限；安装完成后从开始菜单或桌面的“MovieDB”启动，程序在系统托盘常驻（打开 MovieDB / 打开设置 / 打开数据文件夹 / 查看日志 / 重启 MovieDB / 退出），重复双击只会打开页面。默认端口 5000，可在设置页或 `.env` 的 `MOVIEDB_PORT` 修改。
+**Windows 安装包**：`MovieDB-Setup-<版本>.exe` 可在仓库 [Releases](https://github.com/YUGOOD515/movie-db/releases) 页面直接下载（同时提供免安装 zip）；合并到 `main` 时“安装包”工作流会按 `pyproject.toml` 的版本号自动构建并发布，各分支的构建产物也可在运行记录底部的 Artifacts 下载（需登录 GitHub）。版本变更见 [CHANGELOG.md](CHANGELOG.md)。安装包自带 Python 运行环境、全部依赖和 ffprobe，按当前用户安装到 `%LOCALAPPDATA%\Programs\MovieDB`，不需要管理员权限；安装完成后从开始菜单或桌面的“MovieDB”启动，程序在系统托盘常驻（打开 MovieDB / 打开设置 / 打开数据文件夹 / 查看日志 / 重启 MovieDB / 退出），重复双击只会打开页面。默认端口 5000，可在设置页或 `.env` 的 `MOVIEDB_PORT` 修改。
+
+**macOS**：Releases 中的 `MovieDB-<版本>-macOS-arm64.dmg`（Apple 芯片）或 `-x86_64.dmg`（Intel），支持 macOS 11 及以上。打开 .dmg 后把 MovieDB 拖进“应用程序”。安装包同样自带 Python、全部依赖和 ffprobe；启动后只在屏幕顶部菜单栏显示图标（菜单与 Windows 托盘相同），不占程序坞，再次打开 MovieDB 只会打开页面。没有 Apple 开发者证书签名，首次打开会提示“无法验证开发者”：到“系统设置 → 隐私与安全性”底部点“仍要打开”（只需一次）；也可以在终端执行 `xattr -dr com.apple.quarantine /Applications/MovieDB.app`。
 
 首次打开（还没有 `library.db`）会进入全屏引导，右侧海报墙随进度逐级亮起：
 
@@ -21,18 +23,31 @@
    两个可选步骤都可以“跳过”，之后在设置页开启。每一步连接成功后点“下一步”继续，不会自动跳转。
 6. **完成**：自动创建空媒体库，“去关联第一批影片”直接打开“添加扫描目录”。
 
-配置写入程序目录的 `.env`（保留原有注释与其他变量），立即生效。媒体库建好后 `/setup` 改为跳转到侧栏“管理 → 设置”：分为**连接**（AList、待关联扫描、播放器、ffprobe、云端只读快照、本机端口）、**元数据**（TMDB、MDBList、IMDb 评分）、**AI** 三栏，每组显示状态并可单独“检测”，不常用的项收在“高级”里；修改后在底部状态栏保存或放弃。已保存的密码和密钥不会回显，留空即保持不变，可选密钥可单独清除；关闭 AI 识别会一并清除其接口地址、模型与 API Key。除端口（`MOVIEDB_PORT`）外都立即生效；改端口后桌面版可在设置页或托盘菜单“重启 MovieDB”一键重启，其他启动方式需手动重启。设置只能在运行 MovieDB 的电脑上修改：经 Cloudflare Tunnel 访问时只读，云端快照不提供该页面。
+配置写入数据目录的 `.env`（保留原有注释与其他变量），立即生效。媒体库建好后 `/setup` 改为跳转到侧栏“管理 → 设置”：分为**连接**（AList、待关联扫描、播放器、ffprobe、云端只读快照、本机端口）、**元数据**（TMDB、MDBList、IMDb 评分）、**AI** 三栏，每组显示状态并可单独“检测”，不常用的项收在“高级”里；修改后在底部状态栏保存或放弃。已保存的密码和密钥不会回显，留空即保持不变，可选密钥可单独清除；关闭 AI 识别会一并清除其接口地址、模型与 API Key。除端口（`MOVIEDB_PORT`）外都立即生效；改端口后桌面版可在设置页或托盘菜单“重启 MovieDB”一键重启，其他启动方式需手动重启。设置只能在运行 MovieDB 的电脑上修改：经 Cloudflare Tunnel 访问时只读，云端快照不提供该页面。
 
 设置页**数据**分区可彻底删除本机数据并回到首次使用引导：媒体库（`library.db`，含关联、观看进度与收藏）、识别缓存与扫描记录（`discovery.db`）、海报与缩略图（`static/images`、`static/thumbnails`）、连接与密钥（`.env`），默认全选，输入“清除”确认后执行，不做备份。开启了云端只读快照时，清除媒体库会先发布一份空快照，云端同步清空。正在扫描时不能清除；Windows 上文件被占用会提示重启后再试。
 
-媒体库、配置、海报缓存与日志都保存在安装目录的 `app\` 下（托盘菜单“打开数据文件夹”）。覆盖安装会保留这些数据；卸载时默认只删除程序文件，可选择一并删除数据。
+媒体库、配置、海报缓存与日志（`library.db`、`discovery.db`、`.env`、`static/images`、`static/thumbnails`、`imdb/`、`logs/`）保存在**数据目录**，托盘菜单“打开数据文件夹”可直接打开：
+
+| 运行方式 | 数据目录 |
+|---|---|
+| Windows 安装版 | `%LOCALAPPDATA%\MovieDB` |
+| macOS | `~/Library/Application Support/MovieDB` |
+| Windows 免安装版（zip） | 解压目录的 `app\`（有 `portable` 标记文件），整个文件夹可以随身带走 |
+| 从源码运行 | 仓库根目录（与以前一样） |
+
+设置环境变量 `MOVIEDB_DATA_DIR` 可以指定其他位置（例如让源码运行与安装版共用一份数据）。程序与数据分开后，升级只替换程序文件；0.2 及更早的安装版把数据放在安装目录的 `app\` 下，新版首次启动时自动搬到 `%LOCALAPPDATA%\MovieDB`（旧版仍在运行、文件被占用时这次继续用旧位置，下次启动再搬）。卸载时默认只删除程序文件，可选择一并删除数据。
 
 **从源码运行**：`uv sync` 后执行 `uv run python desktop.py`（托盘需要 pystray：`uv run --with pystray python desktop.py`；没有时退化为控制台运行，Ctrl+C 退出），或继续使用 `uv run flask --app app run`。
 
+macOS 上开发：`brew install uv ffmpeg`，再安装一个播放器（推荐 [IINA](https://iina.io)：`brew install --cask iina`，或 `brew install mpv`），之后与 Windows 相同：`uv sync`、`uv run --with pystray python desktop.py`（菜单栏图标）。AList 可下载 macOS 版本手动运行，或把它所在的文件夹填到 `ALIST_DIR` 由 MovieDB 自动启动。测试：`uv run --with pytest python -m pytest -q`。
+
 **自行构建安装包**：`uv run python packaging/build_windows.py`。脚本下载 Python 嵌入版、按 Windows 平台安装依赖、复制已纳入 Git 的应用文件（不含测试与开发资料），有 `makensis`（NSIS 3）时生成安装包，否则生成免安装 zip（解压后运行 `MovieDB.cmd`）。在 Linux 上也能组装。
 
+macOS 版：`uv run python packaging/build_macos.py [--arch arm64|x86_64] [--ffprobe-dir <目录>]`，生成 `dist/MovieDB-<版本>-macOS-<架构>.dmg`。脚本下载 [python-build-standalone](https://github.com/astral-sh/python-build-standalone) 的 Python、按 macOS 平台安装依赖、预编译字节码，用 `packaging/macos/launcher.c` 编译启动器，做临时（ad-hoc）签名后打包 .dmg；Apple 芯片上两种架构都能构建。运行时不会往 .app 里写文件（签名保持有效），数据都在数据目录。
+
 ffprobe 有三种选择：
-- `--ffprobe-dir <目录>`（CI 默认）：使用 `packaging/build_ffprobe.sh` 编译的**精简版**。只保留 file/http/https 协议（https 走 Windows 自带的 Schannel）、常见封装（mkv/webm、mp4/mov、ts/m2ts、avi、flv、wmv、mpg、ogg、rmvb）和常见音视频编码，静态单文件约 8 MB，仍为 LGPL。编译：`bash packaging/build_ffprobe.sh <FFmpeg 源码> <输出目录> win64`（Linux + mingw-w64）。CI 会用完整版 ffmpeg 生成测试小样（H.264/HEVC 10bit HDR10/AV1/VP9/MPEG-2/MPEG-4/WMV/RV，AAC/EAC3/DTS/TrueHD/FLAC/Opus/PCM 等），经本地 HTTPS（支持 Range）逐字段比对精简版与完整版的读取结果（`packaging/check_ffprobe.py`）。
+- `--ffprobe-dir <目录>`（CI 默认）：使用 `packaging/build_ffprobe.sh` 编译的**精简版**。只保留 file/http/https 协议（https 走 Windows 自带的 Schannel）、常见封装（mkv/webm、mp4/mov、ts/m2ts、avi、flv、wmv、mpg、ogg、rmvb）和常见音视频编码，静态单文件约 8 MB，仍为 LGPL。编译：`bash packaging/build_ffprobe.sh <FFmpeg 源码> <输出目录> win64`（Linux + mingw-w64）；macOS 版用 `macos-arm64` / `macos-x86_64`（在 Mac 上编译，https 走系统自带的 Secure Transport）。CI 会用完整版 ffmpeg 生成测试小样（H.264/HEVC 10bit HDR10/AV1/VP9/MPEG-2/MPEG-4/WMV/RV，AAC/EAC3/DTS/TrueHD/FLAC/Opus/PCM 等），经本地 HTTPS（支持 Range）逐字段比对精简版与完整版的读取结果（`packaging/check_ffprobe.py`）。
 - 不指定：下载 BtbN 的完整 LGPL 版（约 160 MB）。
 - `--no-ffprobe`：不内置，可在 `.env` 用 `FFPROBE_PATH` 指向自己的 ffprobe。精简版不认识的少见格式只会缺少画质信息，不影响导入；需要时同样可用 `FFPROBE_PATH` 换成完整版。
 
@@ -57,9 +72,22 @@ uv sync
 uv run flask --app app run
 ```
 
-配置 `ALIST_DIR` 后，应用启动时会先检查 `ALIST_ORIGIN`。如果 AList 尚未运行，应用会在该目录执行 `alist.exe start`，并等待服务可用；已运行的实例不会重复启动。未配置 `ALIST_DIR`，或将 `ALIST_AUTOSTART` 设为 `0` 时，保持原来的手动启动方式。AList 作为独立后台进程运行，Flask 退出时不会自动停止它。
+配置 `ALIST_DIR` 后，应用启动时会先检查 `ALIST_ORIGIN`。如果 AList 尚未运行，应用会在该目录执行 `alist.exe start`（macOS / Linux 为 `alist start`），并等待服务可用；已运行的实例不会重复启动。未配置 `ALIST_DIR`，或将 `ALIST_AUTOSTART` 设为 `0` 时，保持原来的手动启动方式。AList 作为独立后台进程运行，Flask 退出时不会自动停止它。
 
 更新代码后可运行 `uv run python scripts/check_env.py` 核对 `.env` 与 `.env.example`：只比较变量名、不输出值，列出缺少、未登记（示例中没有）、重复以及可选未设置的变量。
+
+### 播放器
+
+点“播放”时由本机播放器打开 AList 播放链接。设置页“连接 → 播放器”可以选择，留空自动选择已安装的：
+
+| 播放器 | 平台 | 观看进度 |
+|---|---|---|
+| MPC-HC | Windows（默认） | 记录并续播，需要在 MPC-HC“选项 → Web 界面”中开启 Web 接口 |
+| IINA | macOS（默认） | 记录并续播（mpv 的 JSON IPC） |
+| mpv | 全部 | 记录并续播（Windows 上只续播） |
+| VLC、系统默认程序 | 全部 | 只打开，不记录 |
+
+对应 `.env`：`PLAYER`（`mpc-hc` / `iina` / `mpv` / `vlc` / `system`，留空自动）、`PLAYER_PATH`（非 MPC-HC 播放器的程序路径，macOS 可以填 `.app`），MPC-HC 沿用 `MPC_PATH` 与 `MPC_WEB_URL`。
 
 TMDB 与 AList 凭据不得写入源码或提交到 Git。曾经进入 Git 历史的凭据应在对应服务中轮换。
 

@@ -8,13 +8,14 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlparse
 
-from connectors import alist, imdb_ratings, llm, throttle
+from connectors import alist, imdb_ratings, llm, player, throttle
 from services import env_file, setup_wizard
 
 KEEP = object()  # 密钥留空：保持已保存的值
@@ -127,6 +128,30 @@ class Section:
 
 
 S = Setting
+IS_WINDOWS, IS_MACOS = os.name == "nt", sys.platform == "darwin"
+_NO_PROGRESS = "（不记录进度）"
+if IS_WINDOWS:
+    PLAYER_SETTINGS: tuple[Setting, ...] = (
+        S("PLAYER", "播放器", "select", options=(
+            ("", "自动选择"), ("mpc-hc", "MPC-HC"), ("mpv", "mpv"), ("vlc", "VLC" + _NO_PROGRESS),
+            ("system", "系统默认程序" + _NO_PROGRESS))),
+        S("MPC_PATH", "MPC-HC 程序", "path", placeholder="C:\\Program Files\\MPC-HC\\mpc-hc64.exe"),
+        S("MPC_WEB_URL", "Web 接口", "url", placeholder="http://127.0.0.1:13579",
+          hint="在 MPC-HC“选项 → Web 界面”中开启，用于记录观看进度。"),
+        S("PLAYER_PATH", "其他播放器程序", "path", advanced=True, placeholder="C:\\Program Files\\mpv\\mpv.exe",
+          hint="使用 mpv 或 VLC 时填写；留空自动查找。"),
+    )
+else:
+    PLAYER_SETTINGS = (
+        S("PLAYER", "播放器", "select", options=(
+            ("", "自动选择"), *((("iina", "IINA"),) if IS_MACOS else ()), ("mpv", "mpv"),
+            ("vlc", "VLC" + _NO_PROGRESS), ("system", "系统默认程序" + _NO_PROGRESS)),
+          hint="IINA 和 mpv 可以记录观看进度。" if IS_MACOS else "mpv 可以记录观看进度。"),
+        S("PLAYER_PATH", "程序路径", "path",
+          placeholder="/Applications/IINA.app" if IS_MACOS else "/usr/bin/mpv",
+          hint="留空自动查找" + ("；可以直接选择 .app。" if IS_MACOS else "。")),
+    )
+ALIST_BINARY = "alist.exe" if IS_WINDOWS else "alist"
 SECTIONS: tuple[Section, ...] = (
     Section("connection", "连接", "影片来源、播放器与本机服务", (
         Group("alist", "AList", "从网盘读取和播放影片", (
@@ -136,8 +161,8 @@ SECTIONS: tuple[Section, ...] = (
             S("ALIST_PATH_PASSWORD", "路径密码", "secret", hint="目录在 AList“元信息”里设置了密码时填写。"),
             S("ALIST_AUTOSTART", "随 MovieDB 启动 AList", "bool", True, advanced=True,
               hint="需要同时填写 AList 程序目录。"),
-            S("ALIST_DIR", "AList 程序目录", "path", advanced=True, hint="包含 alist.exe 的文件夹。",
-              placeholder="D:\\Apps\\alist"),
+            S("ALIST_DIR", "AList 程序目录", "path", advanced=True, hint=f"包含 {ALIST_BINARY} 的文件夹。",
+              placeholder="D:\\Apps\\alist" if IS_WINDOWS else "/opt/homebrew/bin" if IS_MACOS else "/usr/local/bin"),
             S("ALIST_IMPORT_ROOT", "导入根目录", advanced=True, hint="只允许导入这个目录下的文件，留空不限制。",
               placeholder="/夸克/影视"),
             S("ALIST_RATE", "每秒请求数", "float", 20, advanced=True, low=0.1, high=100, placeholder="20",
@@ -148,11 +173,7 @@ SECTIONS: tuple[Section, ...] = (
             S("MOVIEDB_AUTOSCAN", "启动时自动扫描", "bool", True,
               hint="MovieDB 启动后在后台扫描已选择的片库目录。"),
         ), icon="radar"),
-        Group("player", "播放器", "用 MPC-HC 播放并记录观看进度", (
-            S("MPC_PATH", "MPC-HC 程序", "path", placeholder="C:\\Program Files\\MPC-HC\\mpc-hc64.exe"),
-            S("MPC_WEB_URL", "Web 接口", "url", placeholder="http://127.0.0.1:13579",
-              hint="在 MPC-HC“选项 → Web 界面”中开启，用于记录观看进度。"),
-        ), test="player", icon="play-circle"),
+        Group("player", "播放器", "播放影片并记录观看进度", PLAYER_SETTINGS, test="player", icon="play-circle"),
         Group("ffprobe", "ffprobe", "读取分辨率、HDR 与音轨", (
             S("FFPROBE_PATH", "程序路径", "path", placeholder="ffprobe", hint="安装包已自带；留空使用系统 PATH 中的 ffprobe。"),
             S("FFPROBE_TIMEOUT", "超时（秒）", "int", 60, advanced=True, low=5, high=600, placeholder="60"),
@@ -223,6 +244,16 @@ def _ratings_status() -> dict:
     return {"state": "ok", "text": f"{when}更新"}
 
 
+def _player_status() -> dict:
+    try:
+        kind, _path = player.resolve_player()
+    except player.PlayerNotFound:
+        return {"state": "warn", "text": "未找到播放器"}
+    if kind == "system":
+        return {"state": "off", "text": "使用系统默认程序"}
+    return {"state": "ok", "text": f"已找到 {player.label(kind)}"}
+
+
 def statuses() -> dict:
     env = os.environ.get
     ffprobe = setup_wizard.ffprobe_status()
@@ -233,8 +264,7 @@ def statuses() -> dict:
     return {
         "alist": configured(env("ALIST_USERNAME", "").strip() and env("ALIST_PASSWORD", "")),
         "scan": configured(FIELDS["MOVIEDB_AUTOSCAN"].display(), "已开启", "已关闭"),
-        "player": configured(Path(env("MPC_PATH", "") or r"C:\Program Files\MPC-HC\mpc-hc64.exe").is_file(),
-                             "已找到 MPC-HC", "未找到 MPC-HC"),
+        "player": _player_status(),
         "ffprobe": {"state": "ok", "text": f"已就绪{' · ' + ffprobe['version'] if ffprobe['version'] else ''}"}
         if ffprobe["ok"] else {"state": "warn", "text": "未找到"},
         "sync": {"state": "ok", "text": "自动同步中"} if cloud_sync.is_enabled()

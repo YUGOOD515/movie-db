@@ -2,6 +2,7 @@
 
 import os
 import re
+import subprocess
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -185,5 +186,6 @@ def test_tmdb_origins_follow_environment(monkeypatch):
 
 def test_relaunch_command_reuses_arguments_without_browser():
     command = desktop.relaunch_command(["--port", "5099", "--no-browser"])
-    assert command[0] and command[1].endswith("desktop.py")
-    assert command[2:] == ["--port", "5099", "--no-browser"]
+    script = next(index for index, part in enumerate(command) if part.endswith("desktop.py"))
+    assert command[0] and command[1:script] == subprocess._args_from_interpreter_flags()
+    assert command[script + 1:] == ["--port", "5099", "--no-browser"]

@@ -242,8 +242,12 @@ def main() -> int:
                         str(ROOT / "packaging" / "moviedb.nsi")], check=True)
         outputs.append(installer)
     if args.zip or not makensis:
+        # 免安装版把数据留在自己的文件夹里（见 services/paths.py），安装版不带这个标记
+        (stage / "portable").write_text("有这个文件时，MovieDB 把媒体库与配置保存在本文件夹的 app\\ 中。\n",
+                                        encoding="utf-8")
         archive = args.out / f"MovieDB-{version}-portable"
         outputs.append(Path(shutil.make_archive(str(archive), "zip", args.out, "MovieDB")))
+        (stage / "portable").unlink()
     for output in outputs:
         log(f"输出 {output}（{megabytes(output.stat().st_size)}）")
     summary = os.environ.get("GITHUB_STEP_SUMMARY")

@@ -14,6 +14,8 @@ REQUEST_TIMEOUT = 1
 START_COMMAND_TIMEOUT = 10
 STARTUP_TIMEOUT = 20
 POLL_INTERVAL = 0.25
+# AList 发行包里的程序名：Windows 为 alist.exe，macOS / Linux 为 alist
+EXECUTABLE = "alist.exe" if os.name == "nt" else "alist"
 
 
 def is_alist_running(origin: str | None = None) -> bool:
@@ -34,7 +36,7 @@ def start_alist(
     startup_timeout: float = STARTUP_TIMEOUT,
 ) -> bool:
     directory = Path(alist_dir).expanduser().resolve()
-    executable = directory / "alist.exe"
+    executable = directory / EXECUTABLE
     target_origin = (origin or get_origin()).rstrip("/")
     if is_alist_running(target_origin):
         return False

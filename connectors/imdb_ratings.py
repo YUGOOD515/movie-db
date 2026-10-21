@@ -8,10 +8,12 @@ from time import time
 
 import requests
 
+from services import paths
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 RATINGS_URL = "https://datasets.imdbws.com/title.ratings.tsv.gz"
 RATINGS_PATH = Path(
-    os.environ.get("IMDB_RATINGS_PATH") or PROJECT_ROOT / "imdb" / "title.ratings.tsv.gz"
+    os.environ.get("IMDB_RATINGS_PATH") or paths.DATA_DIR / "imdb" / "title.ratings.tsv.gz"
 )
 # IMDb 每天更新一次；超过一天再下载，失败时沿用旧文件。
 MAX_AGE_SECONDS = 24 * 3600

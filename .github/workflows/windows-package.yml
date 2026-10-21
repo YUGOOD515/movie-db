@@ -1,4 +1,4 @@
-name: Windows 安装包
+name: 安装包（Windows / macOS）
 
 on:
   push:
@@ -128,10 +128,11 @@ jobs:
             exit 1
           }
 
-      - name: 冒烟测试（免安装目录）
+      - name: 冒烟测试（组装目录）
         run: |
           function Fail($message) { "::error::$message"; exit 1 }
           $root = "dist\MovieDB"
+          $env:MOVIEDB_DATA_DIR = "$env:RUNNER_TEMP\smoke-data"  # 不占用安装测试要检查的用户数据目录
           & "$root\runtime\ffmpeg\ffprobe.exe" -hide_banner -version | Select-Object -First 1
           & "$root\runtime\python\python.exe" -c "import flask, guessit, PIL, requests, dotenv, pystray; print('依赖可导入')"
           if ($LASTEXITCODE) { Fail "依赖导入失败" }
@@ -142,7 +143,7 @@ jobs:
               Start-Sleep -Milliseconds 500
               try { $ready = (Invoke-WebRequest http://127.0.0.1:5070/setup -UseBasicParsing).StatusCode -eq 200 } catch {}
             }
-            if (-not $ready) { Get-Content smoke.log, smoke.err; Fail "服务没有启动" }
+            if (-not $ready) { Get-Content smoke.log, smoke.err, "$env:MOVIEDB_DATA_DIR\logs\moviedb.log" -ErrorAction SilentlyContinue; Fail "服务没有启动" }
             $code = curl.exe -s -o NUL -w "%{http_code}" -H "Accept: text/html" http://127.0.0.1:5070/
             if ($code -ne "302") { Fail "首次使用没有跳转到引导页（HTTP $code）" }
             $status = Invoke-RestMethod http://127.0.0.1:5070/setup/status
@@ -152,12 +153,40 @@ jobs:
             Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
           }
 
-      - name: 安装、首次设置与卸载
+      - name: 免安装版把数据留在自己的文件夹
+        run: |
+          function Fail($message) { "::error::$message"; exit 1 }
+          $zip = Get-ChildItem dist\MovieDB-*-portable.zip | Select-Object -First 1
+          Expand-Archive $zip.FullName "$env:RUNNER_TEMP\portable"
+          $root = "$env:RUNNER_TEMP\portable\MovieDB"
+          if (-not (Test-Path "$root\portable")) { Fail "免安装版缺少 portable 标记" }
+          if (Test-Path "dist\MovieDB\portable") { Fail "安装包的组装目录不应带 portable 标记" }
+          $server = Start-Process "$root\runtime\python\pythonw.exe" -ArgumentList "`"$root\app\desktop.py`"", "--no-browser", "--no-tray", "--port", "5072" -PassThru
+          try {
+            $ready = $false
+            for ($i = 0; $i -lt 60 -and -not $ready; $i++) {
+              Start-Sleep -Milliseconds 500
+              try { $ready = (Invoke-WebRequest http://127.0.0.1:5072/setup -UseBasicParsing).StatusCode -eq 200 } catch {}
+            }
+            if (-not $ready) { Fail "免安装版没有启动" }
+            if (-not (Test-Path "$root\app\logs\moviedb.log")) { Fail "免安装版的日志没有写在 app\logs" }
+            if (Test-Path "$env:LOCALAPPDATA\MovieDB") { Fail "免安装版不应使用 %LOCALAPPDATA%\MovieDB" }
+            "免安装版正常：数据在 $root\app"
+          } finally {
+            Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: 安装、迁移旧版数据、首次设置与卸载
         run: |
           function Fail($message) { "::error::$message"; exit 1 }
           $installer = Get-ChildItem dist\MovieDB-Setup-*.exe | Select-Object -First 1
-          Start-Process $installer.FullName -ArgumentList "/S" -Wait
           $dir = "$env:LOCALAPPDATA\Programs\MovieDB"
+          $data = "$env:LOCALAPPDATA\MovieDB"
+          # 模拟 0.2 及更早版本：数据放在安装目录的 app\ 里
+          New-Item -ItemType Directory -Force "$dir\app\static\images\movies" | Out-Null
+          Set-Content "$dir\app\.env" "ALIST_ORIGIN=http://127.0.0.1:5244" -Encoding utf8
+          Set-Content "$dir\app\static\images\movies\ci.txt" "legacy" -Encoding utf8
+          Start-Process $installer.FullName -ArgumentList "/S" -Wait
           foreach ($path in "$dir\runtime\python\pythonw.exe", "$dir\runtime\ffmpeg\ffprobe.exe", "$dir\app\desktop.py",
                             "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\MovieDB.lnk", "$dir\Uninstall.exe") {
             if (-not (Test-Path $path)) { Fail "安装后缺少 $path" }
@@ -169,14 +198,19 @@ jobs:
               Start-Sleep -Milliseconds 500
               try { $ready = (Invoke-WebRequest http://127.0.0.1:5071/setup -UseBasicParsing).StatusCode -eq 200 } catch {}
             }
-            if (-not $ready) { Get-Content "$dir\app\logs\moviedb.log" -ErrorAction SilentlyContinue; Fail "安装版没有启动" }
+            if (-not $ready) { Get-Content "$data\logs\moviedb.log", "$dir\app\logs\moviedb.log" -ErrorAction SilentlyContinue; Fail "安装版没有启动" }
+            if (-not (Test-Path "$data\static\images\movies\ci.txt") -or (Test-Path "$dir\app\.env")) {
+              Get-Content "$data\logs\moviedb.log" -ErrorAction SilentlyContinue; Fail "旧版数据没有迁移到 $data"
+            }
+            if (-not (Select-String -Quiet "ALIST_ORIGIN" "$data\.env")) { Fail "迁移后的 .env 内容不对" }
             # 模拟引导页最后一步：保存配置并建库（不连接外部服务）
             $body = @{ ALIST_ORIGIN = "http://127.0.0.1:5244"; ALIST_USERNAME = "admin"; ALIST_PASSWORD = "ci"; TMDB_TOKEN = ("eyJ" + "a" * 100) } | ConvertTo-Json
             $saved = Invoke-RestMethod http://127.0.0.1:5071/setup/save -Method Post -ContentType "application/json" -Body $body -Headers @{ Origin = "http://127.0.0.1:5071" }
             if (-not $saved.library_created) { Fail "保存后没有创建媒体库" }
             $code = curl.exe -s -o NUL -w "%{http_code}" -H "Accept: text/html" http://127.0.0.1:5071/
             if ($code -ne "200") { Fail "建库后首页返回 HTTP $code" }
-            "安装版可用：已保存配置并创建媒体库"
+            if (-not (Test-Path "$data\library.db")) { Fail "媒体库没有建在 $data" }
+            "安装版可用：旧数据已迁移，已保存配置并在 $data 创建媒体库"
           } finally {
             Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
             Start-Sleep -Seconds 1
@@ -184,10 +218,10 @@ jobs:
           Start-Process "$dir\Uninstall.exe" -ArgumentList "/S", "_?=$dir" -Wait
           if (Test-Path "$dir\runtime") { Fail "卸载后仍有运行时文件" }
           if (Test-Path "$dir\app\app.py") { Fail "卸载后仍有程序文件" }
-          if (-not (Test-Path "$dir\app\library.db") -or -not (Test-Path "$dir\app\.env")) { Fail "卸载时误删了媒体库数据" }
+          if (-not (Test-Path "$data\library.db") -or -not (Test-Path "$data\.env")) { Fail "卸载时误删了媒体库数据" }
           if (Test-Path "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\MovieDB.lnk") { Fail "卸载后快捷方式仍在" }
           "卸载正常：程序已删除，媒体库与配置保留"
-          Get-ChildItem -Recurse -File $dir | ForEach-Object { $_.FullName.Substring($dir.Length) }
+          if (Test-Path $dir) { "安装目录残留："; Get-ChildItem -Recurse -File $dir | ForEach-Object { $_.FullName.Substring($dir.Length) } }
 
       - name: 体积
         run: |
@@ -206,9 +240,141 @@ jobs:
           retention-days: 14
           compression-level: 0
 
+
+  macos:
+    # MovieDB.app：Apple 芯片与 Intel 各一份 .dmg（都在 Apple 芯片的运行器上构建，Intel 版经 Rosetta 测试）。
+    needs: ffprobe
+    runs-on: macos-15
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, x86_64]
+    env:
+      ALIST_AUTOSTART: "0"
+      MOVIEDB_AUTOSCAN_DISABLED: "1"
+      MOVIEDB_TONES_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+
+      - name: Rosetta（运行 Intel 版）
+        if: matrix.arch == 'x86_64'
+        run: /usr/bin/pgrep -q oahd || softwareupdate --install-rosetta --agree-to-license
+
+      - name: 缓存下载的 Python
+        uses: actions/cache@v4
+        with:
+          path: .cache/packaging
+          key: packaging-macos-${{ matrix.arch }}-${{ hashFiles('packaging/build_macos.py') }}
+
+      - name: 缓存精简版 ffprobe
+        id: ffcache
+        uses: actions/cache@v4
+        with:
+          path: ffprobe-mac
+          key: ffprobe-macos-${{ matrix.arch }}-${{ env.FFMPEG_VERSION }}-${{ hashFiles('packaging/build_ffprobe.sh') }}
+
+      - name: 编译 ffprobe
+        if: steps.ffcache.outputs.cache-hit != 'true'
+        run: |
+          curl -sSfL --retry 3 -o ffmpeg.tar.xz "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" || { echo "::error title=下载 FFmpeg 源码失败::"; exit 1; }
+          tar xJf ffmpeg.tar.xz
+          set +e
+          bash packaging/build_ffprobe.sh "ffmpeg-${FFMPEG_VERSION}" ffprobe-mac "macos-${{ matrix.arch }}" > build.log 2>&1
+          code=$?
+          cat build.log
+          if [ $code -ne 0 ]; then
+            echo "::error title=ffprobe 编译失败（${{ matrix.arch }}）::$(tail -40 build.log | sed ':a;N;$!ba;s/%/%25/g;s/\r//g;s/\n/%0A/g')"
+            exit 1
+          fi
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ffprobe-slim
+          path: ffslim
+
+      - name: 构建
+        run: |
+          set -o pipefail
+          uv run --frozen python packaging/build_macos.py --arch "${{ matrix.arch }}" --ffprobe-dir ffprobe-mac 2>&1 | tee build.log || {
+            echo "::error title=构建失败（${{ matrix.arch }}）::$(tail -25 build.log | sed ':a;N;$!ba;s/%/%25/g;s/\r//g;s/\n/%0A/g')"
+            exit 1
+          }
+
+      - name: 从 .dmg 安装
+        run: |
+          dmg=$(ls dist/MovieDB-*-macOS-${{ matrix.arch }}.dmg)
+          hdiutil attach "$dmg" -mountpoint /tmp/moviedb-dmg -nobrowse -quiet
+          test -L /tmp/moviedb-dmg/Applications || { echo "::error::.dmg 里缺少“应用程序”快捷方式"; exit 1; }
+          mkdir -p "$RUNNER_TEMP/Applications"
+          ditto /tmp/moviedb-dmg/MovieDB.app "$RUNNER_TEMP/Applications/MovieDB.app"
+          hdiutil detach /tmp/moviedb-dmg -quiet
+          app="$RUNNER_TEMP/Applications/MovieDB.app"
+          codesign --verify --deep --strict "$app" || { echo "::error::签名无效"; exit 1; }
+          for file in MacOS/MovieDB Resources/runtime/python/bin/python3 Resources/runtime/ffmpeg/ffprobe; do
+            lipo -info "$app/Contents/$file"
+            lipo -info "$app/Contents/$file" | grep -q "${{ matrix.arch }}" || { echo "::error::$file 不是 ${{ matrix.arch }} 架构"; exit 1; }
+          done
+          echo "APP=$app" >> "$GITHUB_ENV"
+
+      - name: 精简版 ffprobe 与完整版结果比对（经 HTTPS 读取）
+        run: |
+          export FFPROBE_PATH="$APP/Contents/Resources/runtime/ffmpeg/ffprobe"
+          "$FFPROBE_PATH" -hide_banner -version | head -1
+          uv run --frozen python packaging/check_ffprobe.py verify ffslim/samples ffslim/samples/expected.json --https 2>&1 | tee probe.log
+          test "${PIPESTATUS[0]}" -eq 0 || { echo "::error title=ffprobe 结果不一致（${{ matrix.arch }}）::$(tail -25 probe.log | sed ':a;N;$!ba;s/%/%25/g;s/\r//g;s/\n/%0A/g')"; exit 1; }
+
+      - name: 启动、首次设置与数据位置
+        run: |
+          fail() { echo "::error::$1"; cat "$data/logs/moviedb.log" 2>/dev/null; exit 1; }
+          data="$HOME/Library/Application Support/MovieDB"
+          wait_ready() {
+            for _ in $(seq 60); do
+              curl -sf -o /dev/null "http://127.0.0.1:$1/setup" && return 0
+              sleep 0.5
+            done
+            return 1
+          }
+          # 与从访达打开相同：启动器在后台运行 MovieDB 后立即退出
+          "$APP/Contents/MacOS/MovieDB" --no-browser --no-tray --port 5072 < /dev/null > /dev/null 2>&1
+          wait_ready 5072 || fail "MovieDB.app 没有启动"
+          "$APP/Contents/Resources/runtime/python/bin/python3" -c "import flask, guessit, PIL, requests, dotenv, pystray, AppKit; print('依赖可导入')" || fail "依赖导入失败"
+          code=$(curl -s -o /dev/null -w "%{http_code}" -H "Accept: text/html" http://127.0.0.1:5072/)
+          [ "$code" = 302 ] || fail "首次使用没有跳转到引导页（HTTP $code）"
+          curl -sf http://127.0.0.1:5072/setup/status | python3 -c "import json, sys; s = json.load(sys.stdin)['ffprobe']; sys.exit(0 if s['ok'] and s['bundled'] else 1)" || fail "没有识别到内置 ffprobe"
+          body='{"ALIST_ORIGIN": "http://127.0.0.1:5244", "ALIST_USERNAME": "admin", "ALIST_PASSWORD": "ci", "TMDB_TOKEN": "eyJ'$(printf 'a%.0s' $(seq 100))'"}'
+          curl -sf http://127.0.0.1:5072/setup/save -H "Content-Type: application/json" -H "Origin: http://127.0.0.1:5072" -d "$body" \
+            | python3 -c "import json, sys; sys.exit(0 if json.load(sys.stdin).get('library_created') else 1)" || fail "保存后没有创建媒体库"
+          code=$(curl -s -o /dev/null -w "%{http_code}" -H "Accept: text/html" http://127.0.0.1:5072/)
+          [ "$code" = 200 ] || fail "建库后首页返回 HTTP $code"
+          for file in library.db .env logs/moviedb.log; do
+            [ -e "$data/$file" ] || fail "数据目录里缺少 $file"
+          done
+          pkill -f "desktop.py --no-browser --no-tray --port 5072" || true
+          sleep 1
+          codesign --verify --deep --strict "$APP" || fail "运行后 .app 内容被改动（签名失效）"
+          echo "MovieDB.app 可用：数据在 $data，运行后签名仍然有效"
+
+      - name: 体积
+        run: |
+          for file in dist/*.dmg; do
+            echo "::notice title=$(basename "$file")::$(du -m "$file" | cut -f1) MB"
+          done
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MovieDB-macOS-${{ matrix.arch }}
+          path: dist/MovieDB-*-macOS-*.dmg
+          retention-days: 14
+          compression-level: 0
+
   release:
     # 主干上 pyproject.toml 的版本号还没有对应的 Release 时，自动打标签 v<版本> 并上传安装包。
-    needs: build
+    needs: [build, macos]
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
@@ -231,7 +397,8 @@ jobs:
       - uses: actions/download-artifact@v4
         if: steps.version.outputs.exists != 'true'
         with:
-          name: MovieDB-Windows
+          pattern: MovieDB-*
+          merge-multiple: true
           path: dist
 
       - name: 发布

@@ -12,11 +12,13 @@ import stat
 import uuid
 from pathlib import Path, PurePosixPath
 
+from services import paths
+
 logger = logging.getLogger(__name__)
 
-# Default static root resolution
+# Default static root resolution：海报与缩略图在数据目录的 static/ 下
 BASE_DIR = Path(__file__).resolve().parent.parent
-DEFAULT_STATIC_ROOT = BASE_DIR / "static"
+DEFAULT_STATIC_ROOT = paths.MEDIA_ROOT
 
 # Standard target resolutions (preserving ~2x DPR for responsive display)
 STILL_SIZE = (560, 315)        # 16:9 ratio for ~270x152 episode cards

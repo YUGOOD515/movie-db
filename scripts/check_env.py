@@ -28,7 +28,10 @@ def read(path: Path) -> tuple[list[str], list[str]]:
 
 
 def main() -> int:
-    env_path, example_path = ROOT / ".env", ROOT / ".env.example"
+    sys.path.insert(0, str(ROOT))
+    from services import paths
+
+    env_path, example_path = paths.ENV_PATH, paths.ENV_EXAMPLE
     if not env_path.exists():
         print("未找到 .env，可复制 .env.example 后填写。")
         return 1

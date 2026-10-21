@@ -11,9 +11,10 @@ from typing import Any, Final, Mapping, Optional, Sequence
 import requests
 
 from connectors import throttle
+from services import paths
 
 PROJECT_ROOT: Final[Path] = Path(__file__).resolve().parents[1]
-ENV_PATH: Final[Path] = PROJECT_ROOT / ".env"
+ENV_PATH: Final[Path] = paths.ENV_PATH
 
 # ==============================================================================
 # 不可变数据模型 (Immutable Data Models)
