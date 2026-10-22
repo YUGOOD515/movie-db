@@ -115,6 +115,8 @@ def _prepare_environment() -> None:
     from dotenv import load_dotenv
 
     paths.DATA_DIR.mkdir(parents=True, exist_ok=True)
+    if sys.argv and sys.argv[0]:
+        sys.argv[0] = os.path.abspath(sys.argv[0])  # pywebview 按它找程序目录，切换工作目录后相对路径会失效
     os.chdir(BASE_DIR)
     load_dotenv(paths.ENV_PATH)
     if paths.BUNDLED_FFPROBE.is_file() and os.environ.get("FFPROBE_PATH", "ffprobe").strip() in ("", "ffprobe"):
