@@ -19,6 +19,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from services import paths as app_paths
 from services.thumbnails import (
     DEFAULT_STATIC_ROOT,
     STILL_SIZE,
@@ -139,7 +140,12 @@ def main():
     parser.add_argument("--all", action="store_true", help="Build thumbnails for all artwork in database.")
     parser.add_argument("--title", type=str, help="Build thumbnails for a specific title (movie or series ID).")
     parser.add_argument("--force", action="store_true", help="Force regenerate existing thumbnails.")
-    parser.add_argument("--db", type=str, default=str(PROJECT_ROOT / "library.db"), help="Path to library.db")
+    parser.add_argument(
+        "--db",
+        type=str,
+        default=str(app_paths.database_path()),
+        help="Path to library.db (defaults to the app data folder)",
+    )
     args = parser.parse_args()
 
     db_path = Path(args.db)
