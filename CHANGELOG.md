@@ -1,6 +1,6 @@
 # 更新日志
 
-## 未发布
+## v0.3.0
 
 ### macOS
 - 新增 macOS 版 `MovieDB.app`（Apple 芯片与 Intel 各一个 .dmg，macOS 11 及以上）：自带 Python、依赖与精简版 ffprobe（https 走系统 Secure Transport），只在菜单栏显示图标；临时签名，首次打开需在“隐私与安全性”中点“仍要打开”。
