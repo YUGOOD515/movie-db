@@ -64,7 +64,7 @@ The settings page covers almost everything. You can also edit `.env` in the data
 
 | Variable | Description |
 |---|---|
-| `MOVIEDB_PORT` | Local port, default `5000`; requires a restart |
+| `MOVIEDB_PORT` | Local port, default `5000`; requires a restart. If it is not set and 5000 is taken by another program (on macOS usually the AirPlay Receiver), the desktop app picks the first free port in 5050–5059 and saves it here |
 | `MOVIEDB_UI` | How the desktop app shows its interface: empty for its own window, `browser` for the system browser; requires a restart |
 | `MOVIEDB_DATA_DIR` | Data folder; defaults are listed [above](#data-folder) |
 | `MOVIEDB_DISCOVERY_DATABASE` | Location of `discovery.db`; defaults to the folder of `library.db` |

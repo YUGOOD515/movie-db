@@ -188,6 +188,16 @@
 // MovieDB desktop window (pywebview): keep the native title bar in step with
 // the page theme and open other sites in the system browser.
 (() => {
+    // WKWebView (macOS window) never asks about "beforeunload", so pages with
+    // unsaved changes would be left silently. Ask the same listeners ourselves:
+    // the native menu (back / reload / settings…) and in-app links call this first.
+    const canLeave = () => {
+        const probe = new Event("beforeunload", { cancelable: true });
+        window.dispatchEvent(probe);
+        return !probe.defaultPrevented;
+    };
+    window.moviedbConfirmLeave = () => canLeave() || window.confirm("有未保存的修改，离开后会丢失。确定离开吗？");
+    const isMac = /Macintosh|Mac OS X/.test(navigator.userAgent);
     let ready = false;
     const connect = () => {
         const api = window.pywebview?.api;
@@ -206,7 +216,16 @@
                 return;
             }
             const target = new URL(link.href, location.href);
-            if (!/^https?:$/.test(target.protocol) || target.origin === location.origin) {
+            if (!/^https?:$/.test(target.protocol)) {
+                return;
+            }
+            if (target.origin === location.origin) {
+                const samePage = target.pathname === location.pathname && target.search === location.search;
+                const special = link.target || link.hasAttribute("download")
+                    || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey;
+                if (isMac && !samePage && !special && !window.moviedbConfirmLeave()) {
+                    event.preventDefault();
+                }
                 return;
             }
             event.preventDefault();

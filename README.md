@@ -60,7 +60,7 @@ Install the new version over the old one. Your library and settings live in a se
 
 ## Getting started
 
-MovieDB serves `http://127.0.0.1:5000` locally and shows it in its window (prefer the browser? Set *Interface* (界面打开方式) under **Settings → Connection → This computer** to the system browser, or `MOVIEDB_UI=browser`). On first launch a full-screen walkthrough connects everything, while a poster wall lights up as you go:
+MovieDB serves `http://127.0.0.1:5000` locally (if another program already uses port 5000 — on macOS usually the AirPlay Receiver — it moves to the first free port in 5050–5059 and remembers it) and shows it in its window (prefer the browser? Set *Interface* (界面打开方式) under **Settings → Connection → This computer** to the system browser, or `MOVIEDB_UI=browser`). On first launch a full-screen walkthrough connects everything, while a poster wall lights up as you go:
 
 ![First-run walkthrough](docs/images/onboarding.webp)
 

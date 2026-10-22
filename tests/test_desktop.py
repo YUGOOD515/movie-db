@@ -59,7 +59,38 @@ def test_initial_geometry_uses_saved_size_or_default():
     assert desktop_window.initial_geometry({"width": 500, "height": 400, "x": 1, "y": 2}) == default
     assert desktop_window.initial_geometry({"width": True, "height": 900}) == default
     saved = {"width": 1200.0, "height": 800, "x": -20, "y": 40}
-    assert desktop_window.initial_geometry(saved) == {"width": 1200, "height": 800, "x": -20, "y": 40}
+    assert desktop_window.initial_geometry(saved, "win32") == {"width": 1200, "height": 800, "x": -20, "y": 40}
+    # macOS 的位置交给 AppKit 的窗口自动保存
+    assert desktop_window.initial_geometry(saved, "darwin") == default
+
+
+def test_same_origin_path_keeps_only_in_app_pages():
+    origin = "http://127.0.0.1:5000"
+    assert desktop_window.same_origin_path(origin + "/manager?q=a", origin) == "/manager?q=a"
+    assert desktop_window.same_origin_path(origin + "/settings#port", origin) == "/settings"
+    assert desktop_window.same_origin_path("https://www.themoviedb.org/movie/1", origin) is None
+    assert desktop_window.same_origin_path("about:blank", origin) is None
+    assert desktop_window.same_origin_path(None, origin) is None
+
+
+def test_choose_port_falls_back_only_for_default_port():
+    states = {5000: False, 5050: False, 5051: None}  # False：被其他程序占用；None：没有程序在监听
+    probe = lambda url: states.get(int(url.rsplit(":", 1)[1]))  # noqa: E731
+    free = lambda port: states.get(port, None) is None  # noqa: E731
+    assert desktop.choose_port(5000, False, probe, free) == (5051, "free")
+    assert desktop.choose_port(5000, True, probe, free) == (5000, "busy")
+    states[5050] = True  # 之前换到 5050 的 MovieDB 仍在运行
+    assert desktop.choose_port(5000, False, probe, free) == (5050, "running")
+    assert desktop.choose_port(5000, False, lambda url: None, lambda port: True) == (5000, "free")
+    assert desktop.choose_port(5000, False, lambda url: False, lambda port: False) == (5000, "busy")
+
+
+def test_port_busy_message_mentions_airplay_on_mac(monkeypatch):
+    monkeypatch.setattr(desktop.sys, "platform", "darwin")
+    assert "隔空播放接收器" in desktop._port_busy_message(5000)
+    assert "隔空播放接收器" not in desktop._port_busy_message(5123)
+    monkeypatch.setattr(desktop.sys, "platform", "win32")
+    assert "隔空播放接收器" not in desktop._port_busy_message(5000)
 
 
 def test_fit_to_screens_moves_lost_or_oversized_windows():

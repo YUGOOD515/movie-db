@@ -191,3 +191,8 @@ def test_relaunch_command_reuses_arguments_and_marks_restart():
     assert command[script + 1:] == ["--port", "5099", "--no-browser", "--restarted"]
     assert desktop.relaunch_command(["--self-test"])[-1:] == ["--restarted"]
     assert "--self-test" not in desktop.relaunch_command(["--self-test"])
+    # 重启后回到原来的页面；旧的 --open 不会叠加
+    command = desktop.relaunch_command(["--open", "/manager", "--browser"], "/settings?x=1")
+    assert command[-4:] == ["--browser", "--restarted", "--open", "/settings?x=1"]
+    assert command.count("--open") == 1 and "/manager" not in command
+    assert "--open" not in desktop.relaunch_command(["--open=/x"], "https://example.com/")

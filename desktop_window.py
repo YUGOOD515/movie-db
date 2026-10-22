@@ -4,7 +4,7 @@ pywebview 只是一层很薄的绑定，安装包不附带浏览器内核。窗�
 
 - 关闭窗口只是隐藏，服务继续在后台运行（扫描、同步不中断）。Windows 从托盘图标重新打开；
   macOS 留在程序坞，点程序坞图标或再次打开 MovieDB 即可，⌘Q 退出。
-- 记住窗口位置与大小；标题栏随页面的浅色 / 深色主题切换。
+- 记住窗口位置与大小（macOS 交给系统的窗口自动保存，支持多显示器）；标题栏随页面的浅色 / 深色主题切换。
 - 外部链接（TMDB、IMDb 等）用系统浏览器打开；设置页的程序路径可用系统的文件选择框选择。
 - macOS 菜单栏提供“设置…（⌘,）”“返回 / 前进（⌘[ / ⌘]）”“重新载入（⌘R）”等菜单项。
 
@@ -54,6 +54,9 @@ LOCALIZATION = {
     "windows.fileFilter.otherFiles": "其他文件",
 }
 MAC_SHORTCUTS = {"设置…": ",", "返回": "[", "前进": "]", "重新载入": "r"}
+MAC_AUTOSAVE_NAME = "MovieDB"
+# WKWebView 不会对 beforeunload 弹出确认框；离开当前页面前先问页面（见 static/js/site.js）
+CONFIRM_LEAVE_JS = "window.moviedbConfirmLeave ? window.moviedbConfirmLeave() : true"
 
 
 # --------------------------------------------------------------------------
@@ -78,8 +81,13 @@ def save_state(state: dict, path: Path = STATE_PATH) -> None:
         logger.warning("保存窗口状态失败：%s", error)
 
 
-def initial_geometry(state: dict) -> dict:
-    """create_window 的尺寸与位置参数；没有记录或记录不合理时用默认大小并居中。"""
+def initial_geometry(state: dict, platform: str = sys.platform) -> dict:
+    """create_window 的尺寸与位置参数；没有记录或记录不合理时用默认大小并居中。
+
+    macOS 的位置由 AppKit 按自动保存名恢复（坐标系与多显示器都由系统处理），这里只给默认大小。
+    """
+    if platform == "darwin":
+        return {"width": DEFAULT_SIZE[0], "height": DEFAULT_SIZE[1], "x": None, "y": None}
     def number(key):
         value = state.get(key)
         return int(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else None
@@ -114,6 +122,16 @@ def fit_to_screens(window_rect: tuple[int, int, int, int],
     sx, sy, sw, sh = target
     new_width, new_height = min(width, int(sw * 0.9)), min(height, int(sh * 0.9))
     return (sx + (sw - new_width) // 2, sy + (sh - new_height) // 2, new_width, new_height)
+
+
+def same_origin_path(url: str | None, origin: str) -> str | None:
+    """当前页面在 MovieDB 里的路径（含查询参数）；其他网站或无法识别时返回 None。"""
+    if not url:
+        return None
+    parsed = urlparse(url)
+    if f"{parsed.scheme}://{parsed.netloc}" != origin or not parsed.path.startswith("/"):
+        return None
+    return parsed.path + (f"?{parsed.query}" if parsed.query else "")
 
 
 def is_external(url: str, origin: str) -> bool:
@@ -163,8 +181,10 @@ class Api:
 
 class DesktopWindow:
     def __init__(self, url: str, *, title: str = "MovieDB", actions: dict | None = None,
-                 self_test: bool = False, hide_on_close: bool = True):
+                 self_test: bool = False, hide_on_close: bool = True, start_path: str = "/"):
         self.url = url
+        self.start_path = start_path if start_path.startswith("/") else "/"
+        self.last_path: str | None = None  # 退出前所在页面，重启后回到这里
         self.hide_on_close = hide_on_close  # Windows 没有托盘图标时，关闭窗口就退出
         self.title = title
         self.actions = actions or {}
@@ -173,7 +193,8 @@ class DesktopWindow:
         self.state = load_state()
         self.window = None
         self._quitting = False
-        self._maximized = bool(self.state.get("maximized"))
+        self._maximized = bool(self.state.get("maximized")) and sys.platform != "darwin"
+        self._terminating = False
         self._minimized = False
         self._lock = threading.Lock()
 
@@ -193,14 +214,33 @@ class DesktopWindow:
 
     def open(self, path: str = "/") -> None:
         if self.window is not None:
+            if not self.confirm_leave():
+                self.show()
+                return
             self.window.load_url(self.url + path)
             self.show()
+
+    def confirm_leave(self) -> bool:
+        """macOS：页面有未保存的修改时先确认（WKWebView 忽略 beforeunload）。其他平台由内核自己处理。"""
+        window = self.window
+        if sys.platform != "darwin" or window is None or not window.events.loaded.is_set():
+            return True
+        try:
+            return window.evaluate_js(CONFIRM_LEAVE_JS) is not False
+        except Exception:  # noqa: BLE001 — 页面没有响应时不阻止离开
+            return True
 
     def quit(self) -> None:
         self._quitting = True
         self._remember_geometry()
-        if self.window is not None:
-            self.window.destroy()
+        window = self.window
+        if window is not None:
+            if window.events.loaded.is_set():
+                try:
+                    self.last_path = same_origin_path(window.get_current_url(), self.url)
+                except Exception:  # noqa: BLE001
+                    self.last_path = None
+            window.destroy()
 
     def apply_theme(self, theme: str) -> None:
         if self.state.get("theme") != theme:
@@ -253,11 +293,12 @@ class DesktopWindow:
         geometry = initial_geometry(self.state)
         theme = self.state.get("theme") if self.state.get("theme") in BACKGROUND else "dark"
         self.window = webview.create_window(
-            self.title, self.url + "/", js_api=Api(self), min_size=MIN_SIZE, hidden=not show,
+            self.title, self.url + self.start_path, js_api=Api(self), min_size=MIN_SIZE, hidden=not show,
             background_color=BACKGROUND[theme], text_select=True, maximized=self._maximized and show,
             localization=LOCALIZATION, **geometry)
         events = self.window.events
         events.closing += self._on_closing
+        events.before_show += self._on_before_show
         events.shown += self._on_shown
         events.loaded += self._on_loaded
         events.maximized += self._on_maximized
@@ -293,6 +334,8 @@ class DesktopWindow:
         return False  # 取消关闭：只隐藏窗口
 
     def _hide_to_background(self):
+        if sys.platform == "darwin":
+            self._leave_fullscreen()  # 直接隐藏全屏窗口会留下一个黑色的空桌面
         try:
             self.window.hide()
         except Exception as error:  # noqa: BLE001
@@ -303,7 +346,38 @@ class DesktopWindow:
             save_state(self.state)
             notify("MovieDB 仍在后台运行，可从托盘图标重新打开或退出。")
 
+    def _leave_fullscreen(self):
+        try:
+            import AppKit
+            from PyObjCTools import AppHelper
+
+            native = self.window.native
+            fullscreen = AppKit.NSWindowStyleMaskFullScreen
+            if not native.styleMask() & fullscreen:
+                return
+            AppHelper.callAfter(native.toggleFullScreen_, None)
+            deadline = time.monotonic() + 3
+            while native.styleMask() & fullscreen and time.monotonic() < deadline:
+                time.sleep(0.1)
+            time.sleep(0.3)  # 等退出全屏的动画结束
+        except Exception as error:  # noqa: BLE001
+            logger.debug("退出全屏失败：%s", error)
+
+    def _on_before_show(self):
+        """主线程，窗口已创建、尚未显示。macOS 按自动保存名恢复上次的位置与大小。"""
+        if sys.platform != "darwin":
+            return
+        try:
+            native = self.window.native
+            native.setFrameUsingName_(MAC_AUTOSAVE_NAME)
+            native.setFrameAutosaveName_(MAC_AUTOSAVE_NAME)  # 之后移动、缩放都由系统自动保存
+        except Exception as error:  # noqa: BLE001
+            logger.debug("恢复窗口位置失败：%s", error)
+
     def _on_shown(self):
+        if sys.platform == "darwin":
+            self._fit_mac_window()
+            return
         try:
             import webview
 
@@ -316,15 +390,32 @@ class DesktopWindow:
         except Exception as error:  # noqa: BLE001 — 位置修正失败不影响使用
             logger.debug("检查窗口位置失败：%s", error)
 
+    def _fit_mac_window(self):
+        """外接显示器拔掉后窗口可能落在屏幕外：用 AppKit 自己的坐标（左下角为原点）检查并放回。"""
+        try:
+            import AppKit
+            from PyObjCTools import AppHelper
+
+            native = self.window.native
+            frame = native.frame()
+            screens = [screen.visibleFrame() for screen in AppKit.NSScreen.screens()]
+            fixed = fit_to_screens(
+                (int(frame.origin.x), int(frame.origin.y), int(frame.size.width), int(frame.size.height)),
+                [(int(s.origin.x), int(s.origin.y), int(s.size.width), int(s.size.height)) for s in screens])
+            if fixed:
+                AppHelper.callAfter(native.setFrame_display_, AppKit.NSMakeRect(*fixed), True)
+        except Exception as error:  # noqa: BLE001 — 位置修正失败不影响使用
+            logger.debug("检查窗口位置失败：%s", error)
+
     def _on_loaded(self):
-        if sys.platform == "darwin":
+        if sys.platform == "darwin" and not getattr(self, "_gestures", False):
             try:
                 from PyObjCTools import AppHelper
 
-                webkit = self.window.native.contentView().subviews()
-                for view in webkit:
-                    if hasattr(view, "setAllowsBackForwardNavigationGestures_"):
-                        AppHelper.callAfter(view.setAllowsBackForwardNavigationGestures_, True)  # 双指轻扫返回
+                view = self.window.native.contentView()  # pywebview 的 WKWebView 就是窗口的内容视图
+                if hasattr(view, "setAllowsBackForwardNavigationGestures_"):
+                    AppHelper.callAfter(view.setAllowsBackForwardNavigationGestures_, True)  # 双指轻扫返回
+                    self._gestures = True
             except Exception as error:  # noqa: BLE001
                 logger.debug("开启轻扫返回失败：%s", error)
 
@@ -339,7 +430,7 @@ class DesktopWindow:
 
     def _remember_geometry(self):
         window = self.window
-        if window is None:
+        if window is None or sys.platform == "darwin":  # macOS 由窗口自动保存处理
             return
         with self._lock:
             try:
@@ -355,7 +446,10 @@ class DesktopWindow:
         from webview.menu import Menu, MenuAction, MenuSeparator
 
         def run_js(script):
-            return lambda: threading.Thread(target=self.window.evaluate_js, args=(script,), daemon=True).start()
+            def run():
+                if self.confirm_leave():
+                    self.window.evaluate_js(script)
+            return lambda: threading.Thread(target=run, daemon=True).start()
 
         def background(function):
             return lambda: threading.Thread(target=function, daemon=True).start()
@@ -398,9 +492,16 @@ class DesktopWindow:
             def applicationShouldTerminate_(self, app):
                 if shell._quitting:
                     return objc.super(MovieDBAppDelegate, self).applicationShouldTerminate_(app)
-                # 自己关闭窗口结束主循环，让启动器停止服务、保存状态后再退出
-                threading.Thread(target=shell.quit, daemon=True).start()
-                return AppKit.NSTerminateCancel
+                # ⌘Q、注销、关机都会走到这里。不能返回“取消”，否则会打断注销 / 关机；
+                # 先让启动器停止服务、释放端口，再同意退出。
+                shell._quitting = shell._terminating = True
+                before_exit = shell.actions.get("before_exit")
+                if callable(before_exit):
+                    try:
+                        before_exit()
+                    except Exception as error:  # noqa: BLE001 — 清理失败也要让系统继续退出
+                        logger.warning("退出前清理失败：%s", error)
+                return AppKit.NSTerminateNow
 
         cocoa.BrowserView._shared_app_delegate = MovieDBAppDelegate.alloc().init()
 

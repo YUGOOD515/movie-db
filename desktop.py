@@ -20,6 +20,7 @@ import argparse
 import importlib
 import json
 import os
+import socket
 import subprocess
 import sys
 import threading
@@ -34,6 +35,8 @@ sys.path.insert(0, str(BASE_DIR))
 from services import paths  # noqa: E402  只依赖标准库，数据位置要在导入应用前确定
 
 DEFAULT_PORT = 5000
+# 默认端口被其他程序占用（macOS 12 起“隔空播放接收器”默认占用 5000）且没有指定端口时，依次改用这些端口
+FALLBACK_PORTS = tuple(range(5050, 5060))
 UI_WINDOW, UI_BROWSER, UI_NONE = "window", "browser", "none"
 _migrated: list[str] = []
 
@@ -133,9 +136,20 @@ def _open_folder(path: Path) -> None:
         subprocess.Popen(["xdg-open", str(path)])
 
 
-def relaunch_command(argv: list[str]) -> list[str]:
-    """重启用的命令：沿用原参数并加上 --restarted（窗口照常打开，浏览器模式不再新开页面，设置页会自己刷新）。"""
-    args = [arg for arg in argv if arg not in ("--restarted", "--self-test")] + ["--restarted"]
+def relaunch_command(argv: list[str], open_path: str | None = None) -> list[str]:
+    """重启用的命令：沿用原参数并加上 --restarted（窗口照常打开，浏览器模式不再新开页面，设置页会自己刷新）。
+
+    open_path：新窗口打开的页面（重启前窗口所在的页面）。
+    """
+    args, skip = [], False
+    for arg in argv:
+        if skip:
+            skip = False
+        elif arg == "--open":
+            skip = True
+        elif arg not in ("--restarted", "--self-test") and not arg.startswith("--open="):
+            args.append(arg)
+    args += ["--restarted"] + (["--open", open_path] if open_path and open_path.startswith("/") else [])
     launcher = paths.APP_DIR.parent.parent / "MacOS" / "MovieDB"
     if sys.platform == "darwin" and paths.PACKAGED and launcher.is_file():
         return [str(launcher), *args]  # 经 .app 的启动器重新运行，环境与双击打开时一致
@@ -153,6 +167,71 @@ def ui_mode(args: argparse.Namespace, environ=os.environ) -> str:
     if args.browser or environ.get("MOVIEDB_UI", "").strip().lower() == UI_BROWSER:
         return UI_BROWSER
     return UI_WINDOW
+
+
+def _port_free(port: int) -> bool:
+    """端口能否监听（与 werkzeug 一样设置 SO_REUSEADDR，刚关闭的端口不会被误判为占用）。"""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        if os.name != "nt":
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            probe.bind(("127.0.0.1", port))
+        except OSError:
+            return False
+    return True
+
+
+def choose_port(port: int, explicit: bool, probe=None, free=None) -> tuple[int, str]:
+    """选端口：返回 (端口, 状态)，状态为 running（本程序已在运行）/ free（可以使用）/ busy（被占用）。
+
+    指定了端口（--port 或 MOVIEDB_PORT）时只用它；否则默认端口被占用时依次尝试 FALLBACK_PORTS，
+    也会在这些端口上寻找已经运行的 MovieDB。
+    """
+    probe = probe or _running_instance
+    free = free or _port_free
+    candidates = [port] + ([] if explicit else [item for item in FALLBACK_PORTS if item != port])
+    for candidate in candidates:
+        state = probe(f"http://127.0.0.1:{candidate}")
+        if state is True:
+            return candidate, "running"
+        if state is None and free(candidate):
+            return candidate, "free"
+    return port, "busy"
+
+
+def _remember_port(port: int) -> None:
+    """自动换用的端口写进 .env，之后固定使用（书签、远程访问的地址不再变化），设置页也能看到。"""
+    os.environ["MOVIEDB_PORT"] = str(port)
+    try:
+        from services import env_file
+
+        env_file.update(paths.ENV_PATH, {"MOVIEDB_PORT": str(port)}, template=paths.ENV_EXAMPLE)
+    except OSError as error:
+        _log(f"保存端口失败：{error}")
+
+
+def _port_busy_message(port: int) -> str:
+    message = f"端口 {port} 已被其他程序占用，MovieDB 无法启动。"
+    if sys.platform == "darwin" and port == DEFAULT_PORT:
+        message += "\n\n5000 端口通常被 macOS 的“隔空播放接收器”占用：可在“系统设置 → 通用 → 隔空投送与接力”中关闭它，"
+    else:
+        message += "\n\n"
+    return message + f"或在 {paths.ENV_PATH} 中把 MOVIEDB_PORT 改成其他端口。"
+
+
+def _prevent_app_nap() -> object | None:
+    """macOS：窗口隐藏后系统会给应用降速（App Nap），后台扫描、同步与远程访问都会变慢。
+
+    MovieDB 是常驻的本机服务，运行期间声明“用户发起的活动”（仍允许电脑空闲时睡眠）。
+    """
+    if sys.platform != "darwin":
+        return None
+    try:
+        from Foundation import NSActivityUserInitiatedAllowingIdleSystemSleep, NSProcessInfo
+    except ImportError:
+        return None
+    return NSProcessInfo.processInfo().beginActivityWithOptions_reason_(
+        NSActivityUserInitiatedAllowingIdleSystemSleep, "MovieDB 本机服务")
 
 
 def _show_running(url: str) -> bool:
@@ -246,6 +325,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--no-browser", action="store_true", help="只运行服务，不打开窗口或浏览器")
     parser.add_argument("--no-tray", action="store_true", help="不显示托盘图标")
     parser.add_argument("--restarted", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--open", default="/", help=argparse.SUPPRESS)
     parser.add_argument("--self-test", action="store_true", help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
 
@@ -254,19 +334,24 @@ def main(argv: list[str] | None = None) -> int:
     _prepare_environment()
     if _migrated:
         _log(f"已把数据从 {paths.APP_DIR} 迁移到 {paths.DATA_DIR}：" + "、".join(_migrated))
-    port = _configured_port(args.port)
+    explicit = bool(args.port or os.environ.get("MOVIEDB_PORT", "").strip())
+    configured = _configured_port(args.port)
+    port, state = choose_port(configured, explicit)
     url = f"http://127.0.0.1:{port}"
     mode = ui_mode(args)
 
-    running = _running_instance(url)
-    if running:
+    if state == "running":
         # 已经在运行：再次打开只把界面带到前台
         if mode != UI_NONE and not args.restarted and not _show_running(url):
             webbrowser.open(url + "/")
         return 0
-    if running is False:
-        _alert(f"端口 {port} 已被其他程序占用。可在 {paths.ENV_PATH} 中设置 MOVIEDB_PORT 换一个端口。")
+    if state == "busy":
+        _alert(_port_busy_message(port))
         return 1
+    if port != configured:
+        _log(f"端口 {configured} 已被其他程序占用，改用 {port} 并保存到 {paths.ENV_PATH}")
+        _remember_port(port)
+    activity = _prevent_app_nap()  # noqa: F841 — 隐藏到后台时不被 App Nap 冻结，持有到进程结束
 
     if mode == UI_WINDOW:
         import desktop_window
@@ -278,6 +363,10 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"窗口自检失败：{reason}", flush=True)
                 return 1
             mode = UI_BROWSER
+    delegate = None  # noqa: F841 — NSApplication 不保留委托，要持有引用
+    if sys.platform == "darwin" and mode != UI_WINDOW:
+        # 尽早切换成只在菜单栏显示，程序坞图标只闪一下
+        delegate = _menu_bar_only(lambda: webbrowser.open(url + "/"))  # noqa: F841
 
     _log(f"MovieDB 启动：{url}（界面 {mode}，程序 {BASE_DIR}，数据 {paths.DATA_DIR}）")
     from werkzeug.serving import make_server
@@ -321,8 +410,16 @@ def main(argv: list[str] | None = None) -> int:
     def open_browser(path: str = "/"):
         webbrowser.open(url + path)
 
+    def before_exit():
+        """macOS 注销、关机或 ⌘Q：系统马上结束进程，先停止服务、释放端口。"""
+        ui.pop("shell", None)  # 窗口随进程一起关闭
+        stop()
+        thread.join(5)
+        server.server_close()
+        _log("MovieDB 已退出")
+
     if mode == UI_WINDOW:
-        _run_window(args, url, ui, stop, request_restart, app)
+        _run_window(args, url, ui, stop, request_restart, app, before_exit)
     else:
         if mode == UI_BROWSER and not args.restarted:
             threading.Timer(0.6, open_browser).start()
@@ -330,8 +427,6 @@ def main(argv: list[str] | None = None) -> int:
             url, open_browser, lambda: open_browser("/settings"), request_restart, stop)
         if icon is not None:
             ui["icon"] = icon
-            if sys.platform == "darwin":
-                ui["delegate"] = _menu_bar_only(open_browser)
             icon.run()  # 阻塞到选择“退出”或重启
         else:
             try:
@@ -342,17 +437,19 @@ def main(argv: list[str] | None = None) -> int:
     stop()
     thread.join(5)
     server.server_close()  # 释放端口，新进程才能用同一端口启动
+    shell = ui.get("shell")
     if args.self_test:
-        return 0 if ui["shell"].self_test_ok else 1
+        return 0 if shell is not None and shell.self_test_ok else 1
     if restarting.is_set():
         _log("MovieDB 正在重启")
-        _spawn(relaunch_command(sys.argv[1:] if argv is None else argv))
+        open_path = shell.last_path if shell is not None else None  # 重启后回到原来的页面
+        _spawn(relaunch_command(sys.argv[1:] if argv is None else argv, open_path))
         return 0
     _log("MovieDB 已退出")
     return 0
 
 
-def _run_window(args, url: str, ui: dict, stop, restart, app) -> None:
+def _run_window(args, url: str, ui: dict, stop, restart, app, before_exit) -> None:
     """原生窗口跑在主线程，直到退出；Windows 的托盘图标在后台线程。"""
     from desktop_window import DesktopWindow
 
@@ -360,6 +457,7 @@ def _run_window(args, url: str, ui: dict, stop, restart, app) -> None:
         "open_data": lambda: _open_folder(paths.DATA_DIR),
         "open_logs": lambda: _open_folder(paths.LOG_PATH.parent),
         "restart": restart,
+        "before_exit": before_exit,
     }
     icon = None
     if os.name == "nt" and not args.no_tray and not args.self_test:
@@ -367,7 +465,7 @@ def _run_window(args, url: str, ui: dict, stop, restart, app) -> None:
     if icon is not None:
         actions["notify_background"] = lambda message: icon.notify(message, "MovieDB")
     # macOS 关窗后留在程序坞；Windows 有托盘图标才在关窗后继续后台运行
-    shell = DesktopWindow(url, actions=actions, self_test=args.self_test,
+    shell = DesktopWindow(url, actions=actions, self_test=args.self_test, start_path=args.open,
                           hide_on_close=sys.platform == "darwin" or icon is not None)
     ui["shell"] = shell
     app.config["SHOW_WINDOW_HANDLER"] = shell.show
