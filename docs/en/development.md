@@ -16,12 +16,13 @@ Requires Python 3.13+ and [uv](https://docs.astral.sh/uv/). When running from so
 
 ```sh
 uv sync
-uv run --with pystray python desktop.py   # desktop mode with a tray / menu bar icon
-uv run python desktop.py                  # without pystray: console only, Ctrl+C to quit
+uv run --with pystray --with pywebview python desktop.py   # desktop mode: native window + tray
+uv run --with pystray python desktop.py --browser          # old style: system browser + tray / menu bar
+uv run python desktop.py                  # without pywebview / pystray: browser + console, Ctrl+C to quit
 uv run flask --app app run                # or the plain Flask development server
 ```
 
-`desktop.py` accepts `--port`, `--no-browser` and `--no-tray`. Without a `library.db` the first-run walkthrough opens; you can also write `.env` by hand following `.env.example`.
+`desktop.py` accepts `--port`, `--browser` (use the system browser, same as `MOVIEDB_UI=browser`), `--no-browser` (server only), `--no-tray` and `--self-test` (open the window, check the page and bridge, then quit; used by CI). Without a `library.db` the first-run walkthrough opens; you can also write `.env` by hand following `.env.example`.
 
 **macOS**: `brew install uv ffmpeg`, then a player (we recommend [IINA](https://iina.io): `brew install --cask iina`, or `brew install mpv`); everything else works as on Windows. Run the macOS build of AList yourself, or put its folder in `ALIST_DIR` and MovieDB will start it.
 
@@ -31,6 +32,7 @@ uv run flask --app app run                # or the plain Flask development serve
 |---|---|
 | `app.py` | Flask routes |
 | `desktop.py` | Desktop entry point: server, tray / menu bar, single instance, restart |
+| `desktop_window.py` | Native window (pywebview): hide on close, remembered geometry, light / dark title bar, external links and file pickers, macOS menus |
 | `queries/` | Read-only queries (pages only read `library.db`) |
 | `models/` | Writes: `library.py` (library) and `discovery_store.py` (`discovery.db`) |
 | `viewmodels/` | Page view models |
@@ -88,7 +90,7 @@ To capture a fresh snapshot, run `uv run python scripts/capture_breaking_bad.py 
 uv run python packaging/build_windows.py
 ```
 
-Downloads the embeddable Python, installs dependencies for Windows and copies the app files tracked by Git (no tests or development material). With `makensis` (NSIS 3) available it builds the installer, otherwise a portable zip (unzip and run `MovieDB.cmd`). Works on Linux too.
+Downloads the embeddable Python, installs dependencies for Windows and copies the app files tracked by Git (no tests or development material), then removes unused parts with `packaging/slim.py` (Pillow's AVIF / FreeType extensions, pywebview backends for other platforms). The launcher `runtime\python\MovieDB.exe` is `pythonw.exe` with the MovieDB icon and name (via rcedit). `packaging/check_runtime.py` verifies imports, thumbnails and window components after packaging. With `makensis` (NSIS 3) available it builds the installer, otherwise a portable zip (unzip and run `MovieDB.cmd`). Works on Linux too.
 
 ### macOS
 
@@ -96,7 +98,7 @@ Downloads the embeddable Python, installs dependencies for Windows and copies th
 uv run python packaging/build_macos.py [--arch arm64|x86_64] [--ffprobe-dir <dir>]
 ```
 
-Produces `dist/MovieDB-<version>-macOS-<arch>.dmg`. The script downloads Python from [python-build-standalone](https://github.com/astral-sh/python-build-standalone), installs dependencies for macOS (keeping only the target architecture of universal binaries), precompiles bytecode, builds the launcher from `packaging/macos/launcher.c`, signs ad hoc and packs an LZMA-compressed `.dmg`. Apple silicon Macs can build both architectures. The app never writes inside the `.app` at runtime (so the signature stays valid); all data goes to the data folder.
+Produces `dist/MovieDB-<version>-macOS-<arch>.dmg`. The script downloads Python from [python-build-standalone](https://github.com/astral-sh/python-build-standalone), installs dependencies for macOS (keeping only the target architecture of universal binaries), precompiles bytecode, builds the launcher from `packaging/macos/launcher.c` (Python lives in `Contents/MacOS/MovieDB-python` so the process belongs to MovieDB.app), signs ad hoc and packs an LZMA-compressed `.dmg`. Apple silicon Macs can build both architectures. The app never writes inside the `.app` at runtime (so the signature stays valid); all data goes to the data folder.
 
 ### ffprobe
 

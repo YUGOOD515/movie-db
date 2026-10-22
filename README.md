@@ -15,7 +15,7 @@ A self-hosted movie & TV library for videos stored on cloud drives. MovieDB read
 - **Smart discovery** — scans the AList folders you choose, cleans up release names, matches them on TMDB and works out seasons and episodes. Uncertain names can go to an AI model (any OpenAI-compatible API; DeepSeek recommended). Results are grouped into *Ready*, *Review* and *Unrecognized*, and you confirm in bulk.
 - **Link editor** — check every file against TMDB episodes, fix numbering with a visual filename-rule editor, handle per-folder seasons, continuous numbering and multiple versions of the same episode.
 - **Local playback** — opens AList links in MPC-HC, IINA, mpv, VLC or the system default app; MPC-HC, IINA and mpv record progress and resume where you left off.
-- **Desktop app** — Windows installer or portable zip, macOS `.dmg` for Apple silicon and Intel; bundles Python, all dependencies and ffprobe, and lives in the system tray / menu bar.
+- **Desktop app** — Windows installer or portable zip, macOS `.dmg` for Apple silicon and Intel; bundles Python, all dependencies and ffprobe, and runs in its own native window (the system WebView2 / WKWebView — no bundled browser engine).
 - **Guided setup** — a first-run walkthrough and a settings page that checks each service as you configure it.
 - **Optional remote access** — reach the library through a Cloudflare Tunnel, with a read-only snapshot on Cloudflare Workers when your computer is offline.
 
@@ -40,13 +40,13 @@ Download the latest version from [Releases](https://github.com/YUGOOD515/movie-d
 
 ### Windows
 
-Run `MovieDB-Setup-<version>.exe`. It installs for the current user into `%LOCALAPPDATA%\Programs\MovieDB` without administrator rights. Start **MovieDB** from the Start menu or desktop; it stays in the system tray with Open MovieDB, Settings, Open data folder, View log, Restart and Quit. Launching it again just opens the page.
+Run `MovieDB-Setup-<version>.exe`. It installs for the current user into `%LOCALAPPDATA%\Programs\MovieDB` without administrator rights. Start **MovieDB** from the Start menu or desktop; it opens in its own window using the Microsoft Edge WebView2 built into Windows (systems without it fall back to the browser). Closing the window keeps MovieDB running in the background so scans and sync carry on; the tray icon offers Open MovieDB, Settings, Open data folder, View log, Restart and Quit. Launching it again brings the existing window to the front.
 
 Prefer no installer? Use `MovieDB-<version>-portable.zip`: unzip and run `MovieDB.cmd`. The portable version keeps its data next to the program, so you can carry the whole folder around.
 
 ### macOS
 
-Download `MovieDB-<version>-macOS-arm64.dmg` (Apple silicon) or `-x86_64.dmg` (Intel); macOS 11 or later. Open the `.dmg` and drag MovieDB into **Applications**. MovieDB shows an icon in the menu bar only (no Dock icon).
+Download `MovieDB-<version>-macOS-arm64.dmg` (Apple silicon) or `-x86_64.dmg` (Intel); macOS 11 or later. Open the `.dmg` and drag MovieDB into **Applications**. MovieDB opens in its own window and stays in the Dock: closing the window keeps it running, clicking the Dock icon reopens it and ⌘Q quits. The MovieDB menu has Settings (⌘,), Open data folder, View log and Restart; the Go menu has Back / Forward (⌘[ / ⌘]).
 
 The app is not signed with an Apple Developer ID, so the first launch is blocked. Open **System Settings → Privacy & Security** and click **Open Anyway** (needed once), or run:
 
@@ -60,7 +60,7 @@ Install the new version over the old one. Your library and settings live in a se
 
 ## Getting started
 
-MovieDB opens `http://127.0.0.1:5000` in your browser. On first launch a full-screen walkthrough connects everything, while a poster wall lights up as you go:
+MovieDB serves `http://127.0.0.1:5000` locally and shows it in its window (prefer the browser? Set *Interface* (界面打开方式) under **Settings → Connection → This computer** to the system browser, or `MOVIEDB_UI=browser`). On first launch a full-screen walkthrough connects everything, while a poster wall lights up as you go:
 
 ![First-run walkthrough](docs/images/onboarding.webp)
 
@@ -109,7 +109,7 @@ Requires Python 3.13+ and [uv](https://docs.astral.sh/uv/).
 
 ```sh
 uv sync
-uv run --with pystray python desktop.py   # tray / menu bar icon
+uv run --with pystray --with pywebview python desktop.py   # native window + tray
 uv run python desktop.py                  # console only, Ctrl+C to quit
 uv run --with pytest python -m pytest -q  # tests
 ```

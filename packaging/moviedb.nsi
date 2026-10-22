@@ -16,7 +16,8 @@ ManifestDPIAware true
 
 !define APP "MovieDB"
 !define UNINSTALL_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APP}"
-!define PYTHONW "$INSTDIR\runtime\python\pythonw.exe"
+; MovieDB.exe 是改名并换了图标的 pythonw.exe（任务栏、任务管理器里显示为 MovieDB）
+!define LAUNCHER "$INSTDIR\runtime\python\MovieDB.exe"
 
 Name "${APP}"
 OutFile "${OUTFILE}"
@@ -35,7 +36,7 @@ VIAddVersionKey /LANG=2052 "LegalCopyright" "YUGOOD515"
 !define MUI_UNICON "${STAGE}\moviedb.ico"
 !define MUI_ABORTWARNING
 !define MUI_COMPONENTSPAGE_SMALLDESC
-!define MUI_WELCOMEPAGE_TEXT "将安装 ${APP} ${VERSION}：在本机运行的影视库，读取 AList 中的网盘影片并用 TMDB 补全海报与简介。$\r$\n$\r$\n安装到当前用户目录，不需要管理员权限。安装完成后会在浏览器中打开首次使用引导。"
+!define MUI_WELCOMEPAGE_TEXT "将安装 ${APP} ${VERSION}：在本机运行的影视库，读取 AList 中的网盘影片并用 TMDB 补全海报与简介。$\r$\n$\r$\n安装到当前用户目录，不需要管理员权限。界面使用系统自带的 Microsoft Edge WebView2 显示在独立窗口中（未安装时改用浏览器），安装完成后会打开首次使用引导。"
 !define MUI_FINISHPAGE_RUN
 !define MUI_FINISHPAGE_RUN_TEXT "启动 ${APP}"
 !define MUI_FINISHPAGE_RUN_FUNCTION LaunchApp
@@ -51,14 +52,14 @@ VIAddVersionKey /LANG=2052 "LegalCopyright" "YUGOOD515"
 
 ; 只结束本安装目录里的 MovieDB 进程，不影响其他 Python 程序。
 !macro StopRunning
-    nsExec::Exec `powershell -NoProfile -NonInteractive -Command "Get-Process pythonw,python -ErrorAction SilentlyContinue | Where-Object { $$_.Path -like '$INSTDIR\runtime\*' } | Stop-Process -Force"`
+    nsExec::Exec `powershell -NoProfile -NonInteractive -Command "Get-Process MovieDB,pythonw,python -ErrorAction SilentlyContinue | Where-Object { $$_.Path -like '$INSTDIR\runtime\*' } | Stop-Process -Force"`
     Pop $0
     Sleep 500
 !macroend
 
 Function LaunchApp
     SetOutPath "$INSTDIR\app"
-    Exec '"${PYTHONW}" "$INSTDIR\app\desktop.py"'
+    Exec '"${LAUNCHER}" "$INSTDIR\app\desktop.py"'
 FunctionEnd
 
 Section "${APP}（必需）" SecMain
@@ -75,7 +76,7 @@ Section "${APP}（必需）" SecMain
     File "${STAGE}\VERSION.txt"
 
     SetOutPath "$INSTDIR\app"
-    CreateShortcut "$SMPROGRAMS\${APP}.lnk" "${PYTHONW}" '"$INSTDIR\app\desktop.py"' "$INSTDIR\moviedb.ico" 0 SW_SHOWNORMAL "" "打开 ${APP}"
+    CreateShortcut "$SMPROGRAMS\${APP}.lnk" "${LAUNCHER}" '"$INSTDIR\app\desktop.py"' "$INSTDIR\moviedb.ico" 0 SW_SHOWNORMAL "" "打开 ${APP}"
 
     WriteUninstaller "$INSTDIR\Uninstall.exe"
     WriteRegStr HKCU "${UNINSTALL_KEY}" "DisplayName" "${APP}"
@@ -99,7 +100,7 @@ SectionEnd
 
 Section "桌面快捷方式" SecDesktop
     SetOutPath "$INSTDIR\app"
-    CreateShortcut "$DESKTOP\${APP}.lnk" "${PYTHONW}" '"$INSTDIR\app\desktop.py"' "$INSTDIR\moviedb.ico" 0 SW_SHOWNORMAL "" "打开 ${APP}"
+    CreateShortcut "$DESKTOP\${APP}.lnk" "${LAUNCHER}" '"$INSTDIR\app\desktop.py"' "$INSTDIR\moviedb.ico" 0 SW_SHOWNORMAL "" "打开 ${APP}"
 SectionEnd
 
 Section "-Finish"

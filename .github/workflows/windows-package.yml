@@ -6,6 +6,7 @@ on:
     paths:
       - packaging/**
       - desktop.py
+      - desktop_window.py
       - app.py
       - services/**
       - connectors/**
@@ -134,8 +135,9 @@ jobs:
           $root = "dist\MovieDB"
           $env:MOVIEDB_DATA_DIR = "$env:RUNNER_TEMP\smoke-data"  # 不占用安装测试要检查的用户数据目录
           & "$root\runtime\ffmpeg\ffprobe.exe" -hide_banner -version | Select-Object -First 1
-          & "$root\runtime\python\python.exe" -c "import flask, guessit, PIL, requests, dotenv, pystray; print('依赖可导入')"
-          if ($LASTEXITCODE) { Fail "依赖导入失败" }
+          & "$root\runtime\python\python.exe" packaging\check_runtime.py "$root\app"
+          if ($LASTEXITCODE) { Fail "运行时检查失败（依赖、缩图或窗口组件）" }
+          if (-not (Test-Path "$root\runtime\python\MovieDB.exe")) { Fail "缺少 runtime\python\MovieDB.exe" }
           $server = Start-Process "$root\runtime\python\python.exe" -ArgumentList "$root\app\desktop.py", "--no-browser", "--no-tray", "--port", "5070" -PassThru -RedirectStandardOutput smoke.log -RedirectStandardError smoke.err
           try {
             $ready = $false
@@ -153,6 +155,22 @@ jobs:
             Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
           }
 
+      - name: 原生窗口自检（WebView2）
+        run: |
+          $root = "dist\MovieDB"
+          $env:MOVIEDB_DATA_DIR = "$env:RUNNER_TEMP\window-data"
+          $process = Start-Process "$root\runtime\python\MovieDB.exe" -ArgumentList "`"$root\app\desktop.py`"", "--self-test", "--port", "5073" -PassThru
+          $null = $process.Handle  # 进程退出后才能读到退出码
+          if (-not $process.WaitForExit(150000)) { Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue }
+          $log = "$env:MOVIEDB_DATA_DIR\logs\moviedb.log"
+          Get-Content $log -ErrorAction SilentlyContinue
+          $line = (Select-String -Path $log -Pattern "窗口自检" -ErrorAction SilentlyContinue | Select-Object -Last 1).Line
+          if (-not $process.HasExited -or $process.ExitCode -ne 0 -or $line -notmatch "窗口自检通过") {
+            "::error title=窗口自检失败::$(if ($line) { $line } else { "没有完成（退出码 $($process.ExitCode)）" })"
+            exit 1
+          }
+          "::notice title=窗口自检::$line"
+
       - name: 免安装版把数据留在自己的文件夹
         run: |
           function Fail($message) { "::error::$message"; exit 1 }
@@ -161,7 +179,7 @@ jobs:
           $root = "$env:RUNNER_TEMP\portable\MovieDB"
           if (-not (Test-Path "$root\portable")) { Fail "免安装版缺少 portable 标记" }
           if (Test-Path "dist\MovieDB\portable") { Fail "安装包的组装目录不应带 portable 标记" }
-          $server = Start-Process "$root\runtime\python\pythonw.exe" -ArgumentList "`"$root\app\desktop.py`"", "--no-browser", "--no-tray", "--port", "5072" -PassThru
+          $server = Start-Process "$root\runtime\python\MovieDB.exe" -ArgumentList "`"$root\app\desktop.py`"", "--no-browser", "--no-tray", "--port", "5072" -PassThru
           try {
             $ready = $false
             for ($i = 0; $i -lt 60 -and -not $ready; $i++) {
@@ -187,11 +205,11 @@ jobs:
           Set-Content "$dir\app\.env" "ALIST_ORIGIN=http://127.0.0.1:5244" -Encoding utf8
           Set-Content "$dir\app\static\images\movies\ci.txt" "legacy" -Encoding utf8
           Start-Process $installer.FullName -ArgumentList "/S" -Wait
-          foreach ($path in "$dir\runtime\python\pythonw.exe", "$dir\runtime\ffmpeg\ffprobe.exe", "$dir\app\desktop.py",
+          foreach ($path in "$dir\runtime\python\MovieDB.exe", "$dir\runtime\ffmpeg\ffprobe.exe", "$dir\app\desktop.py",
                             "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\MovieDB.lnk", "$dir\Uninstall.exe") {
             if (-not (Test-Path $path)) { Fail "安装后缺少 $path" }
           }
-          $server = Start-Process "$dir\runtime\python\pythonw.exe" -ArgumentList "`"$dir\app\desktop.py`"", "--no-browser", "--no-tray", "--port", "5071" -WorkingDirectory "$dir\app" -PassThru
+          $server = Start-Process "$dir\runtime\python\MovieDB.exe" -ArgumentList "`"$dir\app\desktop.py`"", "--no-browser", "--no-tray", "--port", "5071" -WorkingDirectory "$dir\app" -PassThru
           try {
             $ready = $false
             for ($i = 0; $i -lt 60 -and -not $ready; $i++) {
@@ -316,7 +334,7 @@ jobs:
           hdiutil detach /tmp/moviedb-dmg -quiet
           app="$RUNNER_TEMP/Applications/MovieDB.app"
           codesign --verify --deep --strict "$app" || { echo "::error::签名无效"; exit 1; }
-          for file in MacOS/MovieDB Resources/runtime/python/bin/python3 Resources/runtime/ffmpeg/ffprobe; do
+          for file in MacOS/MovieDB MacOS/MovieDB-python Resources/runtime/ffmpeg/ffprobe; do
             lipo -info "$app/Contents/$file"
             lipo -info "$app/Contents/$file" | grep -q "${{ matrix.arch }}" || { echo "::error::$file 不是 ${{ matrix.arch }} 架构"; exit 1; }
           done
@@ -340,10 +358,11 @@ jobs:
             done
             return 1
           }
-          # 与从访达打开相同：启动器在后台运行 MovieDB 后立即退出
-          "$APP/Contents/MacOS/MovieDB" --no-browser --no-tray --port 5072 < /dev/null > /dev/null 2>&1
+          # 启动器替换为 Python 进程并一直运行（只运行服务，不打开窗口）
+          "$APP/Contents/MacOS/MovieDB" --no-browser --no-tray --port 5072 < /dev/null > /dev/null 2>&1 &
           wait_ready 5072 || fail "MovieDB.app 没有启动"
-          "$APP/Contents/Resources/runtime/python/bin/python3" -c "import flask, guessit, PIL, requests, dotenv, pystray, AppKit; print('依赖可导入')" || fail "依赖导入失败"
+          PYTHONHOME="$APP/Contents/Resources/runtime/python" "$APP/Contents/MacOS/MovieDB-python" -B -s \
+            packaging/check_runtime.py "$APP/Contents/Resources/app" || fail "运行时检查失败（依赖、缩图或窗口组件）"
           code=$(curl -s -o /dev/null -w "%{http_code}" -H "Accept: text/html" http://127.0.0.1:5072/)
           [ "$code" = 302 ] || fail "首次使用没有跳转到引导页（HTTP $code）"
           curl -sf http://127.0.0.1:5072/setup/status | python3 -c "import json, sys; s = json.load(sys.stdin)['ffprobe']; sys.exit(0 if s['ok'] and s['bundled'] else 1)" || fail "没有识别到内置 ffprobe"
@@ -359,6 +378,24 @@ jobs:
           sleep 1
           codesign --verify --deep --strict "$APP" || fail "运行后 .app 内容被改动（签名失效）"
           echo "MovieDB.app 可用：数据在 $data，运行后签名仍然有效"
+
+      - name: 原生窗口自检（WKWebView）
+        run: |
+          export MOVIEDB_DATA_DIR="$RUNNER_TEMP/window-data"
+          log="$MOVIEDB_DATA_DIR/logs/moviedb.log"
+          "$APP/Contents/MacOS/MovieDB" --self-test --port 5074 < /dev/null > window.out 2>&1 &
+          pid=$!
+          for _ in $(seq 300); do kill -0 $pid 2>/dev/null || break; sleep 0.5; done
+          kill -0 $pid 2>/dev/null && { kill $pid; echo "超时"; }
+          code=0; wait $pid || code=$?
+          cat window.out "$log" 2>/dev/null
+          line=$(grep -h "窗口自检" "$log" window.out 2>/dev/null | tail -1)
+          if [ "$code" -ne 0 ] || ! echo "$line" | grep -q "窗口自检通过"; then
+            echo "::error title=窗口自检失败（${{ matrix.arch }}）::${line:-没有完成（退出码 $code）}"; exit 1
+          fi
+          echo "$line" | grep -q "bundle io.github.yugood515.moviedb" || { echo "::error title=进程没有归属 MovieDB.app::$line"; exit 1; }
+          codesign --verify --deep --strict "$APP" || { echo "::error::打开窗口后 .app 内容被改动（签名失效）"; exit 1; }
+          echo "::notice title=窗口自检（${{ matrix.arch }}）::$line"
 
       - name: 体积
         run: |

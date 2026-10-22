@@ -4780,6 +4780,23 @@ html[data-vt-from="card"]::view-transition-image-pair(media-hero) {
     right: 40px;
 }
 
+.settings-path {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.settings-path.has-picker .form-control {
+    padding-right: 72px;
+}
+
+.settings-path .settings-inline-btn {
+    position: absolute;
+    top: 50%;
+    right: 4px;
+    transform: translateY(-50%);
+}
+
 .settings-inline-btn {
     display: inline-flex;
     align-items: center;

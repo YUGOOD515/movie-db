@@ -4,7 +4,9 @@
     uv run python packaging/build_macos.py --arch x86_64        # Intel 版（在 Apple 芯片上也能组装）
     uv run python packaging/build_macos.py --ffprobe-dir <目录> # 内置 build_ffprobe.sh 编译的精简版 ffprobe
 
-Python 来自 python-build-standalone（与 uv 使用的是同一套），依赖按 macOS 平台下载二进制 wheel。
+Python 来自 python-build-standalone（与 uv 使用的是同一套），依赖按 macOS 平台下载二进制 wheel，
+并去掉用不到的部分（见 slim.py）。Python 可执行文件放在 Contents/MacOS/MovieDB-python，进程因此
+属于 MovieDB.app（程序坞图标、菜单栏、再次打开都由它处理）；界面是 WKWebView 原生窗口（pywebview）。
 只有在 macOS 上才能编译启动器、签名并生成 .dmg；在其他系统上只组装 .app 目录，用于检查内容。
 没有 Apple 开发者证书，所以只做临时（ad-hoc）签名：首次打开时需要在“系统设置 → 隐私与安全性”
 中点“仍要打开”。
@@ -25,8 +27,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from build_windows import (  # noqa: E402  共用：下载缓存、依赖导出、应用文件清单
-    EXTRA_PACKAGES, ROOT, copy_app, download, folder_size, log, megabytes, project_version, uv,
+    EXTRA_PACKAGES, ROOT, binary_only, copy_app, download, folder_size, log, megabytes, project_version, uv,
 )
+from slim import slim_site_packages  # noqa: E402
 
 PYTHON_VERSION = os.environ.get("MOVIEDB_PYTHON_VERSION", "3.13.16")
 PBS_RELEASE = os.environ.get("MOVIEDB_PBS_RELEASE", "20261020")
@@ -78,10 +81,21 @@ def install_packages(target: Path, arch: str, cache: Path) -> None:
     log(f"安装 macOS（{arch}）依赖")
     subprocess.run([uv(), "pip", "install", "--quiet", "-r", str(requirements), "--target", str(target),
                     "--python-platform", TRIPLES[arch], "--python-version",
-                    ".".join(PYTHON_VERSION.split(".")[:2]), "--only-binary", ":all:", "--no-compile"],
+                    ".".join(PYTHON_VERSION.split(".")[:2]), *binary_only(), "--no-compile"],
                    cwd=ROOT, check=True, env={**os.environ, "MACOSX_DEPLOYMENT_TARGET": MINIMUM_MACOS})
     for path in [*target.rglob("__pycache__"), target / "PyObjCTest"]:  # pyobjc-core 自带的测试
         shutil.rmtree(path, ignore_errors=True)
+    log(f"精简依赖，节省 {megabytes(slim_site_packages(target, 'macos', arch))}")
+
+
+def move_python_executable(python: Path, macos: Path) -> Path:
+    """把 bin/python3.x 移到 Contents/MacOS/MovieDB-python（由启动器设置 PYTHONHOME 运行）。"""
+    minor = ".".join(PYTHON_VERSION.split(".")[:2])
+    target = macos / "MovieDB-python"
+    macos.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(python / "bin" / f"python{minor}"), str(target))
+    shutil.rmtree(python / "bin")
+    return target
 
 
 CPU_TYPES = {"x86_64": 0x01000007, "arm64": 0x0100000C}
@@ -159,7 +173,7 @@ def build_launcher(target: Path, arch: str) -> None:
         return
     # 非 macOS 只用于检查组装结果：用等价的 shell 脚本占位
     target.write_text('#!/bin/sh\ncontents="$(cd "$(dirname "$0")/.." && pwd)"\n'
-                      'exec "$contents/Resources/runtime/python/bin/python3" -B -s -E '
+                      'PYTHONHOME="$contents/Resources/runtime/python" exec "$contents/MacOS/MovieDB-python" -B -s '
                       '"$contents/Resources/app/desktop.py" "$@"\n', encoding="utf-8")
     target.chmod(0o755)
 
@@ -185,7 +199,7 @@ def write_info(contents: Path, version: str) -> None:
         "CFBundleInfoDictionaryVersion": "6.0",
         "CFBundleDevelopmentRegion": "zh_CN",
         "LSMinimumSystemVersion": MINIMUM_MACOS,
-        "LSUIElement": True,  # 只在菜单栏显示图标，不占程序坞
+        "LSUIElement": False,  # 窗口模式留在程序坞；浏览器模式运行后改为只在菜单栏显示
         "LSApplicationCategoryType": "public.app-category.entertainment",
         "NSHighResolutionCapable": True,
         "NSHumanReadableCopyright": "YUGOOD515",
@@ -207,6 +221,7 @@ def sign(bundle: Path) -> None:
     """临时签名：先逐个签内置的可执行文件与动态库，再签整个 .app。"""
     binaries = [str(path) for path in (bundle / "Contents" / "Resources").rglob("*")
                 if path.is_file() and not path.is_symlink() and _is_macho(path)]
+    binaries.append(str(bundle / "Contents" / "MacOS" / "MovieDB-python"))
     for start in range(0, len(binaries), 200):
         subprocess.run(["codesign", "--force", "--sign", "-", "--timestamp=none", *binaries[start:start + 200]],
                        check=True)
@@ -260,13 +275,14 @@ def main() -> int:
     ffmpeg = install_ffprobe(resources / "runtime" / "ffmpeg", args.ffprobe_dir.resolve()) if args.ffprobe_dir else None
     count = copy_app(resources / "app")
     precompile(python, resources / "app")
+    move_python_executable(python, contents / "MacOS")
     build_launcher(contents / "MacOS" / "MovieDB", args.arch)
     write_icon(resources)
     write_info(contents, version)
     (resources / "VERSION.txt").write_text(
         f"MovieDB {version}\nPython {PYTHON_VERSION}（python-build-standalone {PBS_RELEASE}）\n"
         f"ffprobe {ffmpeg or '未内置'}\n", encoding="utf-8")
-    log(f"应用文件 {count} 个；Python 与依赖 {megabytes(folder_size(python))}，ffprobe "
+    log(f"应用文件 {count} 个；Python 与依赖 {megabytes(folder_size(python) + folder_size(contents / 'MacOS'))}，ffprobe "
         f"{megabytes(folder_size(resources / 'runtime' / 'ffmpeg')) if ffmpeg else '未内置'}，"
         f"合计 {megabytes(folder_size(bundle))}")
 

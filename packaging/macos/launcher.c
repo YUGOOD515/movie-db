@@ -1,13 +1,12 @@
 /*
  * MovieDB.app 的启动器（Contents/MacOS/MovieDB）。
  *
- * 用内置的 Python 运行 Contents/Resources/app/desktop.py：
- *   -B 不写字节码（.app 里的文件改动会破坏签名），-s 不读用户 site-packages，
- *   -E 忽略本机的 PYTHONHOME / PYTHONPATH 等环境变量。
- *
- * 从访达或程序坞打开时，启动器在后台运行 MovieDB 后立即退出：MovieDB 只在菜单栏显示图标，
- * 再次打开 MovieDB.app 时新进程会发现已在运行，直接在浏览器中打开页面。
- * 在终端里运行时则直接替换为 Python 进程，便于查看输出。
+ * 用内置的 Python（Contents/MacOS/MovieDB-python）运行 Contents/Resources/app/desktop.py，
+ * 并直接替换为 Python 进程：
+ *   - Python 位于 Contents/MacOS 里，进程属于 MovieDB.app，程序坞显示 MovieDB 的名称与图标，
+ *     菜单栏、通知与“再次打开”（点程序坞图标、在访达中双击）都交给同一个进程处理。
+ *   - PYTHONHOME 指向 Contents/Resources/runtime/python（标准库与依赖），并清除本机其他
+ *     PYTHON* 环境变量；-B 不写字节码（.app 里的文件改动会破坏签名），-s 不读用户 site-packages。
  */
 #include <limits.h>
 #include <mach-o/dyld.h>
@@ -16,6 +15,8 @@
 #include <string.h>
 #include <unistd.h>
 
+extern char **environ;
+
 static int parent_dir(char *path) {
     char *slash = strrchr(path, '/');
     if (slash == NULL || slash == path) return 0;
@@ -23,8 +24,25 @@ static int parent_dir(char *path) {
     return 1;
 }
 
+static void clear_python_environment(void) {
+    for (int again = 1; again;) {
+        again = 0;
+        for (char **entry = environ; *entry != NULL; entry++) {
+            if (strncmp(*entry, "PYTHON", 6) != 0) continue;
+            char name[256];
+            size_t length = strcspn(*entry, "=");
+            if (length >= sizeof name) continue;
+            memcpy(name, *entry, length);
+            name[length] = '\0';
+            unsetenv(name);
+            again = 1; /* unsetenv 会改动 environ，重新遍历 */
+            break;
+        }
+    }
+}
+
 int main(int argc, char *argv[]) {
-    char executable[PATH_MAX], contents[PATH_MAX], python[PATH_MAX], script[PATH_MAX];
+    char executable[PATH_MAX], contents[PATH_MAX], python[PATH_MAX], home[PATH_MAX], script[PATH_MAX];
     uint32_t size = sizeof executable;
     if (_NSGetExecutablePath(executable, &size) != 0 || realpath(executable, contents) == NULL) {
         fprintf(stderr, "MovieDB: 无法确定程序位置\n");
@@ -32,32 +50,26 @@ int main(int argc, char *argv[]) {
     }
     /* .../MovieDB.app/Contents/MacOS/MovieDB → .../MovieDB.app/Contents */
     if (!parent_dir(contents) || !parent_dir(contents)) return 1;
-    snprintf(python, sizeof python, "%s/Resources/runtime/python/bin/python3", contents);
+    snprintf(python, sizeof python, "%s/MacOS/MovieDB-python", contents);
+    snprintf(home, sizeof home, "%s/Resources/runtime/python", contents);
     snprintf(script, sizeof script, "%s/Resources/app/desktop.py", contents);
 
-    char **args = calloc((size_t)argc + 5, sizeof *args);
+    clear_python_environment();
+    setenv("PYTHONHOME", home, 1);
+
+    char **args = calloc((size_t)argc + 4, sizeof *args);
     if (args == NULL) return 1;
     int count = 0;
     args[count++] = python;
     args[count++] = "-B";
     args[count++] = "-s";
-    args[count++] = "-E";
     args[count++] = script;
     for (int i = 1; i < argc; i++) {
         if (strncmp(argv[i], "-psn_", 5) != 0) args[count++] = argv[i]; /* 旧系统由访达附加的进程序号 */
     }
     args[count] = NULL;
 
-    if (!isatty(STDOUT_FILENO)) {
-        pid_t child = fork();
-        if (child < 0) {
-            perror("MovieDB: fork");
-            return 1;
-        }
-        if (child > 0) return 0;
-        setsid();
-    }
     execv(python, args);
     perror("MovieDB: 无法启动内置 Python");
-    _exit(127);
+    return 127;
 }

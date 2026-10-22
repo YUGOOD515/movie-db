@@ -184,3 +184,35 @@
         window.showAppToast?.(message, "warning");
     }, true);
 })();
+
+// MovieDB desktop window (pywebview): keep the native title bar in step with
+// the page theme and open other sites in the system browser.
+(() => {
+    let ready = false;
+    const connect = () => {
+        const api = window.pywebview?.api;
+        if (ready || !api?.set_theme) {
+            return;
+        }
+        ready = true;
+        const root = document.documentElement;
+        root.classList.add("is-desktop");
+        const syncTheme = () => api.set_theme(root.dataset.bsTheme === "light" ? "light" : "dark");
+        new MutationObserver(syncTheme).observe(root, { attributes: true, attributeFilter: ["data-bs-theme"] });
+        syncTheme();
+        document.addEventListener("click", (event) => {
+            const link = event.target.closest?.("a[href]");
+            if (!link || event.defaultPrevented || event.button !== 0) {
+                return;
+            }
+            const target = new URL(link.href, location.href);
+            if (!/^https?:$/.test(target.protocol) || target.origin === location.origin) {
+                return;
+            }
+            event.preventDefault();
+            api.open_external(target.href);
+        });
+    };
+    connect();
+    window.addEventListener("pywebviewready", connect);
+})();

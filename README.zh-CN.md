@@ -13,7 +13,7 @@
 - **智能识别待关联**：扫描所选 AList 目录，清洗伪装文件名、搜索 TMDB 并推测季集；拿不准的交给 AI（任意 OpenAI 兼容接口，推荐 DeepSeek）。结果分为“可确认 / 待核对 / 未识别”，一键批量入库。
 - **关联界面**：逐个文件核对 TMDB 单集，用可视化的文件名规则编辑器修正季集，支持按文件夹设季号、连续编号顺延、同一集多个版本。
 - **本机播放**：用 MPC-HC、IINA、mpv、VLC 或系统默认程序打开 AList 播放链接；MPC-HC、IINA、mpv 记录进度并续播。
-- **桌面应用**：Windows 安装包或免安装 zip，macOS 提供 Apple 芯片与 Intel 两种 .dmg；自带 Python、全部依赖和 ffprobe，常驻系统托盘 / 菜单栏。
+- **桌面应用**：Windows 安装包或免安装 zip，macOS 提供 Apple 芯片与 Intel 两种 .dmg；自带 Python、全部依赖和 ffprobe；界面显示在独立的原生窗口里（系统自带的 WebView2 / WKWebView，不附带浏览器内核）。
 - **引导与设置**：首次使用全屏引导，设置页逐项检测连接状态。
 - **远程访问（可选）**：经 Cloudflare Tunnel 远程使用；电脑离线时自动切换到 Cloudflare Workers 上的只读快照。
 
@@ -38,13 +38,13 @@
 
 ### Windows
 
-运行 `MovieDB-Setup-<版本>.exe`，按当前用户安装到 `%LOCALAPPDATA%\Programs\MovieDB`，不需要管理员权限。之后从开始菜单或桌面的“MovieDB”启动，程序常驻系统托盘（打开 MovieDB / 打开设置 / 打开数据文件夹 / 查看日志 / 重启 MovieDB / 退出），重复打开只会打开页面。
+运行 `MovieDB-Setup-<版本>.exe`，按当前用户安装到 `%LOCALAPPDATA%\Programs\MovieDB`，不需要管理员权限。之后从开始菜单或桌面的“MovieDB”启动，界面在 MovieDB 自己的窗口中打开（使用 Windows 自带的 Microsoft Edge WebView2；个别没有它的系统会改用浏览器）。关闭窗口后 MovieDB 继续在后台运行（扫描、同步不中断），托盘图标提供打开 MovieDB / 打开设置 / 打开数据文件夹 / 查看日志 / 重启 MovieDB / 退出；重复打开会把已有窗口带到前面。
 
 不想安装可以用 `MovieDB-<版本>-portable.zip`：解压后运行 `MovieDB.cmd`。免安装版把数据放在自己的文件夹里，整个文件夹可以随身带走。
 
 ### macOS
 
-下载 `MovieDB-<版本>-macOS-arm64.dmg`（Apple 芯片）或 `-x86_64.dmg`（Intel），支持 macOS 11 及以上。打开 .dmg 后把 MovieDB 拖进“应用程序”。启动后只在屏幕顶部菜单栏显示图标，不占程序坞。
+下载 `MovieDB-<版本>-macOS-arm64.dmg`（Apple 芯片）或 `-x86_64.dmg`（Intel），支持 macOS 11 及以上。打开 .dmg 后把 MovieDB 拖进“应用程序”。MovieDB 在自己的窗口中打开，留在程序坞：关闭窗口后继续在后台运行，点程序坞图标重新打开，⌘Q 退出。菜单栏的“MovieDB”菜单里有设置（⌘,）、打开数据文件夹、查看日志和重启，“前往”菜单可返回 / 前进（⌘[ / ⌘]）。
 
 应用没有 Apple 开发者证书签名，首次打开会被拦截：到“系统设置 → 隐私与安全性”底部点“仍要打开”（只需一次），或在终端执行：
 
@@ -58,7 +58,7 @@ xattr -dr com.apple.quarantine /Applications/MovieDB.app
 
 ## 开始使用
 
-MovieDB 会在浏览器中打开 `http://127.0.0.1:5000`。首次使用进入全屏引导，右侧海报墙随进度逐级亮起：
+MovieDB 在本机 `http://127.0.0.1:5000` 运行服务，并在窗口中打开（想用浏览器可在设置 → 连接 → 本机 → 界面打开方式中改为“系统浏览器”）。首次使用进入全屏引导，右侧海报墙随进度逐级亮起：
 
 ![首次使用引导](docs/images/onboarding.webp)
 
@@ -107,7 +107,7 @@ MovieDB 会在浏览器中打开 `http://127.0.0.1:5000`。首次使用进入全
 
 ```sh
 uv sync
-uv run --with pystray python desktop.py   # 托盘 / 菜单栏图标
+uv run --with pystray --with pywebview python desktop.py   # 独立窗口 + 托盘
 uv run python desktop.py                  # 控制台运行，Ctrl+C 退出
 uv run --with pytest python -m pytest -q  # 测试
 ```

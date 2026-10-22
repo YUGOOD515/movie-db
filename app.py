@@ -378,6 +378,19 @@ def settings_restart():
     return jsonify(ok=True, url=handler())
 
 
+@app.post("/desktop/show")
+def desktop_show():
+    """再次打开 MovieDB 时由新启动的进程调用：把已运行实例的窗口带到前台。
+
+    只接受本机桌面启动器的请求（自定义请求头使网页无法跨站直接调用）。
+    """
+    if app.config["READ_ONLY"] or request.headers.get("Cf-Connecting-Ip") \
+            or request.headers.get("X-MovieDB-Desktop") != "1":
+        abort(404)
+    handler = app.config.get("SHOW_WINDOW_HANDLER")
+    return jsonify(shown=bool(handler()) if callable(handler) else False)
+
+
 @app.after_request
 def mark_origin(response):
     # 云端 Worker 根据该标记区分本地应用响应与 Tunnel 离线错误。
