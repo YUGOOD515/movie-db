@@ -3,7 +3,7 @@
 - Pillow：只用来缩图、取环境色与画托盘图标（读写 JPEG / PNG / WebP）。AVIF 编解码（约 7.7 MB）、
   FreeType 字体渲染（约 2 MB）、色彩管理与 Tk / 数学 / 形态学扩展都没有用到；删除后 Pillow 会自动
   跳过对应格式。macOS 上再删掉只被这些扩展引用的动态库（如 libavif、libfreetype）。
-- pywebview：只保留当前平台的后端与对应架构的 WebView2 组件；macOS 上它声明依赖、实际没有导入的
+- pywebview：只保留当前平台的后端；macOS 上它声明依赖、实际没有导入的
   pyobjc Quartz 绑定（约 1.5 MB）也删掉。
 
 删除的清单都在这里，运行时检查见 packaging/check_runtime.py。
@@ -88,9 +88,7 @@ def slim_webview(site: Path, platform: str, arch: str = "x64") -> int:
             saved += _remove(path)
     else:
         saved += _remove(lib / "pywebview-android.jar")
-        for path in (lib / "runtimes").glob("win-*"):
-            if path.name != f"win-{arch}":
-                saved += _remove(path)
+        # lib/runtimes/win-* 要全部保留：edgechromium 导入时逐个查找三种架构的 WebView2Loader
         for path in lib.glob("WebBrowserInterop.*.dll"):
             if not re.search(rf"\.{arch}\.dll$", path.name):
                 saved += _remove(path)
