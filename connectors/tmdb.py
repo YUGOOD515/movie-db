@@ -13,6 +13,7 @@ from time import monotonic
 import requests
 
 from connectors import throttle
+from services import paths
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
@@ -57,7 +58,7 @@ POSTER_SIZE = "w500"
 PROFILE_SIZE = "w342"
 # local_path 形如 images/tt0816692/posters/1.jpg，去掉该前缀即相对 image_root
 LOCAL_PATH_PREFIX = "images"
-DEFAULT_IMAGE_ROOT = PROJECT_ROOT / "static" / "images"
+DEFAULT_IMAGE_ROOT = paths.IMAGE_ROOT
 
 logger = logging.getLogger(__name__)
 
@@ -161,12 +162,12 @@ def remember_media_identity(imdb_id: str, media_type: str, tmdb_id: int):
 
 
 def _token() -> str:
-    """读取 TMDB_TOKEN：优先环境变量，回退项目根目录 .env。"""
+    """读取 TMDB_TOKEN：优先环境变量，回退数据目录的 .env。"""
     token = os.environ.get("TMDB_TOKEN", "").strip()
     if token:
         return token
 
-    env_path = PROJECT_ROOT / ".env"
+    env_path = paths.ENV_PATH
     if env_path.exists():
         for line in env_path.read_text(encoding="utf-8").splitlines():
             if line.startswith("TMDB_TOKEN="):
@@ -174,7 +175,7 @@ def _token() -> str:
                 if token:
                     return token
 
-    raise RuntimeError("未配置 TMDB_TOKEN（环境变量或项目根目录 .env）。")
+    raise RuntimeError(f"未配置 TMDB_TOKEN（环境变量或 {paths.ENV_PATH}）。")
 
 
 def _session() -> requests.Session:

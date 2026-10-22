@@ -1,5 +1,24 @@
 # 更新日志
 
+## v0.3.0
+
+### macOS
+- 新增 macOS 版 `MovieDB.app`（Apple 芯片与 Intel 各一个 .dmg，macOS 11 及以上）：自带 Python、依赖与精简版 ffprobe（https 走系统 Secure Transport），只在菜单栏显示图标；临时签名，首次打开需在“隐私与安全性”中点“仍要打开”。
+- 源码可在 macOS 上直接开发运行：提示框、打开文件夹、重启、AList 自动启动都按系统处理。
+- 播放器可选 MPC-HC / IINA / mpv / VLC / 系统默认程序，留空自动选择已安装的；IINA 与 mpv 通过 JSON IPC 记录观看进度、从上次位置续播。没有找到播放器时提示去设置，不再报错。
+
+### 数据目录
+- 程序与用户数据分开：安装版的媒体库、配置、海报缓存与日志改放在 `%LOCALAPPDATA%\MovieDB`（macOS 为 `~/Library/Application Support/MovieDB`），旧版安装目录里的数据首次启动时自动迁移；免安装版与源码运行仍放在自己的目录。可用 `MOVIEDB_DATA_DIR` 指定位置。
+
+### 安装包
+- 工作流改名为“安装包”，同时构建 Windows 与 macOS 两种架构，并测试免安装版的数据位置、旧版数据迁移与 .dmg 安装后的签名。
+
+### 文档
+- README 改为英文，另附简体中文版（`README.zh-CN.md`），配新的界面截图，覆盖 Windows 与 macOS 安装、首次使用和数据目录。
+- 详细说明按主题移到 `docs/`（英文与简体中文各一套）：添加媒体、配置项、远程访问、开发。
+- 旧 README 里的 2026-10-14 归档准备记录移到 `archive/README.md`。
+- `scripts/build_thumbnails.py` 默认读取数据目录里的媒体库，不再固定读程序目录下的 `library.db`。
+
 ## v0.2.0
 
 ### 设置页

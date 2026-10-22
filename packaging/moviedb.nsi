@@ -1,6 +1,8 @@
 ; MovieDB Windows 安装程序（NSIS 3）。由 packaging/build_windows.py 调用：
 ;   makensis -INPUTCHARSET UTF8 -DVERSION=0.1.0 -DSTAGE=dist\MovieDB -DOUTFILE=... -DFILELIST=... moviedb.nsi
 ; 按当前用户安装到 %LOCALAPPDATA%\Programs\MovieDB，不需要管理员权限。
+; 用户数据（媒体库、.env、海报缓存、日志）在 %LOCALAPPDATA%\MovieDB，升级与卸载程序都不会碰它，
+; 旧版放在 app\ 里的数据由 desktop.py 首次启动时迁移过去。
 
 Unicode true
 SetCompressor /SOLID lzma
@@ -66,7 +68,7 @@ Section "${APP}（必需）" SecMain
     RMDir /r "$INSTDIR\runtime\python"
     SetOutPath "$INSTDIR\runtime"
     File /r "${STAGE}\runtime\python"
-    ; 应用目录里还保存着媒体库（library.db）、配置（.env）与图片缓存，只覆盖程序文件。
+    ; 只覆盖程序文件：旧版的媒体库可能还在 app\ 里等待迁移。
     SetOutPath "$INSTDIR"
     File /r "${STAGE}\app"
     File "${STAGE}\moviedb.ico"
@@ -129,12 +131,13 @@ Section "Uninstall"
     Delete "$INSTDIR\VERSION.txt"
     Delete "$INSTDIR\Uninstall.exe"
 
-    MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "是否同时删除媒体库数据？$\r$\n$\r$\n包括媒体库（library.db）、连接配置（.env）和已下载的海报图片。选择“否”会保留它们，重新安装后可继续使用。" /SD IDNO IDYES remove_data
+    MessageBox MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2 "是否同时删除媒体库数据？$\r$\n$\r$\n包括媒体库（library.db）、连接配置（.env）和已下载的海报图片，位于 $LOCALAPPDATA\${APP}。选择“否”会保留它们，重新安装后可继续使用。" /SD IDNO IDYES remove_data
     ; 保留数据：只删除安装时放入的程序文件（清单由打包脚本生成），目录为空时才删除。
     !include "${FILELIST}"
     RMDir "$INSTDIR"
     Goto done
 remove_data:
+    RMDir /r "$LOCALAPPDATA\${APP}"
     RMDir /r "$INSTDIR\app"
     RMDir "$INSTDIR"
 done:

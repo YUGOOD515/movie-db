@@ -35,3 +35,6 @@ scratch/
 local-test-data/
 .workbuddy/
 .cache/
+
+# local backup db
+library.backup-20261020.db

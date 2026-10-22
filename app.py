@@ -6,8 +6,17 @@ import secrets
 import sqlite3
 import threading
 from pathlib import Path
+from urllib.parse import urlparse
 
-from flask import abort, Flask, flash, g, jsonify, redirect, render_template, request, Response, url_for
+from flask import abort, Flask, flash, g, jsonify, redirect, render_template, request, Response, send_from_directory, url_for
+
+from services import paths
+
+if paths.DATA_DIR != paths.APP_DIR:
+    # 数据目录不在程序目录时以那里的 .env 为准（flask run 只会读取当前目录的 .env）
+    from dotenv import load_dotenv
+
+    load_dotenv(paths.ENV_PATH, override=True)
 
 from models.database import get_db, init_app as init_database
 from models.library import (
@@ -97,9 +106,9 @@ build_selection_viewmodel = _lazy("viewmodels.title_search", "build_selection_vi
 build_deletion_viewmodel = _lazy("viewmodels.deletion", "build_deletion_viewmodel")
 
 
-BASE_DIR = Path(__file__).resolve().parent
-DATABASE_PATH = Path(os.environ.get("MOVIEDB_DATABASE") or BASE_DIR / "library.db")
-IMAGE_ROOT = BASE_DIR / "static" / "images"
+BASE_DIR = paths.APP_DIR
+DATABASE_PATH = paths.database_path()
+IMAGE_ROOT = paths.IMAGE_ROOT
 MAX_BATCH_JSON_BYTES = 1024 * 1024
 READ_ONLY = os.environ.get("MOVIEDB_READ_ONLY", "").strip() == "1"
 READ_ONLY_MESSAGE = "本地 MovieDB 未连接，当前为只读快照。"
@@ -125,7 +134,9 @@ app = Flask(__name__)
 app.config.update(
     DATABASE=DATABASE_PATH,
     IMAGE_ROOT=IMAGE_ROOT,
-    THUMBNAIL_ROOT=BASE_DIR / "static" / "thumbnails",
+    THUMBNAIL_ROOT=paths.THUMBNAIL_ROOT,
+    # 海报与缩略图所在的 static 目录（用户数据）；源码运行时就是程序的 static/
+    MEDIA_ROOT=paths.MEDIA_ROOT,
     SECRET_KEY=os.environ.get("FLASK_SECRET_KEY") or secrets.token_hex(32),
     READ_ONLY=READ_ONLY,
     # 只读快照的元数据：同步时间、AList 地址与已生成的缩略图清单。
@@ -145,11 +156,22 @@ if not READ_ONLY:
     if not os.environ.get("MOVIEDB_TONES_DISABLED"):
         from services.image_tones import start_backfill
 
-        start_backfill(DATABASE_PATH, app.static_folder)
+        start_backfill(DATABASE_PATH, app.config["MEDIA_ROOT"])
     if not os.environ.get("MOVIEDB_AUTOSCAN_DISABLED"):
         from services.media_discovery import start_autoscan
 
         start_autoscan(DATABASE_PATH)
+
+
+def serve_static(filename: str):
+    """/static/images 与 /static/thumbnails 来自数据目录，其余静态资源随程序发布。"""
+    media_root = Path(app.config["MEDIA_ROOT"])
+    if paths.is_media_path(filename) and media_root.resolve() != Path(app.static_folder).resolve():
+        return send_from_directory(media_root, filename, max_age=app.get_send_file_max_age(filename))
+    return app.send_static_file(filename)
+
+
+app.view_functions["static"] = serve_static
 
 
 @app.context_processor
@@ -367,7 +389,7 @@ def mark_origin(response):
 def card_image(path: str | None) -> str | None:
     cache = g.setdefault("card_image_paths", {})
     if path not in cache:
-        options = {"static_root": app.static_folder or BASE_DIR / "static"}
+        options = {"static_root": app.config["MEDIA_ROOT"]}
         if app.config["THUMBNAIL_INDEX"] is not None:
             options["thumbnail_index"] = app.config["THUMBNAIL_INDEX"]
         cache[path] = get_card_image_path(path, **options)
@@ -384,7 +406,7 @@ def image_tone(path: str | None) -> dict | None:
         return {"color": value[0], "blurhash": value[1]} if value else None
     tones = g.get("image_tones")
     if tones is None:
-        tones = g.image_tones = load_tones(app.static_folder or BASE_DIR / "static")
+        tones = g.image_tones = load_tones(app.config["MEDIA_ROOT"])
     return tones.get(path)
 
 
@@ -967,13 +989,30 @@ def play_media_file(file_id: int):
             playback_id=playback_session["playback_id"],
         )
 
+    try:
+        kind, _path = player.resolve_player()
+    except player.PlayerNotFound as error:
+        flash(str(error), "warning")
+        return redirect(_referrer_url())
     video_url = alist.get_video_link(source["alist_path"])
-    player.play_video(
-        video_url,
-        start_position_ms=start_position,
-        progress_callback=save_progress,
-    )
+    try:
+        player.play_video(
+            video_url,
+            start_position_ms=start_position,
+            progress_callback=save_progress,
+        )
+    except OSError:
+        app.logger.exception("Player launch failed: %s", kind)
+        flash(f"无法启动{player.label(kind)}，请在设置 → 播放器中检查程序路径。", "warning")
+        return redirect(_referrer_url())
     return "", 204
+
+
+def _referrer_url() -> str:
+    referrer = urlparse(request.referrer or "")
+    if referrer.netloc == request.host and referrer.path.startswith("/"):
+        return referrer.path + (f"?{referrer.query}" if referrer.query else "")
+    return url_for("index")
 
 
 def _safe_return_url(default_endpoint: str = "title_detail") -> str:

@@ -30,7 +30,11 @@ from pathlib import Path
 from urllib.parse import parse_qsl, quote, urlencode, urlsplit
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-STATIC_ROOT = BASE_DIR / "static"
+sys.path.insert(0, str(BASE_DIR))
+from services import paths  # noqa: E402
+
+STATIC_ROOT = BASE_DIR / "static"  # 随程序发布的样式、脚本与图标
+MEDIA_ROOT = paths.MEDIA_ROOT  # 海报与缩略图（数据目录；源码运行时与 STATIC_ROOT 相同）
 DEFAULT_SYNC_URL = "https://moviedb-router.ccpcudati.workers.dev"
 MAX_PAGES = 20000
 MAX_KEY_BYTES = 1000
@@ -69,7 +73,7 @@ def load_env_file() -> None:
         from dotenv import load_dotenv
     except ImportError:
         return
-    load_dotenv(BASE_DIR / ".env", override=False)
+    load_dotenv(paths.ENV_PATH, override=False)
 
 
 def backup_database(source: Path, target: Path) -> None:
@@ -191,9 +195,15 @@ def render_pages(app, database: Path) -> dict[str, bytes]:
 
 def static_files() -> dict[str, Path]:
     files = {}
-    for path in STATIC_ROOT.rglob("*"):
-        if path.is_file() and not path.name.startswith("."):
-            files["static/" + path.relative_to(STATIC_ROOT).as_posix()] = path
+    separate = MEDIA_ROOT.resolve() != STATIC_ROOT.resolve()
+    for root in (STATIC_ROOT, MEDIA_ROOT) if separate else (STATIC_ROOT,):
+        for path in root.rglob("*"):
+            relative = path.relative_to(root).as_posix()
+            if not path.is_file() or path.name.startswith("."):
+                continue
+            if separate and paths.is_media_path(relative) != (root == MEDIA_ROOT):
+                continue  # 程序目录里的旧图片、数据目录里的非图片都不发布
+            files["static/" + relative] = path
     return files
 
 
@@ -246,7 +256,7 @@ def build_snapshot(source_database: Path, workdir: Path) -> tuple[dict, dict]:
     database = workdir / "library.db"
     backup_database(source_database, database)
     snapshot_at = datetime.now().strftime("%Y-%m-%d %H:%M")
-    thumbnails = thumbnail_index(STATIC_ROOT)
+    thumbnails = thumbnail_index(MEDIA_ROOT)
 
     os.environ["MOVIEDB_READ_ONLY"] = "1"
     os.environ["MOVIEDB_DATABASE"] = str(database)
@@ -256,7 +266,7 @@ def build_snapshot(source_database: Path, workdir: Path) -> tuple[dict, dict]:
 
     from services.image_tones import public_tones
 
-    tones = public_tones(STATIC_ROOT)
+    tones = public_tones(MEDIA_ROOT)
     movie_app.app.config["THUMBNAIL_INDEX"] = frozenset(thumbnails)
     movie_app.app.config["IMAGE_TONES"] = tones
     pages = render_pages(movie_app.app, database)
@@ -286,7 +296,7 @@ def _read(value) -> bytes:
 
 def publish(dry_run: bool = False) -> dict:
     load_env_file()
-    source = Path(os.environ.get("MOVIEDB_SOURCE_DATABASE") or BASE_DIR / "library.db")
+    source = Path(os.environ.get("MOVIEDB_SOURCE_DATABASE") or paths.database_path())
     started = time.monotonic()
     with tempfile.TemporaryDirectory(prefix="moviedb-snapshot-") as directory:
         objects, meta = build_snapshot(source, Path(directory))

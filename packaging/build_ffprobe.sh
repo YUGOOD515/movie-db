@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # 编译只含常见影视格式的精简 ffprobe（LGPL，静态单文件，约 8 MB）。
 #
-#   packaging/build_ffprobe.sh <FFmpeg 源码目录> <输出目录> [win64|native]
+#   packaging/build_ffprobe.sh <FFmpeg 源码目录> <输出目录> [win64|macos-arm64|macos-x86_64|native]
 #
 # win64：在 Linux 上用 mingw-w64 交叉编译 Windows 版，https 走系统自带的 Schannel，不依赖 OpenSSL；
+# macos-arm64 / macos-x86_64：在 macOS 上用 clang 编译（两种架构都能在 Apple 芯片上编译），
+#   https 走系统自带的 Secure Transport，最低支持 macOS 11；
 # native：编译本机版本，仅用于在 Linux 上核对格式覆盖（不带 TLS）。
 #
 # 项目只用 `ffprobe -show_format -show_streams -of json <链接>` 读取时长、码率、分辨率、帧率、
@@ -39,6 +41,12 @@ case "$TARGET" in
     flags+=(--target-os=mingw32 --arch=x86_64 --cross-prefix=x86_64-w64-mingw32-
             --enable-schannel --extra-ldflags=-static --extra-libs="-lws2_32 -lsecur32 -lcrypt32 -lbcrypt")
     ;;
+  macos-arm64|macos-x86_64)
+    arch=${TARGET#macos-}
+    flags+=(--target-os=darwin --arch="$arch" --enable-cross-compile --cc=clang
+            --extra-cflags="-arch $arch -mmacosx-version-min=11.0" --extra-ldflags="-arch $arch -mmacosx-version-min=11.0"
+            --enable-securetransport)
+    ;;
   native) ;;
   *) echo "未知目标：$TARGET" >&2; exit 2 ;;
 esac
@@ -48,7 +56,7 @@ trap 'rm -rf "$build"' EXIT
 cd "$build"
 "$SRC/configure" "${flags[@]}" > configure.log || { tail -40 configure.log; tail -60 ffbuild/config.log; exit 1; }
 exe=ffprobe; [ "$TARGET" = win64 ] && exe=ffprobe.exe
-make -j"$(nproc)" "$exe" > make.log 2>&1 || { tail -60 make.log; exit 1; }
+make -j"$(nproc 2>/dev/null || sysctl -n hw.ncpu)" "$exe" > make.log 2>&1 || { tail -60 make.log; exit 1; }
 strip_tool=strip; [ "$TARGET" = win64 ] && strip_tool=x86_64-w64-mingw32-strip
 "$strip_tool" -o "$OUT/$exe" "$exe"
 # LGPL：随二进制附上许可证、源码地址与完整编译参数，便于他人重新编译替换。

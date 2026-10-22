@@ -42,7 +42,7 @@ class AListProcessTest(unittest.TestCase):
     def test_start_uses_silent_command_and_waits_until_ready(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             directory = Path(temporary_directory).resolve()
-            executable = directory / "alist.exe"
+            executable = directory / alist_process.EXECUTABLE
             executable.touch()
             completed = subprocess.CompletedProcess(
                 [str(executable), "start"],
@@ -73,7 +73,7 @@ class AListProcessTest(unittest.TestCase):
 
     def test_start_tolerates_a_reload_race(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
-            executable = Path(temporary_directory).resolve() / "alist.exe"
+            executable = Path(temporary_directory).resolve() / alist_process.EXECUTABLE
             executable.touch()
             completed = subprocess.CompletedProcess(
                 [str(executable), "start"],
@@ -95,7 +95,7 @@ class AListProcessTest(unittest.TestCase):
     def test_start_rejects_a_directory_without_alist_exe(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             with patch.object(alist_process, "is_alist_running", return_value=False):
-                with self.assertRaisesRegex(FileNotFoundError, "alist.exe"):
+                with self.assertRaisesRegex(FileNotFoundError, alist_process.EXECUTABLE):
                     alist_process.start_alist(temporary_directory)
 
     def test_configured_start_is_opt_in_and_non_fatal(self):

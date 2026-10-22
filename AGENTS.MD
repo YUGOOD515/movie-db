@@ -8,7 +8,7 @@
 
 ## Model
 
-业务数据只存 `library.db`，共八表（`title_basic` / `title_relation` / `title_artwork` / `title_cast` / `media_file` / `playback_progress` / `collection` / `collection_item`）。`title_basic` 保存 TMDB 字段及 IMDb 评分（`average_rating`、`num_votes`），`title_cast` 保存电影和剧集的主要演员。单集直接保存季号与集号，不设置 season 和 collection 实体。读操作集中在 @queries/，写操作集中在 @models/library.py；@connectors/ 对接 TMDB、IMDb 评分文件、MDBList、AList、ffprobe 与 MPC-HC，@services/ 编排录入和播放业务。
+业务数据只存 `library.db`，共八表（`title_basic` / `title_relation` / `title_artwork` / `title_cast` / `media_file` / `playback_progress` / `collection` / `collection_item`）。`title_basic` 保存 TMDB 字段及 IMDb 评分（`average_rating`、`num_votes`），`title_cast` 保存电影和剧集的主要演员。单集直接保存季号与集号，不设置 season 和 collection 实体。读操作集中在 @queries/，写操作集中在 @models/library.py；@connectors/ 对接 TMDB、IMDb 评分文件、MDBList、AList、ffprobe 与本机播放器（MPC-HC / IINA / mpv / VLC），@services/ 编排录入和播放业务。
 
 SQL 代码书写准则：https://www.sqlstyle.guide/zh/
 
@@ -33,6 +33,8 @@ SQL 代码书写准则：https://www.sqlstyle.guide/zh/
 ## 设置
 
 可配置项以 @services/settings.py 的 `SECTIONS` 清单为唯一来源：设置页按它渲染、保存时按它校验并写入 `.env`、测试核对 `.env.example`；新增环境变量时登记到清单并补进 `.env.example`。保存后由 `settings.apply` 让修改立即生效，只有标记 `restart` 的项需要重启（桌面版通过 `app.config["RESTART_HANDLER"]` 重启）。首次引导 `/setup` 只在媒体库建好前出现。
+
+文件位置统一从 @services/paths.py 取：程序文件在 `paths.APP_DIR`，用户数据（`library.db`、`discovery.db`、`.env`、`static/images`、`static/thumbnails`、`imdb/`、`logs/`）在 `paths.DATA_DIR`（源码运行时两者相同，安装版分开）；不要再用 `Path(__file__)` 拼数据路径。代码要同时能在 Windows 与 macOS 上运行，平台差异集中处理（如 `desktop.py`、`connectors/player.py`）。
 
 ## 云端只读快照
 

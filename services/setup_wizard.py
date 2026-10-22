@@ -18,13 +18,13 @@ from urllib.parse import urlparse
 import requests
 
 from connectors import alist, llm, throttle, tmdb
-from services import env_file
+from services import env_file, paths
 
-ROOT = Path(__file__).resolve().parent.parent
-ENV_PATH = ROOT / ".env"
-EXAMPLE_PATH = ROOT / ".env.example"
+ROOT = paths.APP_DIR
+ENV_PATH = paths.ENV_PATH
+EXAMPLE_PATH = paths.ENV_EXAMPLE
 SCHEMA_PATH = ROOT / "migrations" / "library_schema.sql"
-BUNDLED_FFPROBE = ROOT.parent / "runtime" / "ffmpeg" / "ffprobe.exe"
+BUNDLED_FFPROBE = paths.BUNDLED_FFPROBE
 TIMEOUT = 12
 
 SECRET_FIELDS = ("ALIST_PASSWORD", "ALIST_PATH_PASSWORD", "TMDB_TOKEN", "LLM_API_KEY", "MDBLIST_APIKEY")
@@ -357,16 +357,29 @@ def test_ffprobe(form: dict) -> dict:
 
 
 def test_player(form: dict) -> dict:
-    path = _field(form, "MPC_PATH") or r"C:\Program Files\MPC-HC\mpc-hc64.exe"
-    if not Path(path).is_file():
-        return {"ok": False, "message": "没有找到 MPC-HC，请填写程序路径。"}
-    web = _url(_field(form, "MPC_WEB_URL") or "http://127.0.0.1:13579", "Web 接口")
-    details, warnings = ["已找到 MPC-HC"], []
+    from connectors import player
+
+    overrides = {name: _field(form, name) for name in ("PLAYER", "PLAYER_PATH", "MPC_PATH") if name in form}
     try:
-        requests.get(web + "/variables.html", timeout=2)
-        details.append("Web 接口已开启")
-    except requests.RequestException:
-        warnings.append("Web 接口没有响应：MPC-HC 未运行或未开启“Web 界面”，播放时无法记录进度。")
+        kind, path = player.resolve_player(overrides)
+    except player.PlayerNotFound as error:
+        return {"ok": False, "message": str(error)}
+    name = player.label(kind)
+    if kind == "system":
+        return {"ok": True, "message": "将用系统默认程序打开", "details": ["没有找到 IINA、mpv 等播放器"],
+                "warnings": ["系统默认程序无法记录观看进度。"]}
+    details, warnings = [f"已找到 {name}"], []
+    if kind == "mpc-hc":
+        web = _url(_field(form, "MPC_WEB_URL") or os.environ.get("MPC_WEB_URL") or "http://127.0.0.1:13579", "Web 接口")
+        try:
+            requests.get(web + "/variables.html", timeout=2)
+            details.append("Web 接口已开启")
+        except requests.RequestException:
+            warnings.append("Web 接口没有响应：MPC-HC 未运行或未开启“Web 界面”，播放时无法记录进度。")
+    elif kind in player.TRACKS_PROGRESS:
+        details.append("可以记录观看进度")
+    else:
+        warnings.append(f"{name}无法记录观看进度。")
     return {"ok": True, "message": "可以播放", "details": details, "warnings": warnings}
 
 
