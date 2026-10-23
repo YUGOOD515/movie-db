@@ -29,7 +29,7 @@
 ## 准备
 
 - **AList**（v3），并挂载好网盘。MovieDB 可以代为启动本机的 AList。
-- 免费的 **TMDB API 读访问令牌**：[themoviedb.org → 设置 → API](https://www.themoviedb.org/settings/api)。
+- 海报与资料来自 TMDB：安装包已内置访问密钥，不需要自己申请（也可以在设置里换成自己的）。
 - 可选：**MDBList** API Key（补充评分）、**AI** 平台的 API Key（更准确的识别）、**播放器**（Windows 推荐 MPC-HC，macOS 推荐 IINA，也可用 mpv / VLC）。
 
 ## 安装
@@ -62,12 +62,10 @@ MovieDB 在本机 `http://127.0.0.1:5000` 运行服务（5000 端口被其他程
 
 ![首次使用引导](docs/images/onboarding.webp)
 
-1. **开场**：检测本机 AList 是否在运行、ffprobe 是否可用，以及将要新建的媒体库。
-2. **片源 · AList**：填写地址和账号。“连接”时检查登录、可见的存储，以及“签名所有”是否开启（取播放链接需要）；AList 暂时没开也可以跳过检测。
-3. **海报与资料 · TMDB**：粘贴 API 读访问令牌（页内有获取步骤）。网络访问不了 TMDB 时可以填只对 TMDB 生效的代理。
-4. **AI 识别（可选）**：选平台（DeepSeek、硅基流动、智谱、Gemini、OpenRouter、OpenAI 等）并填 API Key，模型与接口地址自动填好。
-5. **评分（可选）**：填写 MDBList API Key，补充烂番茄、Metacritic 等评分。
-6. **完成**：自动创建空媒体库，并直接打开“添加扫描目录”。
+1. **开场**：检测本机 AList 是否在运行、ffprobe 是否可用、将要新建的媒体库，并用内置密钥自动连接 TMDB（`api.themoviedb.org` 连不上时自动改用官方备用域名 `api.tmdb.org`）。
+2. **片源 · AList**：填写地址和账号。“连接”时检查登录、可见的存储，以及“签名所有”是否开启（取播放链接需要）；AList 暂时没开也可以跳过检测。TMDB 已连通时，这一步之后直接完成设置。
+3. **海报与资料 · TMDB**（仅在 TMDB 连不上时出现）：填写只对 TMDB 生效的代理；海报加载不出来时可开启公共图片加速（wsrv.nl）；也可以填自己的 TMDB 密钥。
+4. **完成**：自动创建空媒体库，并直接打开“添加扫描目录”。完成页列出可选增强：**AI 识别**（智谱 GLM-4.7-Flash 免费可用，也支持 DeepSeek、硅基流动、Gemini、OpenRouter、OpenAI 等）与 **MDBList** 多平台评分，都在设置页开启。
 
 之后在侧栏“媒体资源管理 → 关联”添加 AList 目录，确认识别结果即可。详见[添加媒体](docs/zh-CN/adding-media.md)。
 

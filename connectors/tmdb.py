@@ -18,12 +18,46 @@ from services import paths
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 DEFAULT_API_ORIGIN = "https://api.themoviedb.org/3"
+# 官方备用域名：国内 api.themoviedb.org 常被 DNS 污染，api.tmdb.org 大多能直连。
+OFFICIAL_API_ORIGINS = (DEFAULT_API_ORIGIN, "https://api.tmdb.org/3")
 DEFAULT_IMAGE_ORIGIN = "https://image.tmdb.org/t/p"
+# 公共图片 CDN（第三方），image.tmdb.org 受干扰时由用户选择启用。
+WSRV_IMAGE_ORIGIN = "https://wsrv.nl/?url=https://image.tmdb.org/t/p"
+
+# 安装包打包时由 CI 写入 connectors/tmdb_builtin.py（Git 忽略）；源码运行没有内置密钥。
+try:
+    from connectors.tmdb_builtin import TOKEN as BUILTIN_TOKEN
+except ImportError:
+    BUILTIN_TOKEN = ""
+
+_active_origin: str | None = None
+
+
+def configured_api_origin() -> str:
+    return (os.environ.get("TMDB_API_ORIGIN", "").strip() or DEFAULT_API_ORIGIN).rstrip("/")
 
 
 def api_origin() -> str:
-    """每次读取环境变量：设置页修改接口地址后立即生效。"""
-    return (os.environ.get("TMDB_API_ORIGIN", "").strip() or DEFAULT_API_ORIGIN).rstrip("/")
+    """每次读取环境变量：设置页修改接口地址后立即生效。
+
+    配置的是官方域名时，若本次运行中已切换到另一个官方域名，沿用切换后的；自定义镜像不做切换。
+    """
+    configured = configured_api_origin()
+    if _active_origin and configured in OFFICIAL_API_ORIGINS:
+        return _active_origin
+    return configured
+
+
+def alternate_origin(origin: str) -> str | None:
+    if origin not in OFFICIAL_API_ORIGINS:
+        return None
+    return next(item for item in OFFICIAL_API_ORIGINS if item != origin)
+
+
+def use_origin(origin: str | None) -> None:
+    """记住本次运行可用的官方域名（不写入 .env）；None 表示恢复按配置。"""
+    global _active_origin
+    _active_origin = origin if origin in OFFICIAL_API_ORIGINS else None
 
 
 def image_origin() -> str:
@@ -33,6 +67,9 @@ def image_origin() -> str:
 LANGUAGE = "zh-CN"
 IMAGE_LANGUAGE = "zh,null"
 REQUEST_TIMEOUT = 20
+# 接口请求：连接阶段快速失败，以便换用备用域名。
+API_TIMEOUT = (6, REQUEST_TIMEOUT)
+V3_API_KEY = re.compile(r"[0-9a-f]{32}")
 ARTWORK_LIMIT = 5
 CAST_LIMIT = 24
 DOWNLOAD_ATTEMPTS = 3
@@ -161,8 +198,8 @@ def remember_media_identity(imdb_id: str, media_type: str, tmdb_id: int):
     _remember(("find", imdb_id, LANGUAGE), (media_type, {"id": tmdb_id}))
 
 
-def _token() -> str:
-    """读取 TMDB_TOKEN：优先环境变量，回退数据目录的 .env。"""
+def user_token() -> str:
+    """用户自己填写的 TMDB_TOKEN：优先环境变量，回退数据目录的 .env；没有则返回空串。"""
     token = os.environ.get("TMDB_TOKEN", "").strip()
     if token:
         return token
@@ -171,18 +208,38 @@ def _token() -> str:
     if env_path.exists():
         for line in env_path.read_text(encoding="utf-8").splitlines():
             if line.startswith("TMDB_TOKEN="):
-                token = line.split("=", 1)[1].strip()
+                token = line.split("=", 1)[1].strip().strip("'\"")
                 if token:
                     return token
+    return ""
 
-    raise RuntimeError(f"未配置 TMDB_TOKEN（环境变量或 {paths.ENV_PATH}）。")
+
+def token_source() -> str:
+    """"user"：用户自己的密钥；"builtin"：安装包内置；""：都没有。"""
+    if user_token():
+        return "user"
+    return "builtin" if BUILTIN_TOKEN else ""
+
+
+def _token() -> str:
+    token = user_token() or BUILTIN_TOKEN
+    if not token:
+        raise RuntimeError(f"未配置 TMDB 密钥（环境变量 TMDB_TOKEN 或 {paths.ENV_PATH}）。")
+    return token
+
+
+def auth(token: str) -> tuple[dict, dict]:
+    """返回 (请求头, 查询参数)：32 位十六进制是 v3 API Key，其余按 API 读访问令牌（Bearer）。"""
+    if V3_API_KEY.fullmatch(token):
+        return {}, {"api_key": token}
+    return {"Authorization": f"Bearer {token}"}, {}
 
 
 def _session() -> requests.Session:
     session = requests.Session()
-    session.headers.update(
-        {"accept": "application/json", "Authorization": f"Bearer {_token()}"}
-    )
+    headers, params = auth(_token())
+    session.headers.update({"accept": "application/json", **headers})
+    session.params.update(params)
     # 只对 TMDB（接口与图片）走代理，本机 AList 等请求不受影响。
     proxy = os.environ.get("TMDB_PROXY", "").strip()
     if proxy:
@@ -191,10 +248,21 @@ def _session() -> requests.Session:
 
 
 def _get(session: requests.Session, endpoint: str, params: dict) -> dict:
-    response = throttle.call(
-        "tmdb",
-        lambda: session.get(api_origin() + endpoint, params=params, timeout=REQUEST_TIMEOUT),
-    )
+    origin = api_origin()
+
+    def fetch(base: str):
+        return throttle.call("tmdb", lambda: session.get(base + endpoint, params=params, timeout=API_TIMEOUT))
+
+    try:
+        response = fetch(origin)
+    except (requests.ConnectionError, requests.Timeout):
+        alternate = alternate_origin(origin)
+        if not alternate:
+            raise
+        response = fetch(alternate)
+        if _active_origin != alternate:
+            logger.info("TMDB 改用 %s（%s 无法连接）", alternate, origin)
+        use_origin(alternate)
     response.raise_for_status()
     return response.json()
 
@@ -644,7 +712,9 @@ def _download_image(session: requests.Session, image_url: str, target_path: Path
         try:
             with throttle.call(
                 "tmdb-image",
-                lambda: session.get(image_url, timeout=REQUEST_TIMEOUT, stream=True),
+                # 图片地址可能是第三方 CDN：去掉会话里的 TMDB 密钥（值为 None 时 requests 不发送该项）。
+                lambda: session.get(image_url, timeout=REQUEST_TIMEOUT, stream=True,
+                                    headers={"Authorization": None}, params={"api_key": None}),
             ) as response:
                 response.raise_for_status()
                 content_type = response.headers.get("Content-Type", "")
