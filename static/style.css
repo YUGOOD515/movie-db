@@ -1367,6 +1367,17 @@ body.detail-overview-open [data-episode-target] {
     height: 0.95rem;
 }
 
+a.detail-rating-item {
+    color: inherit;
+    text-decoration: none;
+}
+
+a.detail-rating-item:hover .detail-rating-score,
+a.detail-rating-item:focus-visible .detail-rating-score {
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+}
+
 .season-rating-logo.detail-rating-logo--imdb {
     height: 0.95rem;
 }

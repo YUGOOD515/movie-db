@@ -14,6 +14,8 @@ def fast_throttle(monkeypatch):
     throttle.reset()
     from connectors import alist
     alist.forget_token()
+    # 豆瓣默认开启：测试里关掉，避免录入用例真的访问豆瓣（需要的用例自行开启并打桩）
+    monkeypatch.setenv("DOUBAN_ENABLED", "0")
     yield
     throttle.reset()
     alist.forget_token()

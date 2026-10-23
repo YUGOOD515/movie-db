@@ -90,6 +90,7 @@
 | `TMDB_PROXY` | 访问 TMDB 用的 HTTP 代理（只对 TMDB 生效），如 `http://127.0.0.1:7890` |
 | `TMDB_API_ORIGIN`、`TMDB_IMAGE_ORIGIN` | 反向代理或镜像地址，默认 `https://api.themoviedb.org/3`、`https://image.tmdb.org/t/p` |
 | `MDBLIST_APIKEY` | MDBList API Key，补充烂番茄、Metacritic 等评分 |
+| `DOUBAN_ENABLED` | 录入和刷新评分时获取豆瓣评分（默认开启，设为 `0` 关闭）。使用豆瓣 App 的非官方接口，可能随时失效；豆瓣拒绝访问时自动暂停 30 分钟 |
 | `IMDB_RATINGS_PATH` | IMDb 官方评分文件位置，默认数据目录的 `imdb/` |
 
 **AI 识别**（OpenAI 兼容接口，详见[添加媒体 · AI 识别](adding-media.md#ai-识别)）

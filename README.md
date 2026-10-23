@@ -11,7 +11,7 @@ A self-hosted movie & TV library for videos stored on cloud drives. MovieDB read
 ## Features
 
 - **Library** — a home page with a “Latest additions” carousel, continue watching, unwatched and top-rated rows; browse by genre, year, rating and language; favorites and custom collections; light and dark themes.
-- **Rich detail pages** — TMDB artwork, title logos, cast, overview; ratings from IMDb, Rotten Tomatoes, Metacritic, Letterboxd and Trakt; file details (4K, HDR10 / Dolby Vision, codecs, audio channels) read by ffprobe; season and episode browser.
+- **Rich detail pages** — TMDB artwork, title logos, cast, overview; ratings from IMDb, Douban, Rotten Tomatoes, Metacritic, Letterboxd and Trakt; file details (4K, HDR10 / Dolby Vision, codecs, audio channels) read by ffprobe; season and episode browser.
 - **Smart discovery** — scans the AList folders you choose, cleans up release names, matches them on TMDB and works out seasons and episodes. Uncertain names can go to an AI model (any OpenAI-compatible API; DeepSeek recommended). Results are grouped into *Ready*, *Review* and *Unrecognized*, and you confirm in bulk.
 - **Link editor** — check every file against TMDB episodes, fix numbering with a visual filename-rule editor, handle per-folder seasons, continuous numbering and multiple versions of the same episode.
 - **Local playback** — opens AList links in MPC-HC, IINA, mpv, VLC or the system default app; MPC-HC, IINA and mpv record progress and resume where you left off.
