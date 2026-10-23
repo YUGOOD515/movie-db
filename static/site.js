@@ -184,3 +184,54 @@
         window.showAppToast?.(message, "warning");
     }, true);
 })();
+
+// MovieDB desktop window (pywebview): keep the native title bar in step with
+// the page theme and open other sites in the system browser.
+(() => {
+    // WKWebView (macOS window) never asks about "beforeunload", so pages with
+    // unsaved changes would be left silently. Ask the same listeners ourselves:
+    // the native menu (back / reload / settings…) and in-app links call this first.
+    const canLeave = () => {
+        const probe = new Event("beforeunload", { cancelable: true });
+        window.dispatchEvent(probe);
+        return !probe.defaultPrevented;
+    };
+    window.moviedbConfirmLeave = () => canLeave() || window.confirm("有未保存的修改，离开后会丢失。确定离开吗？");
+    const isMac = /Macintosh|Mac OS X/.test(navigator.userAgent);
+    let ready = false;
+    const connect = () => {
+        const api = window.pywebview?.api;
+        if (ready || !api?.set_theme) {
+            return;
+        }
+        ready = true;
+        const root = document.documentElement;
+        root.classList.add("is-desktop");
+        const syncTheme = () => api.set_theme(root.dataset.bsTheme === "light" ? "light" : "dark");
+        new MutationObserver(syncTheme).observe(root, { attributes: true, attributeFilter: ["data-bs-theme"] });
+        syncTheme();
+        document.addEventListener("click", (event) => {
+            const link = event.target.closest?.("a[href]");
+            if (!link || event.defaultPrevented || event.button !== 0) {
+                return;
+            }
+            const target = new URL(link.href, location.href);
+            if (!/^https?:$/.test(target.protocol)) {
+                return;
+            }
+            if (target.origin === location.origin) {
+                const samePage = target.pathname === location.pathname && target.search === location.search;
+                const special = link.target || link.hasAttribute("download")
+                    || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey;
+                if (isMac && !samePage && !special && !window.moviedbConfirmLeave()) {
+                    event.preventDefault();
+                }
+                return;
+            }
+            event.preventDefault();
+            api.open_external(target.href);
+        });
+    };
+    connect();
+    window.addEventListener("pywebviewready", connect);
+})();

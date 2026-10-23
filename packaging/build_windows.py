@@ -1,5 +1,9 @@
 """组装 Windows 安装包：嵌入式 Python + 依赖 + ffprobe + 应用代码，再用 NSIS 打包。
 
+界面用系统自带的 WebView2 显示（pywebview），不附带浏览器内核；依赖里用不到的部分由 slim.py 删除。
+启动程序 runtime/python/MovieDB.exe 是 pythonw.exe 的副本，换上 MovieDB 的图标与名称（有 rcedit 时），
+任务栏、任务管理器与“打开方式”里显示为 MovieDB 而不是 Python。
+
     uv run python packaging/build_windows.py              # 输出到 dist/
     uv run python packaging/build_windows.py --no-ffprobe # 不内置 ffprobe
     uv run python packaging/build_windows.py --ffprobe-dir <目录>
@@ -25,6 +29,9 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from slim import slim_site_packages  # noqa: E402
+
 ROOT = Path(__file__).resolve().parent.parent
 PYTHON_VERSION = os.environ.get("MOVIEDB_PYTHON_VERSION", "3.13.16")
 PYTHON_URL = f"https://www.python.org/ftp/python/{PYTHON_VERSION}/python-{PYTHON_VERSION}-embed-amd64.zip"
@@ -33,7 +40,10 @@ FFMPEG_FALLBACK = ("https://github.com/BtbN/FFmpeg-Builds/releases/download/late
                    "ffmpeg-n8.1-latest-win64-lgpl-shared-8.1.zip")
 # 只取 ffprobe 及其依赖的动态库；LGPL 版本可随软件分发。
 FFPROBE_FILES = re.compile(r"(ffprobe\.exe|(avcodec|avdevice|avfilter|avformat|avutil|swresample|swscale)-\d+\.dll)$", re.I)
-EXTRA_PACKAGES = ["pystray==0.19.5"]  # 托盘图标，仅桌面版需要
+# 仅桌面版需要：托盘图标、原生窗口（pywebview 使用系统自带的 WebView2 / WKWebView，不附带浏览器内核）
+EXTRA_PACKAGES = ["pystray==0.19.5", "pywebview==6.2.1"]
+SOURCE_ONLY = ["proxy_tools"]  # pywebview 的依赖，只发布了源码包（纯 Python）
+RCEDIT_URL = "https://github.com/electron/rcedit/releases/download/v2.0.0/rcedit-x64.exe"
 # 不随安装包分发的仓库内容：开发资料、测试与示例数据。
 EXCLUDED = ("tests/", "archive/", "packaging/", "scratch/", ".planning/", ".claude/", ".github/", "data/",
             "media_names.json", "AGENTS.MD", "uv.lock", ".gitignore", ".python-version")
@@ -106,6 +116,32 @@ def install_python(target: Path, cache: Path) -> None:
     # 嵌入版默认不读 site-packages；._pth 指定模块搜索路径（相对 python.exe 所在目录）。
     (target / f"python{tag}._pth").write_text(
         f"python{tag}.zip\n.\nLib\\site-packages\n..\\..\\app\nimport site\n", encoding="utf-8")
+    (target / "python.cat").unlink(missing_ok=True)  # 安装程序用的签名目录，运行时用不到
+
+
+def make_launcher(python: Path, icon: Path, version: str, cache: Path) -> bool:
+    """MovieDB.exe：pythonw.exe 的副本（同样读取 python3xx._pth），换上 MovieDB 的图标与版本信息。
+
+    只能在 Windows 上改资源（rcedit）；改不了时仍复制，任务栏图标由窗口自己设置。返回是否改好了资源。
+    """
+    launcher = python / "MovieDB.exe"
+    shutil.copy2(python / "pythonw.exe", launcher)
+    if os.name != "nt":
+        return False
+    try:
+        rcedit = download(os.environ.get("MOVIEDB_RCEDIT_URL", RCEDIT_URL), cache / "rcedit-x64.exe")
+        subprocess.run([str(rcedit), str(launcher), "--set-icon", str(icon),
+                        "--set-version-string", "FileDescription", "MovieDB",
+                        "--set-version-string", "ProductName", "MovieDB",
+                        "--set-version-string", "CompanyName", "YUGOOD515",
+                        "--set-version-string", "InternalName", "MovieDB",
+                        "--set-version-string", "OriginalFilename", "MovieDB.exe",
+                        "--set-file-version", version, "--set-product-version", version],
+                       check=True, capture_output=True)
+        return True
+    except (OSError, subprocess.CalledProcessError) as error:
+        log(f"没能修改 MovieDB.exe 的图标（{error}），沿用 Python 的图标")
+        return False
 
 
 def install_packages(target: Path, cache: Path) -> None:
@@ -117,10 +153,16 @@ def install_packages(target: Path, cache: Path) -> None:
     log("安装 Windows 依赖")
     subprocess.run([uv(), "pip", "install", "--quiet", "-r", str(requirements), "--target", str(target),
                     "--python-platform", "x86_64-pc-windows-msvc", "--python-version",
-                    ".".join(PYTHON_VERSION.split(".")[:2]), "--only-binary", ":all:", "--no-compile"],
+                    ".".join(PYTHON_VERSION.split(".")[:2]), *binary_only(), "--no-compile"],
                    cwd=ROOT, check=True)
     for path in list(target.rglob("__pycache__")):
         shutil.rmtree(path, ignore_errors=True)
+    log(f"删去用不到的依赖部分，节省 {megabytes(slim_site_packages(target, 'windows', 'x64'))}")
+
+
+def binary_only() -> list[str]:
+    """只装预编译的 wheel（跨平台组装需要），只有源码包的纯 Python 依赖例外。"""
+    return ["--only-binary", ":all:", *(arg for name in SOURCE_ONLY for arg in ("--no-binary", name))]
 
 
 def install_slim_ffprobe(target: Path, source: Path) -> str:
@@ -232,12 +274,14 @@ def main() -> int:
         ffmpeg = install_ffprobe(stage / "runtime" / "ffmpeg", cache)
     count = copy_app(stage / "app")
     write_icon(stage / "moviedb.ico")
+    branded = make_launcher(stage / "runtime" / "python", stage / "moviedb.ico", version, cache)
     (stage / "MovieDB.cmd").write_text(  # 免安装版的启动方式；安装版使用开始菜单快捷方式
-        '@echo off\r\nstart "" "%~dp0runtime\\python\\pythonw.exe" "%~dp0app\\desktop.py"\r\n', encoding="utf-8")
+        '@echo off\r\nstart "" "%~dp0runtime\\python\\MovieDB.exe" "%~dp0app\\desktop.py"\r\n', encoding="utf-8")
     (stage / "VERSION.txt").write_text(f"MovieDB {version}\nPython {PYTHON_VERSION}\nffprobe {ffmpeg or '未内置'}\n",
                                        encoding="utf-8")
 
     parts = {name: folder_size(stage / name) for name in ("runtime/python", "runtime/ffmpeg", "app")}
+    log(f"MovieDB.exe {'已换上 MovieDB 图标' if branded else '沿用 Python 图标'}")
     log(f"应用文件 {count} 个；Python 与依赖 {megabytes(parts['runtime/python'])}，"
         f"ffprobe {megabytes(parts['runtime/ffmpeg']) if ffmpeg else '未内置'}，应用 {megabytes(parts['app'])}，"
         f"合计 {megabytes(folder_size(stage))}")
@@ -270,6 +314,7 @@ def main() -> int:
             file.write("### MovieDB Windows 安装包\n\n| 文件 | 大小 |\n|---|---|\n")
             file.writelines(f"| {output.name} | {megabytes(output.stat().st_size)} |\n" for output in outputs)
             file.write(f"| 安装后占用 | {megabytes(folder_size(stage))} |\n")
+            file.write(f"| 其中 Python 与依赖 | {megabytes(parts['runtime/python'])} |\n")
     return 0
 
 

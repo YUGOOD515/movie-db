@@ -26,7 +26,7 @@ Once the library exists, **Manage → Settings** (管理 → 设置, `/settings`
 Each group shows its status and has its own **Check** (检测) button; less common options are under **Advanced** (高级). Save or discard changes in the bar at the bottom.
 
 - Saved passwords and keys are never shown again — leave a field empty to keep it. Optional keys can be cleared individually. Turning AI recognition off also clears its endpoint, model and API key.
-- Settings are written to `.env` in the data folder (existing comments and other variables are preserved) and take effect immediately, except the port (`MOVIEDB_PORT`). After changing the port, the desktop app can restart itself from the settings page or the tray menu (**Restart MovieDB**); other ways of running need a manual restart.
+- Settings are written to `.env` in the data folder (existing comments and other variables are preserved) and take effect immediately, except the port (`MOVIEDB_PORT`) and the interface mode (`MOVIEDB_UI`). After changing either, the desktop app can restart itself from the settings page or the tray menu (**Restart MovieDB**); other ways of running need a manual restart.
 - Settings can only be changed on the computer running MovieDB: they are read-only over a Cloudflare Tunnel and not available in the cloud snapshot.
 - Before a library exists (no `library.db`), `/setup` shows the first-run walkthrough; afterwards it redirects to the settings page.
 
@@ -64,7 +64,8 @@ The settings page covers almost everything. You can also edit `.env` in the data
 
 | Variable | Description |
 |---|---|
-| `MOVIEDB_PORT` | Local port, default `5000`; requires a restart |
+| `MOVIEDB_PORT` | Local port, default `5000`; requires a restart. If it is not set and 5000 is taken by another program (on macOS usually the AirPlay Receiver), the desktop app picks the first free port in 5050–5059 and saves it here |
+| `MOVIEDB_UI` | How the desktop app shows its interface: empty for its own window, `browser` for the system browser; requires a restart |
 | `MOVIEDB_DATA_DIR` | Data folder; defaults are listed [above](#data-folder) |
 | `MOVIEDB_DISCOVERY_DATABASE` | Location of `discovery.db`; defaults to the folder of `library.db` |
 | `FLASK_SECRET_KEY` | Session secret; generated during first-run setup |

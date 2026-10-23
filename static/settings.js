@@ -454,6 +454,29 @@
             refreshPending();
         });
     }
+    // MovieDB 窗口（pywebview）里，程序路径可以用系统的文件选择框选择
+    const pickers = [...root.querySelectorAll("[data-pick-path]")];
+    const enablePickers = () => {
+        if (!window.pywebview?.api?.pick_path) return;
+        for (const button of pickers) {
+            button.hidden = false;
+            button.parentElement.classList.add("has-picker");
+        }
+    };
+    for (const button of pickers) {
+        button.addEventListener("click", async () => {
+            const input = button.parentElement.querySelector("input");
+            const picked = await window.pywebview.api.pick_path(button.dataset.pickPath, input.value.trim());
+            if (!picked) return;
+            input.value = picked;
+            input.dispatchEvent(new Event("input", { bubbles: true }));
+            input.focus();
+        });
+    }
+    if (pickers.length) {
+        enablePickers();
+        addEventListener("pywebviewready", enablePickers);
+    }
     addEventListener("beforeunload", event => { if (!leaving && dirtyCount()) event.preventDefault(); });
 
     showSection(location.hash.slice(1));

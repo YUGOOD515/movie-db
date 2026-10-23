@@ -16,12 +16,13 @@
 
 ```sh
 uv sync
-uv run --with pystray python desktop.py   # 桌面模式：托盘 / 菜单栏图标
-uv run python desktop.py                  # 没有 pystray 时退化为控制台运行，Ctrl+C 退出
+uv run --with pystray --with pywebview python desktop.py   # 桌面模式：独立窗口 + 托盘
+uv run --with pystray python desktop.py --browser          # 旧版方式：系统浏览器 + 托盘 / 菜单栏
+uv run python desktop.py                  # 没有 pywebview / pystray 时退化为浏览器 + 控制台，Ctrl+C 退出
 uv run flask --app app run                # 也可以直接用 Flask 开发服务器
 ```
 
-`desktop.py` 支持 `--port`、`--no-browser`、`--no-tray`。还没有 `library.db` 时页面会进入首次使用引导；也可以照 `.env.example` 手动写 `.env`。
+`desktop.py` 支持 `--port`、`--browser`（用系统浏览器，等同 `MOVIEDB_UI=browser`）、`--no-browser`（只运行服务）、`--no-tray`、`--self-test`（打开窗口检查页面与接口后退出，CI 用）。还没有 `library.db` 时页面会进入首次使用引导；也可以照 `.env.example` 手动写 `.env`。
 
 **macOS**：`brew install uv ffmpeg`，再安装一个播放器（推荐 [IINA](https://iina.io)：`brew install --cask iina`，或 `brew install mpv`），之后与 Windows 相同。AList 可下载 macOS 版手动运行，或把它所在的文件夹填到 `ALIST_DIR` 由 MovieDB 自动启动。
 
@@ -31,6 +32,7 @@ uv run flask --app app run                # 也可以直接用 Flask 开发服�
 |---|---|
 | `app.py` | Flask 路由 |
 | `desktop.py` | 桌面入口：启动服务、托盘 / 菜单栏、单实例、重启 |
+| `desktop_window.py` | 原生窗口（pywebview）：关窗隐藏、记住位置、深浅色标题栏、外链与文件选择框、macOS 菜单 |
 | `queries/` | 只读查询（页面查询只读 `library.db`） |
 | `models/` | 写操作：`library.py`（媒体库）、`discovery_store.py`（`discovery.db`） |
 | `viewmodels/` | 页面 ViewModel |
@@ -88,7 +90,7 @@ uv run flask --app app run --host 127.0.0.1 --port 5000
 uv run python packaging/build_windows.py
 ```
 
-脚本下载 Python 嵌入版、按 Windows 平台安装依赖、复制已纳入 Git 的应用文件（不含测试与开发资料）。有 `makensis`（NSIS 3）时生成安装包，否则生成免安装 zip（解压后运行 `MovieDB.cmd`）。在 Linux 上也能组装。
+脚本下载 Python 嵌入版、按 Windows 平台安装依赖、复制已纳入 Git 的应用文件（不含测试与开发资料），并用 `packaging/slim.py` 删掉用不到的部分（Pillow 的 AVIF / FreeType 等扩展、pywebview 的其他平台后端）。启动程序 `runtime\python\MovieDB.exe` 是换了图标与名称的 `pythonw.exe`（rcedit）。打包后用 `packaging/check_runtime.py` 检查依赖、缩图与窗口组件。有 `makensis`（NSIS 3）时生成安装包，否则生成免安装 zip（解压后运行 `MovieDB.cmd`）。在 Linux 上也能组装。
 
 ### macOS
 
@@ -96,7 +98,7 @@ uv run python packaging/build_windows.py
 uv run python packaging/build_macos.py [--arch arm64|x86_64] [--ffprobe-dir <目录>]
 ```
 
-生成 `dist/MovieDB-<版本>-macOS-<架构>.dmg`。脚本下载 [python-build-standalone](https://github.com/astral-sh/python-build-standalone) 的 Python、按 macOS 平台安装依赖（通用二进制只保留目标架构）、预编译字节码，用 `packaging/macos/launcher.c` 编译启动器，做临时（ad-hoc）签名后打包 .dmg（LZMA 压缩）。Apple 芯片上两种架构都能构建。运行时不会往 .app 里写文件（签名保持有效），数据都在数据目录。
+生成 `dist/MovieDB-<版本>-macOS-<架构>.dmg`。脚本下载 [python-build-standalone](https://github.com/astral-sh/python-build-standalone) 的 Python、按 macOS 平台安装依赖（通用二进制只保留目标架构）、预编译字节码，用 `packaging/macos/launcher.c` 编译启动器（Python 放在 `Contents/MacOS/MovieDB-python`，进程归属 MovieDB.app），做临时（ad-hoc）签名后打包 .dmg（LZMA 压缩）。Apple 芯片上两种架构都能构建。运行时不会往 .app 里写文件（签名保持有效），数据都在数据目录。
 
 ### ffprobe
 

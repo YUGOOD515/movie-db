@@ -187,6 +187,9 @@ SECTIONS: tuple[Section, ...] = (
         Group("app", "本机", "MovieDB 自身", (
             S("MOVIEDB_PORT", "端口", "int", 5000, low=1024, high=65535, restart=True, placeholder="5000",
               hint="桌面版使用的本机端口。"),
+            S("MOVIEDB_UI", "界面打开方式", "select", restart=True,
+              options=(("", "独立窗口（默认）"), ("browser", "系统浏览器")),
+              hint="桌面版的界面显示在 MovieDB 自己的窗口里，还是用系统浏览器打开。"),
         ), icon="pc-display"),
     ), icon="plug"),
     Section("metadata", "元数据", "海报、简介、演员与评分", (

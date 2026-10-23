@@ -19,12 +19,18 @@
             {% if not item.required %}<button class="settings-inline-btn settings-clear" type="button" data-clear hidden>清除</button>{% endif %}
         </div>
     {% else %}
+        {% if item.kind == "path" %}<div class="settings-path">{% endif %}
         <input class="form-control" id="{{ id }}" name="{{ item.name }}"
                type="{{ 'number' if item.kind in ('int', 'float') else 'url' if item.kind == 'url' else 'text' }}"
                {% if item.kind == "int" %}step="1"{% elif item.kind == "float" %}step="any"{% endif %}
                {% if item.low is not none %}min="{{ item.low }}"{% endif %}{% if item.high is not none %}max="{{ item.high }}"{% endif %}
                {% if item.kind == "url" %}inputmode="url"{% endif %}
                placeholder="{{ item.placeholder }}" spellcheck="false" autocomplete="off" data-setting>
+        {% if item.kind == "path" %}
+            {# 只在 MovieDB 窗口里显示：用系统的文件选择框选择程序或文件夹 #}
+            <button class="settings-inline-btn" type="button" data-pick-path="{{ 'folder' if item.name.endswith('_DIR') else 'file' }}" hidden>选择…</button>
+        </div>
+        {% endif %}
     {% endif %}
     <div class="settings-error" data-error="{{ item.name }}" role="alert"></div>
 {% endmacro %}

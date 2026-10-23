@@ -184,8 +184,15 @@ def test_tmdb_origins_follow_environment(monkeypatch):
     assert tmdb.image_origin() == "https://img.example.com/t/p"
 
 
-def test_relaunch_command_reuses_arguments_without_browser():
-    command = desktop.relaunch_command(["--port", "5099", "--no-browser"])
+def test_relaunch_command_reuses_arguments_and_marks_restart():
+    command = desktop.relaunch_command(["--port", "5099", "--no-browser", "--restarted"])
     script = next(index for index, part in enumerate(command) if part.endswith("desktop.py"))
     assert command[0] and command[1:script] == subprocess._args_from_interpreter_flags()
-    assert command[script + 1:] == ["--port", "5099", "--no-browser"]
+    assert command[script + 1:] == ["--port", "5099", "--no-browser", "--restarted"]
+    assert desktop.relaunch_command(["--self-test"])[-1:] == ["--restarted"]
+    assert "--self-test" not in desktop.relaunch_command(["--self-test"])
+    # 重启后回到原来的页面；旧的 --open 不会叠加
+    command = desktop.relaunch_command(["--open", "/manager", "--browser"], "/settings?x=1")
+    assert command[-4:] == ["--browser", "--restarted", "--open", "/settings?x=1"]
+    assert command.count("--open") == 1 and "/manager" not in command
+    assert "--open" not in desktop.relaunch_command(["--open=/x"], "https://example.com/")

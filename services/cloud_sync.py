@@ -53,7 +53,8 @@ def run_publish(database: Path) -> bool:
         environment.pop(name, None)
     try:
         result = subprocess.run(
-            [sys.executable, str(SCRIPT)],
+            # 沿用解释器参数：macOS 应用用 -B -s 运行，子进程同样不写字节码、不读用户 site-packages
+            [sys.executable, *subprocess._args_from_interpreter_flags(), str(SCRIPT)],  # noqa: SLF001
             cwd=BASE_DIR,
             env=environment,
             capture_output=True,
