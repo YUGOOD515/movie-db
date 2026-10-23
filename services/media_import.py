@@ -16,7 +16,7 @@ from connectors import alist, imdb_ratings, media_probe, throttle, tmdb
 from models.database import connect_database, connect_writable
 from models.library import import_media_bundle
 from queries.association import get_series_episodes
-from services.rating_sync import fetch_title_rating
+from services.rating_sync import fetch_douban_rating, fetch_title_rating
 from services.image_tones import ensure_tones
 from services.thumbnails import ensure_thumbnail, normalize_image_path
 
@@ -218,11 +218,24 @@ class _PersistenceError(MediaImportError):
         self.title_id = prepared.input_title_id if prepared else ""
 
 
+def _known_douban_id(library_db: sqlite3.Connection, title_id: str) -> str | None:
+    try:
+        row = library_db.execute("SELECT douban_id FROM title_basic WHERE title_id = ?", (title_id,)).fetchone()
+    except sqlite3.OperationalError:  # 旧媒体库还没有这一列
+        return None
+    return row[0] if row else None
+
+
 def _build_context(library_db: sqlite3.Connection, root_title_id: str) -> ImportContext:
     with ThreadPoolExecutor(max_workers=1) as executor:
         rating_future = executor.submit(fetch_title_rating, root_title_id)
         catalog = load_title_catalog(library_db, root_title_id)
+        # 豆瓣要按电影 / 剧集选接口，等 TMDB 资料到了再查；与 MDBList 并行
+        douban_fields = fetch_douban_rating(
+            root_title_id, catalog["root"]["title_type"], _known_douban_id(library_db, root_title_id))
         rating_result = rating_future.result()
+    if douban_fields:
+        rating_result = {**rating_result, "ratings": {**(rating_result.get("ratings") or {}), **douban_fields}}
 
     metadata = catalog["metadata"]
     root = catalog["root"]
@@ -480,16 +493,23 @@ def _write_prepared_import(
         target_title_id=prepared.target["title_id"],
         alist_path=prepared.alist_path,
         probe=prepared.probe,
+        # MDBList 成功时带全部平台评分，否则只有豆瓣的字段（可能为空）
         ratings_by_title=(
-            {root_title_id: bundle.rating_result["ratings"]}
-            if write_bundle
-            and bundle.rating_result.get("status") == "success"
+            {root_title_id: _ratings_to_write(bundle.rating_result)}
+            if write_bundle and _ratings_to_write(bundle.rating_result)
             else None
         ),
         db=db,
     )
     written_root_ids.add(root_title_id)
     return file_id
+
+
+def _ratings_to_write(rating_result: dict) -> dict:
+    ratings = rating_result.get("ratings") or {}
+    if rating_result.get("status") == "success":
+        return ratings
+    return {key: value for key, value in ratings.items() if key.startswith("douban_")}
 
 
 def _result(prepared: PreparedMediaImport, file_id: int) -> dict:

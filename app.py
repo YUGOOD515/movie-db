@@ -1,5 +1,6 @@
 import importlib
 import json
+import logging
 import os
 import queue
 import secrets
@@ -23,6 +24,7 @@ from models.library import (
     save_library_playback_progress,
     set_library_primary_artworks,
     toggle_library_collection_item,
+    upgrade_library,
 )
 from queries.catalog import get_catalog_options, query_catalog
 from queries.collection import query_collection
@@ -151,6 +153,10 @@ if not READ_ONLY:
     from services.alist_process import start_configured_alist
     from services import cloud_sync
 
+    try:
+        upgrade_library(DATABASE_PATH)
+    except Exception as error:  # 升级失败不影响启动；新功能的列缺失时只是读不到值
+        logging.getLogger(__name__).warning("媒体库升级失败：%s", error)
     start_configured_alist()
     cloud_sync.init_app(app)
     if not os.environ.get("MOVIEDB_TONES_DISABLED"):

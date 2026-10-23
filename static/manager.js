@@ -122,11 +122,14 @@
         let watching = false;
 
         function renderRating(status) {
-            const total = Number(status.total) || 0;
-            const completed = Number(status.completed) || 0;
+            // 先刷新 MDBList，再逐部获取豆瓣评分（约 2 秒一部）
+            const douban = status.phase === "douban";
+            const total = Number(douban ? status.douban_total : status.total) || 0;
+            const completed = Number(douban ? status.douban_completed : status.completed) || 0;
+            const label = douban ? "正在获取豆瓣评分" : "正在刷新评分";
             window.StatusBar.progress("rating", {
                 layer: "task",
-                text: status.current_title_id ? `正在刷新评分 · ${status.current_title_id}` : "正在刷新评分",
+                text: status.current_title_id ? `${label} · ${status.current_title_id}` : label,
                 done: completed,
                 total,
             });
@@ -137,10 +140,14 @@
             if (!watching) return;
             watching = false;
             const failed = Number(status.failed) || 0;
+            const parts = [];
+            if (Number(status.total)) parts.push(`成功 ${status.succeeded || 0} 条${failed ? `，失败 ${failed} 条` : ""}`);
+            if (Number(status.douban_total)) parts.push(`豆瓣 ${status.douban_succeeded || 0} 条`);
+            const warn = failed || status.douban_message;
             window.StatusBar.result("rating", {
-                tone: failed ? "warning" : "success",
-                text: `评分刷新完成：成功 ${status.succeeded || 0} 条${failed ? `，失败 ${failed} 条` : ""}`,
-                duration: failed ? 0 : 5000,
+                tone: warn ? "warning" : "success",
+                text: `评分刷新完成${parts.length ? `：${parts.join("；")}` : ""}${status.douban_message ? `。${status.douban_message}` : ""}`,
+                duration: warn ? 0 : 5000,
             });
         }
 

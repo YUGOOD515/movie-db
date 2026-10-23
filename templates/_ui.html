@@ -39,10 +39,11 @@
 {# 多平台评分；没有同步评分时回退到 IMDb 单项评分。 #}
 {% macro rating_items(ratings=[], imdb_rating=none, imdb_title="IMDb 评分") %}
     {% for rating in ratings %}
-        <span class="detail-rating-item" title="{{ rating.title }}">
+        {% set tag = "a" if rating.url else "span" %}
+        <{{ tag }} class="detail-rating-item"{% if rating.url %} href="{{ rating.url }}" target="_blank" rel="noopener"{% endif %} title="{{ rating.title }}">
             <img class="detail-rating-logo detail-rating-logo--{{ rating.key }}" src="{{ url_for('static', filename=rating.icon) }}" alt="{{ rating.name }}">
             <span class="detail-rating-score detail-rating-score--{{ rating.key }}">{{ rating.score }}</span>
-        </span>
+        </{{ tag }}>
     {% else %}
         {% if imdb_rating is not none and imdb_rating != "" %}
             <span class="detail-rating-item" title="{{ imdb_title }}">
