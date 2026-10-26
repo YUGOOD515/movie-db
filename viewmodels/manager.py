@@ -10,6 +10,7 @@ def build_manager_viewmodel(
     *,
     active_tab: str = "overview",
     return_to: str = "/media",
+    missing: dict[str, int] | None = None,
 ) -> dict:
     artwork_by_title = defaultdict(lambda: defaultdict(list))
     for image in raw["artwork"]:
@@ -43,6 +44,7 @@ def build_manager_viewmodel(
                     "title_detail", title_id=title["title_id"]
                 ),
                 "return_to": return_to,
+                "missing": (missing or {}).get(title["title_id"], 0),
                 "image_options": {
                     option: [
                         {

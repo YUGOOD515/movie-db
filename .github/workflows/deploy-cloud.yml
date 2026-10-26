@@ -9,6 +9,8 @@ on:
       - queries/**
       - viewmodels/**
       - templates/**
+      - services/image_tones.py
+      - services/paths.py
       - services/playback.py
       - services/thumbnails.py
       - cloud/**

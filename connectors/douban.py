@@ -63,10 +63,6 @@ def enabled() -> bool:
     return os.environ.get("DOUBAN_ENABLED", "1").strip().lower() not in ("0", "false", "no", "off")
 
 
-def subject_url(douban_id: str) -> str:
-    return f"https://movie.douban.com/subject/{douban_id}/"
-
-
 def _blocked(reason: str):
     throttle.limiter("douban").pause(BLOCK_PAUSE)
     logger.warning("豆瓣拒绝访问（%s），暂停约 30 分钟", reason)

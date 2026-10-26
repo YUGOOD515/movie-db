@@ -137,7 +137,7 @@
 
                 <div class="overview-media-list row row-cols-1 row-cols-md-2 row-cols-lg-3 gx-4 gy-5" id="overview-card-grid">
                     {% for item in overview.media_items %}
-                        <div class="col overview-col" data-media-item data-id="{{ item.media_id }}" data-type="{{ item.media_type }}" data-name="{{ item.name|lower }}" data-original-name="{{ (item.original_name or '')|lower }}">
+                        <div class="col overview-col">
                             {{ overview_card(item) }}
                         </div>
                     {% endfor %}

@@ -82,10 +82,6 @@ def get_file(path: str, token: str) -> dict:
     }
 
 
-def get_signed_url(path: str, token: str) -> str:
-    return get_file(path, token)["signed_url"]
-
-
 def _response_data(response: requests.Response) -> dict:
     response.raise_for_status()
     payload = response.json()

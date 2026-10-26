@@ -230,12 +230,10 @@ def _verify_ai(answer: dict, expected: str | None, database=None) -> list[dict]:
 
 
 def _library_titles(library_database) -> list[dict]:
+    from queries.association import get_recognition_titles
+
     with closing(connect_database(library_database)) as db:
-        rows = db.execute("""
-            SELECT title_id, display_title, primary_title, original_title, start_year, title_type, tmdb_id
-              FROM title_basic WHERE title_type IN ('movie', 'series')
-        """).fetchall()
-    return [dict(row) for row in rows]
+        return get_recognition_titles(db)
 
 
 def _library_match(titles: list[dict], queries: list[str], expected: str | None) -> dict | None:

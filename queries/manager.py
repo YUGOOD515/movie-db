@@ -21,6 +21,25 @@ def get_rating_title_ids(db: Connection) -> list[str]:
     ]
 
 
+def get_douban_refresh_targets(db: Connection) -> list[dict]:
+    return [
+        dict(row)
+        for row in db.execute(
+            "SELECT title_id, title_type, douban_id FROM title_basic "
+            "WHERE title_type IN ('movie', 'series') ORDER BY title_id"
+        )
+    ]
+
+
+def get_tone_artwork_paths(db: Connection) -> list[str]:
+    return [
+        row[0]
+        for row in db.execute(
+            "SELECT local_path FROM title_artwork WHERE artwork_type IN ('poster', 'landscape_poster')"
+        )
+    ]
+
+
 def query_manager(
     db: Connection,
     *,

@@ -139,10 +139,6 @@ def save_recognition(library_database, record_path: str, signature: str, payload
     )])
 
 
-def forget_recognition(library_database, record_path: str):
-    _write(library_database, [("DELETE FROM recognition WHERE record_path = ?", (record_path,))])
-
-
 # 忽略列表 ---------------------------------------------------------------
 
 def ignored_paths(library_database) -> dict[str, str]:

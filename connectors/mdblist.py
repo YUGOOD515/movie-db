@@ -14,10 +14,9 @@ from typing import Any, Final, Mapping, Optional, Sequence
 import requests
 
 from connectors import throttle
-from services import paths
+from services import env_file, paths
 from models import api_usage
 
-PROJECT_ROOT: Final[Path] = Path(__file__).resolve().parents[1]
 ENV_PATH: Final[Path] = paths.ENV_PATH
 _pending = {}
 _pending_lock = Lock()
@@ -60,21 +59,9 @@ class TitleRatingsSummary:
 # 纯函数：环境配置读取 (Pure Config Loader)
 # ==============================================================================
 
-def load_env_mapping(filepath: Path = ENV_PATH) -> Mapping[str, str]:
-    """纯函数：解析 .env 文件的键值对。"""
-    if not filepath.is_file():
-        return {}
-    lines = filepath.read_text(encoding="utf-8").splitlines()
-    pairs = [
-        line.strip().split("=", 1)
-        for line in lines
-        if line.strip() and not line.strip().startswith("#") and "=" in line
-    ]
-    return {k.strip(): v.strip() for k, v in pairs}
-
 def create_config(overrides: Optional[Mapping[str, Any]] = None) -> Config:
     """纯函数：构造全局只读配置对象。"""
-    env = {**load_env_mapping(), **os.environ}
+    env = {**env_file.read(ENV_PATH), **os.environ}
     if overrides:
         env.update(overrides)
     return Config(

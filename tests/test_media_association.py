@@ -8,7 +8,7 @@ from unittest.mock import patch
 import requests
 import test_library_app as fixtures
 from connectors import alist, media_probe, tmdb
-from services import media_discovery as discovery, media_import
+from services import media_association, media_discovery as discovery, media_import
 
 
 def video(path, created="2026-09-20T10:00:00+08:00"):
@@ -78,26 +78,27 @@ class AssociationIntegrationTest(unittest.TestCase):
         title = self.client.get("/manager/titles/episodes?title_id=tt9000002").json
         self.assertEqual(len(title["episodes"]), 2)
         payload = {"title_id": "tt9000002", "items": [{"path": "/share/S01E01.mkv", "season_number": 2, "episode_number": 1}]}
-        response = self.client.post("/manager/association/check", json=payload)
-        self.assertEqual(response.status_code, 422)
-        self.assertIn("没有 S02 E01", response.json["rows"][0]["error"])
+        checked = media_association.check_association(self.database_path, payload)
+        self.assertFalse(checked["valid"])
+        self.assertIn("没有 S02 E01", checked["rows"][0]["error"])
         payload["items"][0]["season_number"] = 1
-        response = self.client.post("/manager/association/check", json=payload)
-        self.assertTrue(response.json["valid"])
-        self.assertEqual(response.json["rows"][0]["target"]["title_id"], "tt9000003")
+        checked = media_association.check_association(self.database_path, payload)
+        self.assertTrue(checked["valid"])
+        self.assertEqual(checked["rows"][0]["target"]["title_id"], "tt9000003")
         self.assertEqual(before, self.database_path.read_bytes())
 
     def test_invalid_batch_and_duplicate_positions(self):
         paths = ["/share/one.mkv", "/share/two.mkv"]
         self.seed_discovery(paths)
         payload = {"title_id": "tt9000002", "items": [{"path": path, "season_number": 1, "episode_number": 1} for path in paths]}
-        response = self.client.post("/manager/association/check", json=payload)
-        self.assertEqual(response.status_code, 422)
-        self.assertIn("同一季集", response.json["rows"][1]["error"])
+        checked = media_association.check_association(self.database_path, payload)
+        self.assertFalse(checked["valid"])
+        self.assertIn("同一季集", checked["rows"][1]["error"])
         payload["items"][1]["path"] = "/outside/file.mkv"
-        self.assertIn("发现结果", self.client.post("/manager/association/check", json=payload).json["rows"][1]["error"])
+        self.assertIn("发现结果", media_association.check_association(self.database_path, payload)["rows"][1]["error"])
         for payload in (None, [], {"items": []}, {"title_id": "tt9000002", "items": [None]}, {"title_id": "tt9000002", "items": [{"path": "/share/../x"}]}):
-            self.assertEqual(self.client.post("/manager/association/check", json=payload).status_code, 400)
+            with self.assertRaises(ValueError):
+                media_association.check_association(self.database_path, payload)
 
     def test_movie_batch_series_single_update_and_stale_selection(self):
         paths = ["/share/Movie.mkv", "/share/S01E01.mkv", "/share/S01E02.mkv"]
@@ -109,16 +110,16 @@ class AssociationIntegrationTest(unittest.TestCase):
              patch.object(media_probe, "probe_video", return_value={"duration_ms": 1000}), \
              patch.object(media_import, "fetch_title_rating", return_value={"status": "unavailable"}):
             movie = {"title_id": "tt9000001", "items": [{"path": paths[0]}]}
-            self.assertEqual(self.client.post("/manager/association/complete", json=movie).json["imported"], 1)
+            self.assertEqual(media_association.complete_association(library_database=self.database_path, image_root=fixtures.movie_app.app.config["IMAGE_ROOT"], payload=movie)["imported"], 1)
             series = {"title_id": "tt9000002", "items": [{"path": path, "season_number": 1, "episode_number": index} for index, path in enumerate(paths[1:], 1)]}
-            response = self.client.post("/manager/association/complete", json=series)
-            self.assertEqual(response.json["imported"], 2)
-            self.assertEqual(self.client.post("/manager/association/complete", json=series).status_code, 422)
+            result = media_association.complete_association(library_database=self.database_path, image_root=fixtures.movie_app.app.config["IMAGE_ROOT"], payload=series)
+            self.assertEqual(result["imported"], 2)
+            self.assertFalse(media_association.complete_association(library_database=self.database_path, image_root=fixtures.movie_app.app.config["IMAGE_ROOT"], payload=series)["valid"])
             # A newly found alternative file for an existing episode follows the same single-update path.
             updated = "/share/new/S01E02.mkv"
             self.seed_discovery([updated])
             series["items"] = [{"path": updated, "season_number": 1, "episode_number": 2}]
-            self.assertEqual(self.client.post("/manager/association/complete", json=series).json["imported"], 1)
+            self.assertEqual(media_association.complete_association(library_database=self.database_path, image_root=fixtures.movie_app.app.config["IMAGE_ROOT"], payload=series)["imported"], 1)
         with closing(self.connect()) as db:
             self.assertEqual(db.execute("SELECT COUNT(*) FROM media_file WHERE alist_path LIKE '/share/%'").fetchone()[0], 4)
             self.assertEqual(db.execute("PRAGMA integrity_check").fetchone()[0], "ok")
@@ -134,15 +135,16 @@ class AssociationIntegrationTest(unittest.TestCase):
              patch.object(media_probe, "probe_video", side_effect=[{"duration_ms": 1000}, requests.Timeout("sign=secret")]), \
              patch.object(media_import, "fetch_title_rating", return_value={"status": "unavailable"}):
             payload = {"title_id": "tt9000002", "items": [{"path": path, "season_number": 1, "episode_number": index} for index, path in enumerate(paths, 1)]}
-            response = self.client.post("/manager/association/complete", json=payload)
-        self.assertEqual(response.status_code, 422)
-        self.assertTrue(response.json["rows"][1]["error"])
-        self.assertNotIn("secret", response.get_data(as_text=True))
+            result = media_association.complete_association(library_database=self.database_path, image_root=fixtures.movie_app.app.config["IMAGE_ROOT"], payload=payload)
+        self.assertFalse(result["valid"])
+        self.assertTrue(result["rows"][1]["error"])
+        self.assertNotIn("secret", json.dumps(result, ensure_ascii=False))
         self.assertEqual(before, self.database_path.read_bytes())
 
-    def test_streamed_import_reports_each_file(self):
+    def test_progress_callback_reports_each_file(self):
         paths = ["/share/S01E01.mkv", "/share/S01E02.mkv"]
         self.seed_discovery(paths)
+        steps = []
         with patch.object(alist, "configured_token", return_value="test"), \
              patch.object(alist, "get_file", side_effect=lambda path, token: {"signed_url": alist.get_origin() + "/d" + path + "?sign=secret", "raw_url": ""}), \
              patch.object(alist, "validate_alist_video_url"), \
@@ -150,22 +152,22 @@ class AssociationIntegrationTest(unittest.TestCase):
              patch.object(media_probe, "probe_video", return_value={"duration_ms": 1000}), \
              patch.object(media_import, "fetch_title_rating", return_value={"status": "unavailable"}):
             payload = {"title_id": "tt9000002", "items": [{"path": path, "season_number": 1, "episode_number": index} for index, path in enumerate(paths, 1)]}
-            response = self.client.post("/manager/association/complete?stream=1", json=payload)
-            self.assertEqual(response.mimetype, "application/x-ndjson")
-            lines = [json.loads(line) for line in response.get_data(as_text=True).splitlines()]
-            # 重复提交同一批文件：流里只有校验结果，没有进度。
-            again = [json.loads(line) for line in self.client.post("/manager/association/complete?stream=1", json=payload).get_data(as_text=True).splitlines()]
-        steps = [(line["progress"]["phase"], line["progress"]["done"]) for line in lines if "progress" in line]
-        # Link/probe events may interleave; each stage still reports real,
-        # monotonic counts and the transaction starts after all probes finish.
+            result = media_association.complete_association(
+                library_database=self.database_path,
+                image_root=fixtures.movie_app.app.config["IMAGE_ROOT"],
+                payload=payload,
+                on_progress=lambda phase, done, total: steps.append((phase, done)),
+            )
+            again = media_association.complete_association(
+                library_database=self.database_path,
+                image_root=fixtures.movie_app.app.config["IMAGE_ROOT"],
+                payload=payload,
+            )
         self.assertEqual([count for phase, count in steps if phase == "link"], [0, 1, 2])
         self.assertEqual([count for phase, count in steps if phase == "probe"], [1, 2])
         self.assertEqual(steps[-1], ("write", 0))
-        self.assertEqual(lines[-1]["result"]["imported"], 2)
-        self.assertNotIn("secret", "".join(map(json.dumps, lines)))
-        self.assertEqual(len(again), 1)
-        self.assertFalse(again[0]["result"]["valid"])
-        self.assertIn("error", self.client.post("/manager/association/complete?stream=1", json={"items": []}).get_data(as_text=True))
+        self.assertEqual(result["imported"], 2)
+        self.assertFalse(again["valid"])
 
     def test_association_probes_in_parallel_with_single_alist_lookup(self):
         paths = ["/share/S01E01.mkv", "/share/S01E02.mkv"]
@@ -187,8 +189,8 @@ class AssociationIntegrationTest(unittest.TestCase):
              patch.object(media_probe, "probe_video", side_effect=probe), \
              patch.object(media_import, "fetch_title_rating", return_value={"status": "unavailable"}):
             payload = {"title_id": "tt9000002", "items": [{"path": path, "season_number": 1, "episode_number": index} for index, path in enumerate(paths, 1)]}
-            response = self.client.post("/manager/association/complete", json=payload)
-        self.assertEqual(response.json["imported"], 2)
+            result = media_association.complete_association(library_database=self.database_path, image_root=fixtures.movie_app.app.config["IMAGE_ROOT"], payload=payload)
+        self.assertEqual(result["imported"], 2)
         self.assertEqual(get_file.call_count, 2)
         validate.assert_not_called()
         video_link.assert_not_called()

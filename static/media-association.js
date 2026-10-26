@@ -120,23 +120,8 @@
         jobTimer = setTimeout(() => pollJobs(), 250);
     }
 
-    // 进度换算：一组文件里取直链约占 15%，逐个读取媒体信息占 80%，写入媒体库占 5%。
-    const PHASE_TEXT = { link: "正在获取视频直链", probe: "正在读取媒体信息", write: "正在写入媒体库" };
-    function progressSpec(state) {
-        const step = state.step, size = state.size || 0;
-        let part = 0, count = 0;
-        if (step?.total) {
-            if (step.phase === "link") part = 0.15 * step.done / step.total;
-            else if (step.phase === "probe") { part = 0.15 + 0.8 * step.done / step.total; count = step.done; }
-            else { part = 0.95; count = step.total; }
-        }
-        const text = (step ? PHASE_TEXT[step.phase] : "正在校验") || "正在关联视频";
-        return {
-            text: state.label ? `${text} · ${state.label}` : text,
-            detail: `${Math.min(state.base + count, state.total)}/${state.total}`,
-            done: state.base + part * size,
-            total: state.total,
-        };
+    function progressSpec(total) {
+        return { text: "正在提交关联", detail: `0/${total}`, done: 0, total };
     }
 
     const TABS = [["ready", "可确认"], ["review", "待核对"], ["unknown", "未识别"], ["ignored", "已忽略"]];
@@ -499,28 +484,22 @@
         }
     }
 
-    // 同一集的多个版本不能放在同一批，按季集拆成若干轮依次关联。
-    function confirmBatches(item) {
-        const positions = item.recognition?.positions || {}, rounds = [];
-        for (const file of item.files) {
+    function toItems(item) {
+        const positions = item.recognition?.positions || {};
+        return item.files.map(file => {
             const [season = "", episode = ""] = positions[file.path] || [];
-            const key = item.recognition?.title?.media_type === "tv" ? `${season}:${episode}` : file.path;
-            let round = rounds.find(entry => !entry.keys.has(key));
-            if (!round) { round = { keys: new Set(), items: [] }; rounds.push(round); }
-            round.keys.add(key);
-            round.items.push({ path: file.path, season_number: season ?? "", episode_number: episode ?? "" });
-        }
-        return rounds.flatMap(round => Array.from({ length: Math.ceil(round.items.length / 100) }, (_, index) => round.items.slice(index * 100, index * 100 + 100)));
+            return { path: file.path, season_number: season ?? "", episode_number: episode ?? "" };
+        });
     }
 
     async function confirm(list) {
         if (confirming || !list.length) return;
         // 进度按视频数计算：多来源合并的一行包含多个记录，按视频数才与“已选”提示一致。
-        confirming = { base: 0, size: 0, step: null, label: "", total: list.reduce((sum, item) => sum + item.files.length, 0) };
+        confirming = list.reduce((sum, item) => sum + item.files.length, 0);
         renderList();
         try {
             await enqueue(list.map(item => ({ title_id: item.recognition.title.title_id, source_name: item.name,
-                items: confirmBatches(item).flat() })));
+                items: toItems(item) })));
         } catch (error) { feedback(error.message, "danger"); }
         finally {
             confirming = null;
@@ -613,10 +592,6 @@
 
     // ---- 单项匹配 --------------------------------------------------------
 
-    function invalidate() {
-        for (const file of files) file.serverError = "";
-    }
-
     const folderOf = file => file.path.slice(0, Math.max(0, file.path.length - file.name.length - 1));
     function folderLabel(folder) {
         if (folder === task.path || !folder.startsWith(`${task.path}/`)) return folder.split("/").pop() || folder;
@@ -647,7 +622,6 @@
     // 识别阶段已推测出季集时优先采用；用户改动匹配规则后改用规则结果。
     function applyRule(fromRule = true) {
         if (fromRule === true) useGuess = false;
-        invalidate();
         for (const file of files) {
             file.match = rules.parse(file.name, blocks);
             file.raw = rawPosition(file);
@@ -970,7 +944,7 @@
         }
         for (const file of files) {
             file.copies = 1;
-            file.issue = file.serverError ? ["需检查", file.serverError] : null;
+            file.issue = null;
             file.target = null;
             if (!file.included || !title || title.media_type !== "tv" || file.issue) continue;
             const key = `${Number(file.season)}:${Number(file.episode)}`;
@@ -996,7 +970,7 @@
             const option = button(`E${pad(episode.episode_number)} · ${episode.name}`, () => {
                 file.season = episode.season_number; file.episode = episode.episode_number; file.manual = true;
                 file.nodes.season.value = file.season; file.nodes.episode.value = file.episode;
-                invalidate(); updateFileStates();
+                updateFileStates();
                 file.nodes.target.focus();
             }, "dropdown-item small text-wrap");
             const active = Number(file.season) === episode.season_number && Number(file.episode) === episode.episode_number;
@@ -1335,7 +1309,7 @@
             const check = el("input", "form-check-input"); check.type = "checkbox"; check.checked = file.included;
             check.disabled = busy;
             check.setAttribute("aria-label", `选择 ${file.name}`);
-            check.addEventListener("change", () => { file.included = check.checked; invalidate(); updateFileStates(); });
+            check.addEventListener("change", () => { file.included = check.checked; updateFileStates(); });
             checkCell.append(check);
             const filename = el("div", "text-break");
             if (series && file.match) for (const span of file.match.spans) filename.append(el(["season", "episode"].includes(span.type) ? "mark" : "span", ["season", "episode"].includes(span.type) ? `rule-${span.type}` : "", span.text));
@@ -1350,7 +1324,7 @@
                 input.value = file[field] ?? "";
                 input.disabled = busy;
                 input.setAttribute("aria-label", `${file.name} ${field === "season" ? "季号" : "集号"}`);
-                input.addEventListener("input", () => { file[field] = input.value; file.manual = true; invalidate(); updateFileStates(); });
+                input.addEventListener("input", () => { file[field] = input.value; file.manual = true; updateFileStates(); });
                 inputs[field] = input;
                 pair.append(el("span", "position-prefix", field === "season" ? "S" : "E"), input);
             }
@@ -1455,7 +1429,7 @@
         const search = picker.querySelector("[data-title-search-query]");
         search.value = (task.recognition?.query || task.name.replace(/\.[a-z0-9]{2,5}$/i, "").replace(/[._]/g, " ")).slice(0, 100);
         search.dispatchEvent(new Event("input"));
-        const type = title?.media_type || task.recognition?.media_type || (task.suggestion || files.some(file => /S\d+E\d+|\d+x\d+|第\d+集|EP\d+/i.test(file.name)) || files.length > 1 ? "tv" : "movie");
+        const type = title?.media_type || task.recognition?.media_type || (files.some(file => /S\d+E\d+|\d+x\d+|第\d+集|EP\d+/i.test(file.name)) || files.length > 1 ? "tv" : "movie");
         picker.querySelector(`[name="search_type"][value="${type}"]`).checked = true;
         bootstrap.Modal.getOrCreateInstance(picker).show();
     }
@@ -1493,7 +1467,7 @@
         setTitleCard();
         showView("editor");
         renderFiles();
-        const found = item.recognition?.title || item.suggestion;
+        const found = item.recognition?.title;
         if (found && !search) chooseTitle(found);
         else pickTitle();
         window.scrollTo({ top: 0 });
@@ -1517,7 +1491,7 @@
         if (busy || !title) return;
         const chosen = files.filter(file => file.included);
         if (!chosen.length) return;
-        progress = { base: 0, size: 0, step: null, label: "", total: chosen.length };
+        progress = chosen.length;
         lockEditor(true);
         renderTaskBar();
         try {
@@ -1561,7 +1535,7 @@
     });
     $("[data-rule-toggle]").addEventListener("click", () => setRuleOpen(!ruleOpen));
     $("[data-rule-reset]").addEventListener("click", () => { files.forEach(file => { file.manual = false; }); applyRule(false); });
-    $("[data-files-all]").addEventListener("change", event => { files.forEach(file => { file.included = event.target.checked; }); invalidate(); renderFiles(); });
+    $("[data-files-all]").addEventListener("change", event => { files.forEach(file => { file.included = event.target.checked; }); renderFiles(); });
     $("[data-files-errors]").addEventListener("click", () => { onlyErrors = !onlyErrors; updateFileStates(); });
     $("[data-task-pick]").addEventListener("click", pickTitle);
     $("[data-task-close]").addEventListener("click", closeEditor);

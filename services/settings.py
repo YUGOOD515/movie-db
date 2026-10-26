@@ -245,7 +245,6 @@ SECTIONS: tuple[Section, ...] = (
 del S
 
 FIELDS: dict[str, Setting] = {item.name: item for section in SECTIONS for group in section.groups for item in group.settings}
-GROUP_OF: dict[str, str] = {item.name: group.id for section in SECTIONS for group in section.groups for item in group.settings}
 AI_CORE = ("LLM_BASE_URL", "LLM_API_KEY", "LLM_MODEL")
 
 _pending_restart: set[str] = set()

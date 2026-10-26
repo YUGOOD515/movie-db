@@ -52,7 +52,13 @@ class NameCleaningTest(unittest.TestCase):
 
     def test_golden_set_from_real_shares(self):
         """media_names.json 来自真实网盘目录：规则清洗应覆盖大多数，季集推测接近全对。"""
-        items = json.loads((ROOT / "media_names.json").read_text(encoding="utf-8"))
+        items = [
+            {"path": "/Quark/Share/X《小谢尔顿》（2017-2024）1-7季全/Season 1/Young.Sheldon.S01E01.1080p.mkv", "source": "library", "type": "episode", "display_title": "小谢尔顿", "title": "Young Sheldon", "season": 1, "episode": 1},
+            {"path": "/Quark/Share/X《小谢尔顿》（2017-2024）1-7季全/Season 2/Young.Sheldon.S02E05.1080p.mkv", "source": "library", "type": "episode", "display_title": "小谢尔顿", "title": "Young Sheldon", "season": 2, "episode": 5},
+            {"path": "/Quark/Share/末日地堡 第二季/第03集.mp4", "source": "library", "type": "episode", "display_title": "末日地堡", "title": "Silo", "season": 2, "episode": 3},
+            {"path": "/Quark/Share/J 降临 4K原盘REMUX/Arrival.2016.2160p.mkv", "source": "library", "type": "movie", "display_title": "降临", "title": "Arrival"},
+            {"path": "/Quark/Share/挽z救z计z划 (2026) 4K HDR & Dv/Project.Hail.Mary.2026.mkv", "source": "library", "type": "movie", "display_title": "挽救计划", "title": "Project Hail Mary"},
+        ]
         groups = OrderedDict()
         for item in items:
             groups.setdefault(item["path"].split("/")[3], []).append(item)
@@ -422,7 +428,7 @@ class DiscoveryStateTest(unittest.TestCase):
         self.assertEqual(client.post("/manager/discovery/recognize", json={"path": "/nope"}).status_code, 400)
         self.assertTrue(client.post("/manager/discovery/ignore", json={"path": "/Media/A", "name": "A"}).json["ok"])
         store.save_health(self.database_path, [("/Movies/Interstellar.mkv", "tt0816692", "missing")])
-        page = client.get("/manager?health=missing").get_data(as_text=True)
+        page = client.get("/media?health=missing").get_data(as_text=True)
         self.assertIn("失效 1", page)
         self.assertIn("星际穿越", page)
         self.assertNotIn("爱乐之城", page)

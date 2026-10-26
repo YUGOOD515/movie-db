@@ -84,7 +84,7 @@ def test_save_writes_env_creates_library_and_hides_secrets(setup_env):
         assert db.execute("SELECT name FROM sqlite_master WHERE name='title_basic'").fetchone()
 
     # 已就绪：不再重定向；状态接口只说明密钥已保存，不回显
-    assert client.get("/manager", headers=HTML).status_code == 200
+    assert client.get("/media", headers=HTML).status_code == 200
     status = client.get("/setup/status").get_json()
     assert status["saved"]["ALIST_PASSWORD"] is True and status["library"]["ready"] is True
     assert "pa ss" not in str(status) and TOKEN not in str(status)

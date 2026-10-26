@@ -1,10 +1,6 @@
 import os
-import sqlite3
-import shutil
 import tempfile
-import time
 import unittest
-from contextlib import closing
 from pathlib import Path
 from PIL import Image
 
@@ -17,7 +13,6 @@ from services.thumbnails import (
     generate_thumbnail,
     ensure_thumbnail,
 )
-from scripts.build_thumbnails import build_thumbnails_for_paths, get_all_artwork_paths
 
 
 class ThumbnailServiceTest(unittest.TestCase):
@@ -136,42 +131,6 @@ class ThumbnailServiceTest(unittest.TestCase):
         self.assertEqual(
             ensure_thumbnail(windows_drive, static_root=self.static_root),
             windows_drive,
-        )
-        stats = build_thumbnails_for_paths(
-            [escaped, windows_drive],
-            static_root=self.static_root,
-        )
-        self.assertEqual(stats["failed"], 2)
-
-    def test_all_artwork_query_uses_schema_vocabulary(self):
-        database_path = Path(self.temp_dir.name) / "library.db"
-        with closing(sqlite3.connect(database_path)) as database:
-            database.execute(
-                """
-                CREATE TABLE title_artwork (
-                    local_path TEXT,
-                    artwork_type TEXT
-                )
-                """
-            )
-            database.executemany(
-                "INSERT INTO title_artwork VALUES (?, ?)",
-                [
-                    ("images/a/backdrops/1.jpg", "landscape_poster"),
-                    ("images/a/logos/1.png", "logo"),
-                    ("images/a/a-still.jpg", "still"),
-                    ("images/a/posters/1.jpg", "poster"),
-                ],
-            )
-            database.commit()
-
-        self.assertEqual(
-            set(get_all_artwork_paths(database_path)),
-            {
-                "images/a/backdrops/1.jpg",
-                "images/a/logos/1.png",
-                "images/a/a-still.jpg",
-            },
         )
 
 

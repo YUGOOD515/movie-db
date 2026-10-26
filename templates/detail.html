@@ -103,7 +103,7 @@
         {% if media.media_type == "tv" %}
             <section class="detail-sources py-3" aria-label="选集">
                 {% if media.seasons %}
-                    <div class="episode-toolbar container-xl d-flex flex-wrap align-items-center justify-content-between gap-3 gap-lg-4 mb-4" data-season-picker>
+                    <div class="episode-toolbar container-xl d-flex flex-wrap align-items-center justify-content-between gap-3 gap-lg-4 mb-4">
                         <nav class="season-nav min-w-0 d-flex flex-wrap align-items-center gap-3" aria-label="季度切换" role="tablist">
                             {% for season in media.seasons %}
                                 <button class="btn btn-sm chip-btn season-pill-btn{% if season.active %} active{% endif %}" type="button" data-season-target="season-pane-{{ season.season_id }}" data-season-key="{{ season.season_id }}" data-season-name="{{ season.season_name }}" aria-pressed="{{ 'true' if season.active else 'false' }}" role="tab" aria-selected="{{ 'true' if season.active else 'false' }}">

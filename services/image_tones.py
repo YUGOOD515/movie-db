@@ -229,18 +229,13 @@ def start_backfill(database_path: str | Path, static_root: str | Path | None = N
         return
 
     def run():
-        import sqlite3
         from contextlib import closing
+        from models.database import connect_database
+        from queries.manager import get_tone_artwork_paths
 
         try:
-            with closing(sqlite3.connect(f"file:{database_path}?mode=ro", uri=True)) as db:
-                paths = [
-                    row[0]
-                    for row in db.execute(
-                        "SELECT local_path FROM title_artwork"
-                        " WHERE artwork_type IN ('poster', 'landscape_poster')"
-                    )
-                ]
+            with closing(connect_database(database_path)) as db:
+                paths = get_tone_artwork_paths(db)
             written = ensure_tones(paths, static_root)
             if written:
                 logger.info("Image tones generated: %d", written)

@@ -104,13 +104,6 @@ def test_fit_to_screens_moves_lost_or_oversized_windows():
     assert desktop_window.fit_to_screens((0, 0, 100, 100), []) is None
 
 
-def test_is_external_compares_origin():
-    origin = "http://127.0.0.1:5000"
-    assert desktop_window.is_external("https://www.themoviedb.org/movie/1", origin)
-    assert not desktop_window.is_external("http://127.0.0.1:5000/settings", origin)
-    assert not desktop_window.is_external("mailto:someone@example.com", origin)
-
-
 def test_window_state_round_trip(tmp_path):
     path = tmp_path / "window.json"
     assert desktop_window.load_state(path) == {}

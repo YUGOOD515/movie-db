@@ -16,9 +16,7 @@ from time import monotonic
 import requests
 
 from connectors import throttle
-from services import paths
-
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
+from services import env_file, paths
 
 DEFAULT_API_ORIGIN = "https://api.themoviedb.org/3"
 # 官方备用域名：国内 api.themoviedb.org 常被 DNS 污染，api.tmdb.org 大多能直连。
@@ -76,7 +74,6 @@ V3_API_KEY = re.compile(r"[0-9a-f]{32}")
 ARTWORK_LIMIT = 5
 CAST_LIMIT = 24
 DOWNLOAD_ATTEMPTS = 3
-IMAGE_WORKERS = 4
 # append_to_response 官方上限为 20 项。
 APPEND_LIMIT = 20
 TITLE_ID_PATTERN = re.compile(r"tt[0-9]+")
@@ -210,14 +207,7 @@ def user_token() -> str:
     if token:
         return token
 
-    env_path = paths.ENV_PATH
-    if env_path.exists():
-        for line in env_path.read_text(encoding="utf-8").splitlines():
-            if line.startswith("TMDB_TOKEN="):
-                token = line.split("=", 1)[1].strip().strip("'\"")
-                if token:
-                    return token
-    return ""
+    return env_file.read(paths.ENV_PATH).get("TMDB_TOKEN", "")
 
 
 def token_source() -> str:

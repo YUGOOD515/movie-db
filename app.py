@@ -2,10 +2,8 @@ import importlib
 import json
 import logging
 import os
-import queue
 import secrets
 import sqlite3
-import threading
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -37,7 +35,6 @@ from queries.home import (
 from queries.manager import get_rating_title_ids, query_manager
 from queries.title import (
     get_playable_file,
-    get_title_id_by_tmdb,
     query_title,
 )
 from services.playback import is_effectively_completed
@@ -81,7 +78,6 @@ _media_import = _LazyModule("services.media_import")
 _title_deletion = _LazyModule("services.title_deletion")
 
 import_media_batch_service = _lazy("services.media_import", "import_media_batch")
-import_media_service = _lazy("services.media_import", "import_media")
 normalize_batch_import_items = _lazy("services.media_import", "normalize_batch_import_items")
 get_rating_refresh_status = _lazy("services.rating_sync", "get_rating_refresh_status")
 start_rating_refresh = _lazy("services.rating_sync", "start_rating_refresh")
@@ -99,8 +95,6 @@ _setup = _LazyModule("services.setup_wizard")
 _settings = _LazyModule("services.settings")
 missing_by_title = _lazy("services.media_health", "missing_by_title")
 title_metadata = _lazy("services.media_association", "title_metadata")
-check_association = _lazy("services.media_association", "check_association")
-complete_association = _lazy("services.media_association", "complete_association")
 preview_title_deletion = _lazy("services.title_deletion", "preview_title_deletion")
 execute_title_deletion = _lazy("services.title_deletion", "execute_title_deletion")
 build_search_viewmodel = _lazy("viewmodels.title_search", "build_search_viewmodel")
@@ -122,13 +116,10 @@ READ_ONLY_ENDPOINTS = {
     "unwatched_library",
     "top_rated_library",
     "catalog",
-    "movie_genres_library",
     "favorites_library",
     "collection_detail",
     "title_detail",
     "episode_panel",
-    "movie_detail",
-    "tv_detail",
     "media",
 }
 
@@ -440,7 +431,6 @@ def index():
 
 
 @app.get("/recent")
-@app.get("/recent-added")
 def recent_added_library():
     raw = get_recently_added(get_db(), limit=None)
     page = build_library_viewmodel(
@@ -465,7 +455,6 @@ def unwatched_library():
 
 
 @app.get("/top")
-@app.get("/top-rated")
 def top_rated_library():
     raw = get_top_rated_movies(get_db(), limit=9)
     page = build_library_viewmodel(
@@ -487,18 +476,6 @@ def catalog():
     return render_template("genre_page.html", page=page)
 
 
-@app.get("/genres")
-def movie_genres_library():
-    values = request.args.to_dict()
-    if values.get("media_type") == "tv":
-        values["type"] = "series"
-    elif values.get("media_type") == "movie":
-        values["type"] = "movie"
-    values.pop("media_type", None)
-    return redirect(url_for("catalog", **values), code=308)
-
-
-@app.get("/collections")
 @app.get("/favorites")
 def favorites_library():
     raw = query_collection(get_db())
@@ -574,23 +551,6 @@ def resume_title(title_id: str):
     )
 
 
-@app.get("/movies/<int:tmdb_id>")
-def movie_detail(tmdb_id: int):
-    title_id = get_title_id_by_tmdb(get_db(), "movie", tmdb_id)
-    if title_id is None:
-        abort(404)
-    return redirect(url_for("title_detail", title_id=title_id), code=308)
-
-
-@app.get("/series/<int:tmdb_id>")
-def tv_detail(tmdb_id: int):
-    title_id = get_title_id_by_tmdb(get_db(), "series", tmdb_id)
-    if title_id is None:
-        abort(404)
-    return redirect(url_for("title_detail", title_id=title_id), code=308)
-
-
-@app.get("/manager")
 @app.get("/media")
 def media():
     title_type = request.args.get("type", "all")
@@ -614,9 +574,8 @@ def media():
         raw,
         active_tab=active_tab,
         return_to=request.full_path,
+        missing=missing,
     )
-    for item in page["media_items"]:
-        item["missing"] = missing.get(item["title_id"], 0)
     return render_template(
         "media.html",
         active_tab=active_tab,
@@ -787,90 +746,6 @@ def association_jobs():
     response = jsonify(result)
     response.cache_control.no_store = True
     return response, 202 if request.method == "POST" else 200
-
-
-@app.post("/manager/association/<action>")
-def associate_discovered_media(action):
-    if action not in ("check", "complete"):
-        abort(404)
-    if request.content_length and request.content_length > MAX_BATCH_JSON_BYTES:
-        return jsonify(error="关联数据过大。"), 413
-    payload = request.get_json(silent=True)
-    if action == "complete" and request.args.get("stream") == "1":
-        return _stream_association(payload)
-    try:
-        arguments = dict(library_database=app.config["DATABASE"], payload=payload)
-        if action == "complete":
-            result = complete_association(**arguments, image_root=app.config["IMAGE_ROOT"])
-        else:
-            result = check_association(**arguments)
-    except ValueError as error:
-        return jsonify(error=str(error)), 400
-    except (OSError, RuntimeError, requests.RequestException, sqlite3.Error):
-        return jsonify(error="关联服务暂时不可用，请检查 AList 和数据库后重试。"), 503
-    return jsonify(result), 200 if result["valid"] else 422
-
-
-def _stream_association(payload):
-    """逐行返回 NDJSON：{"progress": {phase, done, total}} …，最后一行为 {"result": …} 或 {"error": …}。
-
-    导入在后台线程里完成，浏览器断开也不会中途停下，整批写入仍是全有或全无。
-    """
-    events = queue.Queue()
-    arguments = dict(library_database=app.config["DATABASE"], image_root=app.config["IMAGE_ROOT"], payload=payload)
-
-    def progress(phase, done, total):
-        events.put({"progress": {"phase": phase, "done": done, "total": total}})
-
-    def work():
-        try:
-            events.put({"result": complete_association(**arguments, on_progress=progress)})
-        except ValueError as error:
-            events.put({"error": str(error)})
-        except (OSError, RuntimeError, requests.RequestException, sqlite3.Error):
-            events.put({"error": "关联服务暂时不可用，请检查 AList 和数据库后重试。"})
-        except Exception:
-            app.logger.exception("Association import failed")
-            events.put({"error": "关联失败，请稍后重试。"})
-        finally:
-            events.put(None)
-
-    threading.Thread(target=work, name="association-import", daemon=True).start()
-
-    def generate():
-        while (event := events.get()) is not None:
-            yield json.dumps(event, ensure_ascii=False) + "\n"
-
-    return Response(generate(), mimetype="application/x-ndjson",
-                    headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
-
-
-@app.post("/manager/import")
-def import_media():
-    try:
-        result = import_media_service(
-            library_database=app.config["DATABASE"],
-            image_root=app.config["IMAGE_ROOT"],
-            title_id=request.form.get("title_id", ""),
-            season_number=request.form.get("season_number", ""),
-            episode_number=request.form.get("episode_number", ""),
-            alist_url=request.form.get("alist_url", ""),
-        )
-    except _media_import.MediaImportError as error:
-        flash(str(error), "danger")
-        return redirect(url_for("media", tab="associate"))
-
-    flash(
-        f"已录入 {result['display_title']}，关联媒体文件 #{result['file_id']}。",
-        "success",
-    )
-    return redirect(
-        url_for(
-            "media",
-            tab="overview",
-            q=result["root_display_title"],
-        )
-    )
 
 
 @app.post("/manager/import/batch")

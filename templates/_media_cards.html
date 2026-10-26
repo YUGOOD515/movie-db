@@ -145,7 +145,7 @@
 {% endmacro %}
 
 {% macro overview_card(item) %}
-    <article class="overview-card h-100" data-media-card data-id="{{ item.media_id }}" data-type="{{ item.media_type }}" data-name="{{ item.name }}" data-original-name="{{ item.original_name }}">
+    <article class="overview-card h-100" data-name="{{ item.name }}">
         <form class="overview-card-form d-flex flex-column h-100" action="{{ url_for('select_media_artwork', title_id=item.media_id) }}" method="post">
             <input type="hidden" name="return_to" value="{{ item.return_to }}">
             <input type="hidden" name="backdrop_position" value="1" data-artwork-input="backdrops">

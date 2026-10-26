@@ -117,7 +117,7 @@ SectionEnd
 !insertmacro MUI_FUNCTION_DESCRIPTION_BEGIN
     !insertmacro MUI_DESCRIPTION_TEXT ${SecMain} "程序本体与内置 Python 运行环境。"
     !ifndef NO_FFPROBE
-        !insertmacro MUI_DESCRIPTION_TEXT ${SecFfprobe} "导入时读取视频的分辨率、HDR、编码与音轨（约 160MB）。已自行安装 FFmpeg 可取消。"
+        !insertmacro MUI_DESCRIPTION_TEXT ${SecFfprobe} "导入时读取视频的分辨率、HDR、编码与音轨（约 8MB）。已自行安装 FFmpeg 可取消。"
     !endif
     !insertmacro MUI_DESCRIPTION_TEXT ${SecDesktop} "在桌面创建 ${APP} 快捷方式。"
 !insertmacro MUI_FUNCTION_DESCRIPTION_END

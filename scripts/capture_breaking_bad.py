@@ -18,11 +18,12 @@ if __package__ in (None, ""):
 import requests
 
 from connectors import mdblist, tmdb
+from services import paths
 from scripts.local_test_api import DEFAULT_DATA
 
 TITLE_ID = "tt0903747"
 TMDB_ID = 1396
-PROJECT = tmdb.PROJECT_ROOT
+PROJECT = paths.APP_DIR
 REMOTE_API = "https://api.themoviedb.org/3"
 REMOTE_IMAGES = "https://image.tmdb.org/t/p"
 

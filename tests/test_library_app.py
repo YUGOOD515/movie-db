@@ -306,7 +306,6 @@ class LibraryIntegrationTest(unittest.TestCase):
             "/catalog",
             "/catalog?type=series&genre=Drama&rating=8&language=en&sort=rating",
             "/favorites",
-            "/collections",
             "/collection/1",
             "/title/tt0816692",
             "/title/tt6226232",
@@ -320,8 +319,8 @@ class LibraryIntegrationTest(unittest.TestCase):
             with self.subTest(path=path):
                 self.assertEqual(self.client.get(path).status_code, 200)
 
-        self.assertEqual(self.client.get("/movies/157336").status_code, 308)
-        self.assertEqual(self.client.get("/series/71728").status_code, 308)
+        self.assertEqual(self.client.get("/movies/157336").status_code, 404)
+        self.assertEqual(self.client.get("/series/71728").status_code, 404)
 
     def test_title_cast_query_and_render(self):
         movie = self.build_title("tt0816692")
@@ -966,14 +965,16 @@ class LibraryIntegrationTest(unittest.TestCase):
             },
         ):
             movie = self.client.post(
-                "/manager/import",
+                "/manager/import/batch",
                 data={
                     "title_id": "tt9000001",
+                    "season_number": "",
+                    "episode_number": "",
                     "alist_url": "http://127.0.0.1:5244/d/Movies/Import.mkv?sign=one",
                 },
             )
             series_episode = self.client.post(
-                "/manager/import",
+                "/manager/import/batch",
                 data={
                     "title_id": "tt9000002",
                     "season_number": "1",
@@ -982,9 +983,11 @@ class LibraryIntegrationTest(unittest.TestCase):
                 },
             )
             direct_episode = self.client.post(
-                "/manager/import",
+                "/manager/import/batch",
                 data={
                     "title_id": "tt9000004",
+                    "season_number": "",
+                    "episode_number": "",
                     "alist_url": "http://127.0.0.1:5244/d/Series/S01E02.mkv?sign=three",
                 },
             )
@@ -1046,9 +1049,11 @@ class LibraryIntegrationTest(unittest.TestCase):
             media_import_service.tmdb, "build_media_metadata"
         ) as fetch_metadata:
             response = self.client.post(
-                "/manager/import",
+                "/manager/import/batch",
                 data={
                     "title_id": "tt9000002",
+                    "season_number": "",
+                    "episode_number": "",
                     "alist_url": "http://127.0.0.1:5244/d/Series/Test.mkv?sign=abc",
                 },
                 follow_redirects=True,
@@ -1466,7 +1471,7 @@ class RatingSyncUnitTest(unittest.TestCase):
 class ConnectorUnitTest(unittest.TestCase):
     def test_connector_credentials_come_from_environment(self):
         with tempfile.TemporaryDirectory() as directory, patch.object(
-            tmdb_connector, "PROJECT_ROOT", Path(directory)
+            tmdb_connector.paths, "ENV_PATH", Path(directory) / ".env"
         ), patch.dict(os.environ, {}, clear=True):
             with self.assertRaisesRegex(RuntimeError, "TMDB_TOKEN"):
                 tmdb_connector._token()

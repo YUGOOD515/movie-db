@@ -55,7 +55,7 @@ LOCALIZATION = {
 }
 MAC_SHORTCUTS = {"设置…": ",", "返回": "[", "前进": "]", "重新载入": "r"}
 MAC_AUTOSAVE_NAME = "MovieDB"
-# WKWebView 不会对 beforeunload 弹出确认框；离开当前页面前先问页面（见 static/js/site.js）
+# WKWebView 不会对 beforeunload 弹出确认框；离开当前页面前先问页面（见 static/site.js）
 CONFIRM_LEAVE_JS = "window.moviedbConfirmLeave ? window.moviedbConfirmLeave() : true"
 
 
@@ -134,11 +134,6 @@ def same_origin_path(url: str | None, origin: str) -> str | None:
     return parsed.path + (f"?{parsed.query}" if parsed.query else "")
 
 
-def is_external(url: str, origin: str) -> bool:
-    parsed = urlparse(url)
-    return parsed.scheme in ("http", "https") and f"{parsed.scheme}://{parsed.netloc}" != origin
-
-
 # --------------------------------------------------------------------------
 # 窗口
 # --------------------------------------------------------------------------
@@ -194,7 +189,6 @@ class DesktopWindow:
         self.window = None
         self._quitting = False
         self._maximized = bool(self.state.get("maximized")) and sys.platform != "darwin"
-        self._terminating = False
         self._minimized = False
         self._lock = threading.Lock()
 
@@ -469,7 +463,7 @@ class DesktopWindow:
                 MenuAction("前进", run_js("history.forward()")),
                 MenuSeparator(),
                 MenuAction("首页", background(lambda: self.open("/"))),
-                MenuAction("媒体资源管理", background(lambda: self.open("/manager"))),
+                MenuAction("媒体资源管理", background(lambda: self.open("/media"))),
                 MenuSeparator(),
                 MenuAction("重新载入", run_js("location.reload()")),
             ]),
@@ -494,7 +488,7 @@ class DesktopWindow:
                     return objc.super(MovieDBAppDelegate, self).applicationShouldTerminate_(app)
                 # ⌘Q、注销、关机都会走到这里。不能返回“取消”，否则会打断注销 / 关机；
                 # 先让启动器停止服务、释放端口，再同意退出。
-                shell._quitting = shell._terminating = True
+                shell._quitting = True
                 before_exit = shell.actions.get("before_exit")
                 if callable(before_exit):
                     try:

@@ -14,7 +14,6 @@ import requests
 
 from services import paths
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
 RATINGS_URL = "https://datasets.imdbws.com/title.ratings.tsv.gz"
 RATINGS_PATH = Path(
     os.environ.get("IMDB_RATINGS_PATH") or paths.DATA_DIR / "imdb" / "title.ratings.tsv.gz"

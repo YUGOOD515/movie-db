@@ -94,11 +94,8 @@ def _clear_cloud() -> bool:
 
 
 def _env_keys(path: Path) -> list[str]:
-    try:
-        from dotenv import dotenv_values
-        return [key for key in dotenv_values(path) if key]
-    except (ImportError, OSError):
-        return []
+    from services import env_file
+    return list(env_file.read(path))
 
 
 def clear(app, parts) -> dict:

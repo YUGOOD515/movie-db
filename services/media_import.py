@@ -16,7 +16,7 @@ import requests
 from connectors import alist, imdb_ratings, media_probe, throttle, tmdb
 from models.database import connect_database, connect_writable
 from models.library import import_media_bundle, enrich_media_bundle
-from queries.association import get_series_episodes
+from queries.association import get_douban_id, get_existing_artwork_slots, get_file_targets, get_series_episodes
 from services.rating_sync import fetch_douban_rating, fetch_title_rating
 from services.image_tones import ensure_tones, compute_tone, merge_tones, wants_tone
 from services.thumbnails import ensure_thumbnail, normalize_image_path, generate_thumbnail, get_target_size_for_path
@@ -84,18 +84,7 @@ def _new_artwork(db: sqlite3.Connection, artwork: list[dict], image_root=None) -
         return []
 
     title_ids = list(dict.fromkeys(image["title_id"] for image in artwork))
-    placeholders = ", ".join("?" for _ in title_ids)
-    existing = {
-        tuple(row)
-        for row in db.execute(
-            f"""
-            SELECT title_id, artwork_type, position
-              FROM title_artwork
-             WHERE title_id IN ({placeholders})
-            """,
-            tuple(title_ids),
-        )
-    }
+    existing = get_existing_artwork_slots(db, title_ids)
     with runtime.write_lock:
         return [image for image in artwork
                 if (image["title_id"], image["artwork_type"], image["position"]) not in existing
@@ -221,11 +210,7 @@ class _PersistenceError(MediaImportError):
 
 
 def _known_douban_id(library_db: sqlite3.Connection, title_id: str) -> str | None:
-    try:
-        row = library_db.execute("SELECT douban_id FROM title_basic WHERE title_id = ?", (title_id,)).fetchone()
-    except sqlite3.OperationalError:  # 旧媒体库还没有这一列
-        return None
-    return row[0] if row else None
+    return get_douban_id(library_db, title_id)
 
 
 def _build_context(library_db: sqlite3.Connection, root_title_id: str, scope=None) -> ImportContext:
@@ -298,34 +283,6 @@ def _resolve_target_from_context(
     raise MediaImportError("指定的 Title ID 不属于当前剧集上下文。")
 
 
-def _resolve_item(
-    library_db: sqlite3.Connection,
-    contexts: dict[str, ImportContext],
-    title_id: str,
-    season_value: str,
-    episode_value: str,
-) -> tuple[ImportContext, dict]:
-    """解析一条录入：同一作品（含其单集 ID）复用已构建的上下文。"""
-    context = contexts.get(title_id)
-    if context is None:
-        identity = tmdb.identify_title(title_id)
-        # 先校验季集号，避免无效输入触发整部作品的元数据请求。
-        if identity["title_type"] == "series":
-            _parse_position(season_value, episode_value)
-        elif identity["title_type"] == "movie" and (season_value.strip() or episode_value.strip()):
-            raise MediaImportError("Movie Title ID 不需要填写季号和集号。")
-        root_id = identity["root_id"]
-        context = contexts.get(root_id)
-        if context is None:
-            context = _build_context(library_db, root_id)
-            contexts[root_id] = context
-            for episode_id in context.episodes_by_id:
-                contexts.setdefault(episode_id, context)
-        if identity["title_type"] == "episode" and title_id not in context.episodes_by_id:
-            raise MediaImportError("TMDB 中该单集缺少季集信息，无法录入。")
-    return context, _resolve_target_from_context(context, title_id, season_value, episode_value)
-
-
 def _validate_title_id(title_id: str) -> str:
     title_id = title_id.strip()
     if TITLE_ID_PATTERN.fullmatch(title_id) is None:
@@ -347,10 +304,7 @@ def _check_file(
             raise MediaImportError("同一批次不能重复填写同一个 AList 文件。")
         seen_alist_paths.add(alist_path)
 
-    existing = library_db.execute(
-        "SELECT title_id FROM media_file WHERE alist_path = ?",
-        (alist_path,),
-    ).fetchone()
+    existing = get_file_targets(library_db, [alist_path]).get(alist_path)
     if existing is not None and existing["title_id"] != target_title_id:
         raise MediaImportError("该 AList 文件已关联其他影视条目。")
     return alist_path
@@ -734,12 +688,12 @@ def _enrich_prepared(database_path, image_root, prepared_items, commit_guard=Non
                     commit_guard()
                 try:
                     with closing(connect_writable(database_path)) as db, db:
-                        if db.execute("SELECT 1 FROM title_basic WHERE title_id = ?", (bundle.root["title_id"],)).fetchone() is None:
-                            continue
                         _publish_staged_files(bundle.staged_files, published)
-                        enrich_media_bundle(db, bundle.root["title_id"], artwork=bundle.artwork, cast=bundle.cast,
+                        if not enrich_media_bundle(db, bundle.root["title_id"], artwork=bundle.artwork, cast=bundle.cast,
                             ratings=_ratings_to_write(bundle.rating_result),
-                            imdb=[(title["average_rating"], title["num_votes"], title["title_id"]) for title in bundle.titles if title.get("average_rating") is not None])
+                            imdb=[(title["average_rating"], title["num_votes"], title["title_id"]) for title in bundle.titles if title.get("average_rating") is not None]):
+                            _remove_moved_files(published)
+                            continue
                 except Exception:
                     _remove_moved_files(published)
                     raise
@@ -804,31 +758,6 @@ def _run_import(library_database, image_root, items: list[dict], progress: dict,
         finally:
             wait([item.bundle.image_future for item in prepared_items if item.bundle.image_future])
     return [{"index": prepared.index, **result} for prepared, result in zip(prepared_items, results)]
-
-
-def import_media(
-    *,
-    library_database: str | Path,
-    image_root: str | Path,
-    title_id: str,
-    season_number: str = "",
-    episode_number: str = "",
-    alist_url: str,
-) -> dict:
-    item = {
-        "title_id": title_id,
-        "season_number": season_number,
-        "episode_number": episode_number,
-        "alist_url": alist_url,
-    }
-    try:
-        result = _run_import(library_database, image_root, [item], {})[0]
-    except MediaImportError:
-        raise
-    except IMPORT_ERRORS as error:
-        raise MediaImportError(str(error)) from error
-    result.pop("index")
-    return result
 
 
 def normalize_batch_import_items(payload) -> list[dict]:

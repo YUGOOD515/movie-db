@@ -46,7 +46,7 @@ SOURCE_ONLY = ["proxy_tools"]  # pywebview 的依赖，只发布了源码包（�
 RCEDIT_URL = "https://github.com/electron/rcedit/releases/download/v2.0.0/rcedit-x64.exe"
 # 不随安装包分发的仓库内容：开发资料、测试与示例数据。
 EXCLUDED = ("tests/", "archive/", "packaging/", "scratch/", ".planning/", ".claude/", ".github/", "data/",
-            "media_names.json", "AGENTS.MD", "uv.lock", ".gitignore", ".python-version")
+            "docs/", "cloud/", "local-test-data/", "scripts/local_test_api.py", "scripts/capture_breaking_bad.py", "scripts/check_env.py", "media_names.json", "AGENTS.MD", "README.md", "README.zh-CN.md", "CHANGELOG.md", "uv.lock", ".gitignore", ".python-version")
 
 
 def log(message: str) -> None:

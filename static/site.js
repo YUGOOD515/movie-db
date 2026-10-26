@@ -75,9 +75,8 @@
     // actions share the same queue so notifications never overlap.
     const appToastQueue = [];
     let appToastActive = false;
-    let appToastStatus = null;
 
-    function renderAppToast(notification, persistent = false) {
+    function renderAppToast(notification) {
         let toast = document.querySelector(".save-toast");
         if (!toast) {
             toast = document.createElement("div");
@@ -90,29 +89,13 @@
         }
         const isError = ["danger", "error"].includes(notification.category);
         toast.replaceChildren(document.createTextNode(notification.message));
-        if (notification.action) {
-            const action = document.createElement("button");
-            action.type = "button";
-            action.className = "btn btn-link p-0 ms-3 save-toast-action";
-            action.textContent = notification.action.label;
-            action.addEventListener("click", notification.action.run);
-            toast.append(action);
-        }
         toast.setAttribute("role", isError ? "alert" : "status");
         toast.setAttribute("aria-live", isError ? "assertive" : "polite");
         toast.classList.toggle("save-toast--error", isError);
         toast.classList.toggle("save-toast--warning", notification.category === "warning");
         toast.classList.toggle("save-toast--success", notification.category === "success");
-        toast.classList.toggle("save-toast--persistent", persistent);
         toast.classList.add("save-toast--show");
     }
-
-    // A current task status returns when the transient notification queue clears.
-    window.setAppToastStatus = (message = "", category = "warning", action = null) => {
-        if (appToastStatus?.message === message && appToastStatus?.category === category) return;
-        appToastStatus = message ? { message, category, action } : null;
-        if (!appToastActive) renderAppToast(appToastStatus, true);
-    };
 
     function showAppToast(message, category = "success") {
         if (!message) {
@@ -128,7 +111,7 @@
         const notification = appToastQueue.shift();
         if (!notification) {
             appToastActive = false;
-            renderAppToast(appToastStatus, true);
+            renderAppToast(null);
             return;
         }
         appToastActive = true;

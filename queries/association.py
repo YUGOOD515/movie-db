@@ -44,3 +44,36 @@ def get_file_targets(db, paths) -> dict[str, dict]:
          WHERE media.alist_path IN ({','.join('?' for _ in paths)})
     """, paths).fetchall()
     return {row["alist_path"]: dict(row) for row in rows}
+
+
+def get_existing_artwork_slots(db, title_ids: list[str]) -> set[tuple[str, str, int]]:
+    if not title_ids:
+        return set()
+    placeholders = ", ".join("?" for _ in title_ids)
+    return {
+        tuple(row)
+        for row in db.execute(
+            f"""
+            SELECT title_id, artwork_type, position
+              FROM title_artwork
+             WHERE title_id IN ({placeholders})
+            """,
+            tuple(title_ids),
+        )
+    }
+
+
+def get_douban_id(db, title_id: str) -> str | None:
+    try:
+        row = db.execute("SELECT douban_id FROM title_basic WHERE title_id = ?", (title_id,)).fetchone()
+    except Exception:  # 旧媒体库还没有这一列
+        return None
+    return row[0] if row else None
+
+
+def get_recognition_titles(db) -> list[dict]:
+    rows = db.execute("""
+        SELECT title_id, display_title, primary_title, original_title, start_year, title_type, tmdb_id
+          FROM title_basic WHERE title_type IN ('movie', 'series')
+    """).fetchall()
+    return [dict(row) for row in rows]

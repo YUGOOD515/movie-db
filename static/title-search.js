@@ -219,7 +219,6 @@
             return;
         }
         add.disabled = true;
-        batch.closest("details")?.setAttribute("open", "");
         modal.hide();
     });
     form.addEventListener("submit", (event) => {

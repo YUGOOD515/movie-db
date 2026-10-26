@@ -71,10 +71,10 @@ class ReadOnlyModeTest(unittest.TestCase):
         self.assertIn("只读快照", response.get_data(as_text=True))
 
     def test_writes_are_rejected(self):
-        response = self.client.post("/manager/import", json={})
+        response = self.client.post("/manager/import/batch", json={})
         self.assertEqual(response.status_code, 503)
         self.assertTrue(response.get_json()["read_only"])
-        response = self.client.post("/manager/import", headers={"Accept": "text/html"})
+        response = self.client.post("/manager/import/batch", headers={"Accept": "text/html"})
         self.assertEqual(response.status_code, 503)
         self.assertIn("只读", response.get_data(as_text=True))
 

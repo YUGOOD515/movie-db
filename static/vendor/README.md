@@ -4,6 +4,9 @@
 
 | 文件 | 包 | 版本 | 来源 |
 | --- | --- | --- | --- |
+| `bootstrap.min.css` | bootstrap | 5.3.8 | https://github.com/twbs/bootstrap |
+| `bootstrap.bundle.min.js` | bootstrap | 5.3.8 | 同上 |
+| `bootstrap-icons.min.css`、`fonts/bootstrap-icons.woff*` | bootstrap-icons | 1.13.1 | https://github.com/twbs/icons |
 | `embla-carousel.umd.js` | embla-carousel | 8.6.0 | https://github.com/davidjerleke/embla-carousel |
 | `embla-carousel-autoplay.umd.js` | embla-carousel-autoplay | 8.6.0 | 同上 |
 | `embla-carousel-fade.umd.js` | embla-carousel-fade | 8.6.0 | 同上 |

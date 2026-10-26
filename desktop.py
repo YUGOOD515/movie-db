@@ -30,8 +30,7 @@ import urllib.request
 import webbrowser
 from pathlib import Path
 
-BASE_DIR = Path(__file__).resolve().parent
-sys.path.insert(0, str(BASE_DIR))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from services import paths  # noqa: E402  只依赖标准库，数据位置要在导入应用前确定
 
 DEFAULT_PORT = 5000
@@ -120,7 +119,7 @@ def _prepare_environment() -> None:
     paths.DATA_DIR.mkdir(parents=True, exist_ok=True)
     if sys.argv and sys.argv[0]:
         sys.argv[0] = os.path.abspath(sys.argv[0])  # pywebview 按它找程序目录，切换工作目录后相对路径会失效
-    os.chdir(BASE_DIR)
+    os.chdir(paths.APP_DIR)
     load_dotenv(paths.ENV_PATH)
     if paths.BUNDLED_FFPROBE.is_file() and os.environ.get("FFPROBE_PATH", "ffprobe").strip() in ("", "ffprobe"):
         os.environ["FFPROBE_PATH"] = str(paths.BUNDLED_FFPROBE)
@@ -155,7 +154,7 @@ def relaunch_command(argv: list[str], open_path: str | None = None) -> list[str]
         return [str(launcher), *args]  # 经 .app 的启动器重新运行，环境与双击打开时一致
     # 沿用解释器参数（macOS 启动器用 -B -s 运行，避免往 .app 里写字节码）
     flags = subprocess._args_from_interpreter_flags()  # noqa: SLF001 — 标准库多进程也用它
-    return [sys.executable, *flags, str(BASE_DIR / "desktop.py"), *args]
+    return [sys.executable, *flags, str(paths.APP_DIR / "desktop.py"), *args]
 
 
 def ui_mode(args: argparse.Namespace, environ=os.environ) -> str:
@@ -255,7 +254,7 @@ def _spawn(command: list[str]) -> None:
         options["creationflags"] = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
     else:
         options["start_new_session"] = True  # 与当前进程脱离，旧进程退出后继续运行
-    subprocess.Popen(command, cwd=BASE_DIR, close_fds=True, stdin=subprocess.DEVNULL,
+    subprocess.Popen(command, cwd=paths.APP_DIR, close_fds=True, stdin=subprocess.DEVNULL,
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **options)
 
 
@@ -368,7 +367,7 @@ def main(argv: list[str] | None = None) -> int:
         # 尽早切换成只在菜单栏显示，程序坞图标只闪一下
         delegate = _menu_bar_only(lambda: webbrowser.open(url + "/"))  # noqa: F841
 
-    _log(f"MovieDB 启动：{url}（界面 {mode}，程序 {BASE_DIR}，数据 {paths.DATA_DIR}）")
+    _log(f"MovieDB 启动：{url}（界面 {mode}，程序 {paths.APP_DIR}，数据 {paths.DATA_DIR}）")
     from werkzeug.serving import make_server
 
     from app import app

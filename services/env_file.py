@@ -13,6 +13,19 @@ COMMENTED = re.compile(r"^\s*#\s*([A-Za-z_][A-Za-z0-9_]*)=")
 SAFE = re.compile(r"^[A-Za-z0-9_./:@%+,=~\-]*$")
 
 
+def read(path: Path) -> dict[str, str]:
+    """读取 .env 文件中的键值映射，文件不存在或无法读取时返回空字典。"""
+    path = Path(path)
+    if not path.is_file():
+        return {}
+    try:
+        from dotenv import dotenv_values
+
+        return {key: (value or "").strip() for key, value in dotenv_values(path).items() if key}
+    except (ImportError, OSError):
+        return {}
+
+
 def quote(value: str) -> str:
     """python-dotenv 可解析的写法：简单值原样写入，其他用引号包住。"""
     if SAFE.fullmatch(value):

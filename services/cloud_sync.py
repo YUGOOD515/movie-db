@@ -19,8 +19,7 @@ from services import paths
 
 logger = logging.getLogger(__name__)
 
-BASE_DIR = Path(__file__).resolve().parent.parent
-SCRIPT = BASE_DIR / "scripts" / "publish_snapshot.py"
+SCRIPT = paths.APP_DIR / "scripts" / "publish_snapshot.py"
 POLL_SECONDS = 15
 STABLE_SECONDS = 60
 MIN_INTERVAL_SECONDS = 120
@@ -55,7 +54,7 @@ def run_publish(database: Path) -> bool:
         result = subprocess.run(
             # 沿用解释器参数：macOS 应用用 -B -s 运行，子进程同样不写字节码、不读用户 site-packages
             [sys.executable, *subprocess._args_from_interpreter_flags(), str(SCRIPT)],  # noqa: SLF001
-            cwd=BASE_DIR,
+            cwd=paths.APP_DIR,
             env=environment,
             capture_output=True,
             text=True,

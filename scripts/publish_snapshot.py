@@ -47,9 +47,9 @@ SEED_PATHS = (
     "/catalog",
     "/catalog?type=movie",
     "/catalog?type=series",
-    "/collections",
-    "/manager",
-    "/manager?tab=associate",
+    "/favorites",
+    "/media",
+    "/media?tab=associate",
 )
 ATTRIBUTE_PATH = re.compile(r'=\s*"(/[^"\s]*)"')
 FORM_PATTERN = re.compile(r"<form\b([^>]*)>(.*?)</form>", re.S | re.I)

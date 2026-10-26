@@ -143,10 +143,10 @@ def refresh_douban_ratings(database_path: str | Path, progress_callback=None) ->
 
     被豆瓣拦截时立即停止，已取到的照常写入；单部失败保留库内旧值。
     """
+    from queries.manager import get_douban_refresh_targets
+
     with closing(connect_database(database_path)) as db:
-        rows = [dict(row) for row in db.execute(
-            "SELECT title_id, title_type, douban_id FROM title_basic "
-            "WHERE title_type IN ('movie', 'series') ORDER BY title_id")]
+        rows = get_douban_refresh_targets(db)
     result = {"douban_total": len(rows), "douban_completed": 0, "douban_succeeded": 0, "douban_message": None}
     if not rows:
         return result

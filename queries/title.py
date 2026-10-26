@@ -12,23 +12,6 @@ def get_title(db: Connection, title_id: str) -> dict | None:
     return dict(row) if row else None
 
 
-def get_title_id_by_tmdb(
-    db: Connection,
-    title_type: str,
-    tmdb_id: int,
-) -> str | None:
-    row = db.execute(
-        """
-        SELECT title_id
-          FROM title_basic
-         WHERE title_type = ?
-           AND tmdb_id = ?
-        """,
-        (title_type, tmdb_id),
-    ).fetchone()
-    return row["title_id"] if row else None
-
-
 def get_episode_relation(db: Connection, episode_id: str) -> dict | None:
     row = db.execute(
         """

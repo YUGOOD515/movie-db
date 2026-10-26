@@ -149,12 +149,6 @@ class Limiter:
                 self._limit += 1
                 self._free.notify()
 
-    def _acquire(self) -> None:
-        with self._free:
-            while self._active >= self._limit:
-                self._free.wait()
-            self._active += 1
-
     def _release(self) -> None:
         with self._free:
             self._active -= 1
