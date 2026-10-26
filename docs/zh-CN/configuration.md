@@ -86,9 +86,9 @@
 
 | 变量 | 说明 |
 |---|---|
-| `TMDB_TOKEN` | TMDB API 读访问令牌（不是 32 位的 API Key） |
+| `TMDB_TOKEN` | 自己的 TMDB 密钥：API 读访问令牌或 32 位 API Key 均可。留空使用安装包内置的密钥；源码运行没有内置密钥，需要填写 |
 | `TMDB_PROXY` | 访问 TMDB 用的 HTTP 代理（只对 TMDB 生效），如 `http://127.0.0.1:7890` |
-| `TMDB_API_ORIGIN`、`TMDB_IMAGE_ORIGIN` | 反向代理或镜像地址，默认 `https://api.themoviedb.org/3`、`https://image.tmdb.org/t/p` |
+| `TMDB_API_ORIGIN`、`TMDB_IMAGE_ORIGIN` | 反向代理或镜像地址，默认 `https://api.themoviedb.org/3`、`https://image.tmdb.org/t/p`。接口地址留空时，主域名连不上会自动改用官方备用域名 `api.tmdb.org`；海报加载不出来可把图片地址设为公共图片加速 `https://wsrv.nl/?url=https://image.tmdb.org/t/p`（第三方服务） |
 | `MDBLIST_APIKEY` | MDBList API Key，补充烂番茄、Metacritic 等评分 |
 | `IMDB_RATINGS_PATH` | IMDb 官方评分文件位置，默认数据目录的 `imdb/` |
 

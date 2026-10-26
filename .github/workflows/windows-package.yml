@@ -121,6 +121,7 @@ jobs:
       - name: 构建
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          TMDB_BUILTIN_TOKEN: ${{ secrets.TMDB_BUILTIN_TOKEN }}
         run: |
           uv run --frozen python packaging/build_windows.py --zip --ffprobe-dir ffslim\ffprobe-out 2>&1 | Tee-Object build.log
           if ($LASTEXITCODE) {
@@ -327,6 +328,8 @@ jobs:
           path: ffslim
 
       - name: 构建
+        env:
+          TMDB_BUILTIN_TOKEN: ${{ secrets.TMDB_BUILTIN_TOKEN }}
         run: |
           ls -l ffprobe-mac && head -2 ffprobe-mac/SOURCE.txt
           set -o pipefail

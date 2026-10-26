@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlparse
 
-from connectors import alist, imdb_ratings, llm, player, throttle
+from connectors import alist, imdb_ratings, llm, player, throttle, tmdb
 from services import env_file, setup_wizard
 
 KEEP = object()  # 密钥留空：保持已保存的值
@@ -199,12 +199,13 @@ SECTIONS: tuple[Section, ...] = (
     ), icon="plug"),
     Section("metadata", "元数据", "海报、简介、演员与评分", (
         Group("tmdb", "TMDB", "海报、简介、演员与季集", (
-            S("TMDB_TOKEN", "API 读访问令牌", "secret", required=True,
-              hint="TMDB“设置 → API”中较长的 API Read Access Token，不是 32 位的 API Key。"),
             S("TMDB_PROXY", "代理", "url", placeholder="http://127.0.0.1:7890", hint="只用于访问 TMDB。"),
+            S("TMDB_TOKEN", "自己的密钥", "secret", advanced=True,
+              hint="留空使用 MovieDB 内置的密钥。API 读访问令牌或 32 位 API Key 都可以。"),
             S("TMDB_API_ORIGIN", "接口地址", "url", advanced=True, placeholder="https://api.themoviedb.org/3",
-              hint="使用反向代理或镜像时填写。"),
-            S("TMDB_IMAGE_ORIGIN", "图片地址", "url", advanced=True, placeholder="https://image.tmdb.org/t/p"),
+              hint="留空时自动选择：api.themoviedb.org 连不上就改用 api.tmdb.org。使用反向代理或镜像时填写。"),
+            S("TMDB_IMAGE_ORIGIN", "图片地址", "url", advanced=True, placeholder="https://image.tmdb.org/t/p",
+              hint="海报加载不出来时，可填公共图片加速 https://wsrv.nl/?url=https://image.tmdb.org/t/p（第三方服务）。"),
             S("TMDB_RATE", "每秒请求预算", "float", 25, advanced=True, low=0.1, high=30, placeholder="25",
               hint="扫描、识别与导入共用预算；不积攒突发额度。"),
         ), test="tmdb", icon="image"),
@@ -227,7 +228,7 @@ SECTIONS: tuple[Section, ...] = (
               hint="免费额度通常按分钟限次。DeepSeek 只限并发，忽略此项。"),
             S("LLM_API", "接口类型", "select", advanced=True,
               options=(("", "自动"), ("responses", "Responses API"), ("chat", "Chat Completions"))),
-            S("LLM_THINKING", "思考模式", "select", advanced=True, hint="仅 DeepSeek 生效，识别片名不需要思考。",
+            S("LLM_THINKING", "思考模式", "select", advanced=True, hint="仅 DeepSeek 与智谱生效，识别片名不需要思考。",
               options=(("", "关闭（默认）"), ("low", "低"), ("high", "高"), ("max", "最高"))),
             S("LLM_BATCH_SIZE", "每次请求条数", "int", advanced=True, low=1, high=50, placeholder="自动",
               hint="留空时 DeepSeek 为 8，其他平台为 20。"),
@@ -259,6 +260,13 @@ def _ratings_status() -> dict:
     return {"state": "ok", "text": f"{when}更新"}
 
 
+def _tmdb_status() -> dict:
+    source = tmdb.token_source()
+    if not source:
+        return {"state": "warn", "text": "需要填写密钥"}
+    return {"state": "ok", "text": "自己的密钥" if source == "user" else "内置密钥"}
+
+
 def _player_status() -> dict:
     try:
         kind, _path = player.resolve_player()
@@ -285,7 +293,7 @@ def statuses() -> dict:
         "sync": {"state": "ok", "text": "自动同步中"} if cloud_sync.is_enabled()
         else {"state": "off", "text": "已暂停" if sync_token else "未开启"},
         "app": {"state": "warn", "text": "等待重启"} if _pending_restart else {"state": "ok", "text": "运行中"},
-        "tmdb": configured(env("TMDB_TOKEN", "").strip()),
+        "tmdb": _tmdb_status(),
         "mdblist": configured(env("MDBLIST_APIKEY", "").strip(), off="未开启"),
         "imdb": _ratings_status(),
         "llm": configured(llm.is_configured(), "已开启", "未开启"),

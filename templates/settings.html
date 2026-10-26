@@ -107,6 +107,7 @@
                         </div>
                     </section>
                 {% endfor %}
+                {% if section.id == "metadata" %}{% include "_tmdb_credit.html" %}{% endif %}
             </section>
         {% endfor %}
     </form>

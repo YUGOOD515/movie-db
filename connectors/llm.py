@@ -11,6 +11,8 @@ DeepSeek（``api.deepseek.com``）按官方文档专门处理：
   每批默认 8 条：小批次让并发真正铺开，单次响应也更快，由 ``LLM_BATCH_SIZE`` 调整；
 - 非流式请求在排队时会持续返回空行保活，读超时按“两次收到数据的间隔”计算，不会误判。
 
+智谱（``open.bigmodel.cn``）的 GLM 默认开启思考，Chat 请求同样发送 ``thinking.type = disabled``。
+
 其它平台沿用通用参数（不发送平台私有字段），默认 Chat Completions，``LLM_API`` 可覆盖。
 """
 
@@ -43,7 +45,11 @@ class LlmError(requests.RequestException):
 
 def provider(base_url: str) -> str:
     host = (urlparse(base_url).hostname or "").lower()
-    return "deepseek" if host == "api.deepseek.com" or host.endswith(".deepseek.com") else "openai-compatible"
+    if host == "api.deepseek.com" or host.endswith(".deepseek.com"):
+        return "deepseek"
+    if host == "bigmodel.cn" or host.endswith(".bigmodel.cn"):
+        return "zhipu"
+    return "openai-compatible"
 
 
 def _settings(overrides: dict | None = None) -> dict:
@@ -207,6 +213,8 @@ def _chat_body(settings: dict, system: str, user: str, max_tokens: int | None) -
             body["thinking"] = {"type": "disabled"}
         else:
             body["thinking"], body["reasoning_effort"] = {"type": "enabled"}, settings["thinking"]
+    elif settings["provider"] == "zhipu":
+        body["thinking"] = {"type": "disabled" if settings["thinking"] == "none" else "enabled"}
     return body
 
 

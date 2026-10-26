@@ -16,8 +16,22 @@ from services import env_file, setup_wizard
 HTML = {"Accept": "text/html,application/xhtml+xml,*/*;q=0.8"}
 SAME_ORIGIN = {"Origin": "http://localhost"}
 MANAGED = ("ALIST_ORIGIN", "ALIST_USERNAME", "ALIST_PASSWORD", "ALIST_PATH_PASSWORD", "TMDB_TOKEN", "TMDB_PROXY",
+           "TMDB_API_ORIGIN", "TMDB_IMAGE_ORIGIN",
            "LLM_BASE_URL", "LLM_API_KEY", "LLM_MODEL", "LLM_RPM", "LLM_API", "LLM_CONCURRENCY", "MDBLIST_APIKEY", "FLASK_SECRET_KEY", "FFPROBE_PATH")
 TOKEN = "eyJ" + "a" * 120
+
+
+@pytest.fixture(autouse=True)
+def tmdb_state(monkeypatch):
+    """TMDB 选线是进程内状态，内置密钥随安装包而定：每个用例从“无内置、按配置选线”开始。"""
+    from connectors import tmdb
+    monkeypatch.setattr(tmdb, "BUILTIN_TOKEN", "")
+    monkeypatch.delenv("TMDB_API_ORIGIN", raising=False)
+    monkeypatch.delenv("TMDB_IMAGE_ORIGIN", raising=False)
+    tmdb.use_origin(None)
+    tmdb.clear_cache()
+    yield tmdb
+    tmdb.use_origin(None)
 
 
 @pytest.fixture
@@ -85,11 +99,29 @@ def test_save_writes_env_creates_library_and_hides_secrets(setup_env):
 
 def test_save_validates_required_and_ai_fields(setup_env):
     client = setup_env["client"]
-    missing = client.post("/setup/save", json=_form(TMDB_TOKEN=""), headers=SAME_ORIGIN)
+    missing = client.post("/setup/save", json=_form(ALIST_PASSWORD=""), headers=SAME_ORIGIN)
     assert missing.status_code == 400 and "必填" in missing.get_json()["message"]
+    # 没有内置密钥的版本（源码运行）仍需要自己的 TMDB 密钥
+    no_token = client.post("/setup/save", json=_form(TMDB_TOKEN=""), headers=SAME_ORIGIN)
+    assert no_token.status_code == 400 and "内置" in no_token.get_json()["message"]
     ai = client.post("/setup/save", json=_form(ai_enabled=True, LLM_BASE_URL="https://x.test/v1"), headers=SAME_ORIGIN)
     assert ai.status_code == 400
     assert not setup_env["env"].exists() and not setup_env["db"].exists()
+
+
+def test_save_with_builtin_token_needs_no_tmdb_key(setup_env, tmdb_state, monkeypatch):
+    monkeypatch.setattr(tmdb_state, "BUILTIN_TOKEN", TOKEN)
+    monkeypatch.setenv("LLM_API_KEY", "keep-me")
+    tmdb_state.use_origin("https://api.tmdb.org/3")  # 检测时发现主域名连不上
+    response = setup_env["client"].post("/setup/save", json=_form(TMDB_TOKEN="", image_proxy=True), headers=SAME_ORIGIN)
+    assert response.status_code == 200, response.get_json()
+    from dotenv import dotenv_values
+    values = dotenv_values(setup_env["env"])
+    assert "TMDB_TOKEN" not in values and TOKEN not in setup_env["env"].read_text(encoding="utf-8")
+    assert values["TMDB_API_ORIGIN"] == "https://api.tmdb.org/3"
+    assert values["TMDB_IMAGE_ORIGIN"] == tmdb_state.WSRV_IMAGE_ORIGIN
+    # 引导不再包含 AI 与评分步骤：表单没带开关时不动已有配置
+    assert os.environ["LLM_API_KEY"] == "keep-me"
 
 
 def test_setup_rejects_cross_site_and_tunnel_requests(setup_env):
@@ -161,27 +193,140 @@ def test_alist_check_reports_sign_all_warning(setup_env):
         assert "AList 已启动" in setup_wizard.test_alist(_form())["message"]
 
 
+def _image(status=200, kind="image/jpeg"):
+    response = _response(status)
+    response.headers = {"Content-Type": kind}
+    return response
+
+
 def test_tmdb_check(setup_env):
-    assert "32 位" in setup_wizard.test_tmdb({"TMDB_TOKEN": "0123456789abcdef0123456789abcdef"})["message"]
-    with patch.object(requests, "get", return_value=_response(401)):
-        assert not setup_wizard.test_tmdb({"TMDB_TOKEN": TOKEN})["ok"]
-    with patch.object(requests, "get", side_effect=requests.ConnectTimeout()):
+    v3 = "0123456789abcdef0123456789abcdef"
+    with patch.object(requests, "get", return_value=_response(401)) as get:
+        result = setup_wizard.test_tmdb({"TMDB_TOKEN": v3})
+    assert not result["ok"] and "无效" in result["message"]
+    # 32 位 API Key 按 v3 方式放在查询参数里，不发 Bearer
+    assert get.call_args.kwargs["params"] == {"api_key": v3} and "Authorization" not in get.call_args.kwargs["headers"]
+    with patch.object(requests, "get", side_effect=requests.ConnectTimeout()) as get:
         result = setup_wizard.test_tmdb({"TMDB_TOKEN": TOKEN})
         assert result["network"] and "代理" in result["message"]
-    with patch.object(requests, "get", return_value=_response(200)) as get:
-        assert setup_wizard.test_tmdb({"TMDB_TOKEN": TOKEN, "TMDB_PROXY": "http://127.0.0.1:7890"})["ok"]
+        # 两个官方域名都试过
+        assert [call.args[0] for call in get.call_args_list] == [
+            "https://api.themoviedb.org/3/authentication", "https://api.tmdb.org/3/authentication"]
+    with patch.object(requests, "get", side_effect=[_response(200), _response(200, {}), _response(200, {})]) as get:
+        result = setup_wizard.test_tmdb({"TMDB_TOKEN": TOKEN, "TMDB_PROXY": "http://127.0.0.1:7890"})
+        assert result["ok"] and result["source"] == "user" and result["image_ok"]
         assert get.call_args.kwargs["proxies"]["https"] == "http://127.0.0.1:7890"
+        assert get.call_args_list[0].kwargs["headers"]["Authorization"] == f"Bearer {TOKEN}"
+
+
+def test_tmdb_check_without_key_uses_builtin_or_asks(setup_env, tmdb_state, monkeypatch):
+    result = setup_wizard.test_tmdb({})
+    assert not result["ok"] and result["need_token"]
+    monkeypatch.setattr(tmdb_state, "BUILTIN_TOKEN", TOKEN)
+    with patch.object(requests, "get", return_value=_response(401)):
+        result = setup_wizard.test_tmdb({})
+    assert result["need_token"] and "内置" in result["message"]
+
+
+def test_tmdb_check_falls_back_to_alternate_domain(setup_env, tmdb_state, monkeypatch):
+    monkeypatch.setattr(tmdb_state, "BUILTIN_TOKEN", TOKEN)
+    trending = {"results": [{"poster_path": "/AbCdEf1.jpg"}]}
+    with patch.object(requests, "get", side_effect=[requests.ConnectionError(), _response(200), _response(200, trending),
+                                                    _image(200, "text/html")]):
+        result = setup_wizard.test_tmdb({"image_proxy": False})
+    assert result["ok"] and result["source"] == "builtin" and result["origin"] == "https://api.tmdb.org/3"
+    assert tmdb_state.api_origin() == "https://api.tmdb.org/3"
+    # 图片加载失败：提示开启公共图片加速
+    assert result["image_ok"] is False and result["warnings"]
+    with patch.object(requests, "get", side_effect=[_response(200), _response(200, trending), _image()]) as get:
+        result = setup_wizard.test_tmdb({"image_proxy": True})
+    assert result["image_ok"] and get.call_args.args[0].startswith("https://wsrv.nl/?url=https://image.tmdb.org/t/p/w185/")
 
 
 def test_tmdb_check_returns_trending_posters_for_onboarding(setup_env):
     trending = {"results": [{"poster_path": "/AbCdEf1.jpg"}, {"poster_path": None}, {"poster_path": "/../bad.jpg"},
                             {"poster_path": "/AbCdEf1.jpg"}, {"poster_path": "/XyZ_-99.png"}]}
-    with patch.object(requests, "get", side_effect=[_response(200), _response(200, trending), _response(200, {})]) as get:
+    with patch.object(requests, "get", side_effect=[_response(200), _response(200, trending), _response(200, {}), _image()]) as get:
         result = setup_wizard.test_tmdb({"TMDB_TOKEN": TOKEN, "with_posters": True})
     assert result["ok"] and result["posters"] == ["AbCdEf1.jpg", "XyZ_-99.png"]
     assert get.call_args_list[1].args[0].endswith("/trending/all/week")
     with patch.object(requests, "get", return_value=_response(200)):
         assert "posters" not in setup_wizard.test_tmdb({"TMDB_TOKEN": TOKEN})
+
+
+def test_tmdb_auth_and_domain_fallback(tmdb_state, monkeypatch):
+    v3 = "0123456789abcdef0123456789abcdef"
+    assert tmdb_state.auth(v3) == ({}, {"api_key": v3})
+    assert tmdb_state.auth(TOKEN) == ({"Authorization": f"Bearer {TOKEN}"}, {})
+    monkeypatch.setattr(tmdb_state.throttle, "call", lambda service, send, **kwargs: send())
+    session = Mock()
+    session.get.side_effect = [requests.ConnectionError(), _response(200, {"id": 1})]
+    assert tmdb_state._get(session, "/movie/1", {}) == {"id": 1}
+    assert session.get.call_args.args[0] == "https://api.tmdb.org/3/movie/1"
+    assert tmdb_state.api_origin() == "https://api.tmdb.org/3"
+    # 域名回退后继续复用响应缓存，不再请求；调用方修改结果也不会污染缓存。
+    tmdb_state._get(session, "/movie/1", {})["id"] = 99
+    assert tmdb_state._get(session, "/movie/1", {}) == {"id": 1}
+    assert session.get.call_count == 2
+    # 自定义镜像不切换，直接报错
+    monkeypatch.setenv("TMDB_API_ORIGIN", "https://tmdb.mirror.test/3")
+    session.get.side_effect = requests.ConnectionError()
+    with pytest.raises(requests.ConnectionError):
+        tmdb_state._get(session, "/movie/1", {})
+
+
+def test_tmdb_builtin_token_is_fallback_and_images_skip_key(tmdb_state, monkeypatch, tmp_path):
+    monkeypatch.delenv("TMDB_TOKEN", raising=False)
+    monkeypatch.setattr(tmdb_state.paths, "ENV_PATH", tmp_path / ".env")
+    assert tmdb_state.token_source() == ""
+    with pytest.raises(RuntimeError):
+        tmdb_state._session()
+    v3 = "0123456789abcdef0123456789abcdef"
+    monkeypatch.setattr(tmdb_state, "BUILTIN_TOKEN", v3)
+    assert tmdb_state.token_source() == "builtin"
+    session = tmdb_state._session()
+    assert session.params == {"api_key": v3} and "Authorization" not in session.headers
+    monkeypatch.setenv("TMDB_TOKEN", TOKEN)
+    assert tmdb_state.token_source() == "user" and tmdb_state._session().headers["Authorization"] == f"Bearer {TOKEN}"
+
+    # 图片可能来自第三方 CDN：下载时去掉密钥
+    response = Mock(status_code=200, headers={"Content-Type": "image/jpeg"})
+    response.__enter__ = Mock(return_value=response)
+    response.__exit__ = Mock(return_value=False)
+    response.iter_content.return_value = [b"jpeg"]
+    session = Mock()
+    session.get.return_value = response
+    tmdb_state._download_image(session, "https://wsrv.nl/?url=https://image.tmdb.org/t/p/w185/a.jpg", tmp_path / "a.jpg")
+    assert (tmp_path / "a.jpg").read_bytes() == b"jpeg"
+    assert session.get.call_args.kwargs["headers"] == {"Authorization": None}
+    assert session.get.call_args.kwargs["params"] == {"api_key": None}
+
+
+def test_builtin_token_written_only_when_secret_present(tmp_path, monkeypatch):
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "packaging"))
+    import build_windows
+
+    monkeypatch.delenv("TMDB_BUILTIN_TOKEN", raising=False)
+    assert build_windows.write_builtin_token(tmp_path) == 0
+    assert not (tmp_path / "connectors" / "tmdb_builtin.py").exists()
+    (tmp_path / "connectors").mkdir()
+    monkeypatch.setenv("TMDB_BUILTIN_TOKEN", " abc'\"def ")
+    assert build_windows.write_builtin_token(tmp_path) == 1
+    namespace: dict = {}
+    exec((tmp_path / "connectors" / "tmdb_builtin.py").read_text(encoding="utf-8"), namespace)
+    assert namespace["TOKEN"] == "abc'\"def"
+
+
+def test_zhipu_disables_thinking(monkeypatch):
+    from connectors import llm
+    for name in ("LLM_THINKING", "LLM_API"):
+        monkeypatch.delenv(name, raising=False)
+    settings = llm._settings({"LLM_BASE_URL": "https://open.bigmodel.cn/api/paas/v4", "LLM_MODEL": "glm-4.7-flash"})
+    assert settings["provider"] == "zhipu" and settings["api"] == "chat"
+    assert llm._chat_body(settings, "s", "u", None)["thinking"] == {"type": "disabled"}
+    generic = llm._settings({"LLM_BASE_URL": "https://api.siliconflow.cn/v1", "LLM_MODEL": "m"})
+    assert "thinking" not in llm._chat_body(generic, "s", "u", None)
 
 
 def test_tmdb_session_uses_proxy_only_when_configured(monkeypatch):

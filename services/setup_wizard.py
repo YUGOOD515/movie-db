@@ -33,12 +33,13 @@ PLAIN_FIELDS = ("ALIST_ORIGIN", "ALIST_USERNAME", "TMDB_PROXY", "LLM_BASE_URL", 
 # OpenAI 兼容接口的常见平台；model 只作输入提示。
 LLM_PRESETS = [
     # DeepSeek 官方地址不带 /v1；默认走 Responses API、关闭思考；只限并发不限每分钟次数（rpm=False 隐藏该项）。
+    # 智谱 GLM-4.7-Flash 完全免费（只限并发），作为默认推荐；关闭思考见 connectors/llm.py。
+    {"id": "zhipu", "name": "智谱 GLM（免费）", "base_url": "https://open.bigmodel.cn/api/paas/v4", "model": "glm-4.7-flash",
+     "key_url": "https://open.bigmodel.cn/usercenter/apikeys"},
     {"id": "deepseek", "name": "DeepSeek", "base_url": "https://api.deepseek.com", "model": "deepseek-flash",
      "key_url": "https://platform.deepseek.com/api_keys", "rpm": False},
     {"id": "siliconflow", "name": "硅基流动", "base_url": "https://api.siliconflow.cn/v1", "model": "Qwen/Qwen3-8B",
      "key_url": "https://cloud.siliconflow.cn/account/ak"},
-    {"id": "zhipu", "name": "智谱 GLM", "base_url": "https://open.bigmodel.cn/api/paas/v4", "model": "glm-4-flash",
-     "key_url": "https://open.bigmodel.cn/usercenter/apikeys"},
     {"id": "gemini", "name": "Google Gemini", "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
      "model": "gemini-2.5-flash", "key_url": "https://aistudio.google.com/apikey"},
     {"id": "openrouter", "name": "OpenRouter", "base_url": "https://openrouter.ai/api/v1",
@@ -114,6 +115,7 @@ def current(database: Path) -> dict:
         "presets": LLM_PRESETS,
         "env_exists": ENV_PATH.exists(),
         "alist_running": _alist_running(values["ALIST_ORIGIN"]),
+        "tmdb_builtin": bool(tmdb.BUILTIN_TOKEN),
     }
 
 
@@ -203,28 +205,67 @@ def test_alist(form: dict) -> dict:
     return {"ok": True, "message": "已连接", "details": details, "warnings": warnings, "sign_all": sign}
 
 
+def _tmdb_origins() -> tuple[str, ...]:
+    """要尝试的接口地址：配置了官方域名时两个官方域名依次尝试（配置的在前），自定义镜像只试它自己。"""
+    configured = tmdb.configured_api_origin()
+    alternate = tmdb.alternate_origin(configured)
+    return (configured, alternate) if alternate else (configured,)
+
+
+def _image_ok(origin: str, name: str | None, proxies: dict | None) -> bool:
+    if not name:
+        return True
+    try:
+        response = requests.get(f"{origin}/w185/{name}", proxies=proxies, timeout=8)
+    except requests.RequestException:
+        return False
+    return response.status_code == 200 and response.headers.get("Content-Type", "").startswith("image/")
+
+
 def test_tmdb(form: dict) -> dict:
+    """检测 TMDB：没填密钥时用内置密钥；依次尝试官方域名并记住可用的一个；顺带检测图片能否加载。"""
     token = _field(form, "TMDB_TOKEN")
+    source = "user" if token else "builtin"
+    token = token or tmdb.BUILTIN_TOKEN
     if not token:
-        raise SetupError("请填写 TMDB 的 API 读访问令牌。")
-    if len(token) < 64 and re.fullmatch(r"[0-9a-f]{32}", token):
-        return {"ok": False, "message": "这是 32 位的 API Key，这里需要更长的“API 读访问令牌”（API Read Access Token）。"}
+        return {"ok": False, "need_token": True, "message": "这个版本没有内置 TMDB 密钥，请填写你自己的。"}
     proxy = _field(form, "TMDB_PROXY")
     proxies = {"http": _url(proxy, "代理地址"), "https": _url(proxy, "代理地址")} if proxy else None
-    origin = tmdb.api_origin()
-    try:
-        response = requests.get(origin + "/authentication", headers={"Authorization": f"Bearer {token}", "accept": "application/json"},
-                                proxies=proxies, timeout=TIMEOUT)
-    except requests.RequestException as error:
+    headers, params = tmdb.auth(token)
+    headers["accept"] = "application/json"
+    response, origin, error = None, "", None
+    for origin in _tmdb_origins():
+        try:
+            response = requests.get(origin + "/authentication", headers=headers, params=params,
+                                    proxies=proxies, timeout=TIMEOUT)
+            break
+        except requests.RequestException as failure:
+            error = failure
+    if response is None:
         return {"ok": False, "network": True,
                 "message": _network_message(error, " TMDB") + ("请检查代理地址是否可用。" if proxy else "国内网络可能需要代理，填写代理地址后重试。")}
     if response.status_code == 401:
-        return {"ok": False, "message": "令牌无效，请复制完整的“API 读访问令牌”。"}
+        if source == "builtin":
+            return {"ok": False, "need_token": True, "message": "内置密钥已失效，请填写你自己的 TMDB 密钥。"}
+        return {"ok": False, "message": "密钥无效，请复制完整的“API 读访问令牌”或 32 位 API Key。"}
     if response.status_code != 200:
         return {"ok": False, "message": f"TMDB 返回错误（HTTP {response.status_code}），请稍后重试。"}
-    result = {"ok": True, "message": "已连接", "details": ["令牌有效"] + (["通过代理访问"] if proxy else [])}
-    if form.get("with_posters"):
-        result["posters"] = trending_posters(origin, token, proxies)
+    tmdb.use_origin(origin)
+
+    image_origin = tmdb.WSRV_IMAGE_ORIGIN if form.get("image_proxy") else tmdb.image_origin()
+    names = trending_posters(origin, token, proxies, limit=40 if form.get("with_posters") else 1, image_origin=image_origin)
+    image_ok = _image_ok(image_origin, names[0] if names else None, proxies)
+    details = ["自己的密钥" if source == "user" else "内置密钥", urlparse(origin).hostname]
+    if proxy:
+        details.append("通过代理访问")
+    if form.get("image_proxy"):
+        details.append("图片经 wsrv.nl 加速")
+    result = {"ok": True, "message": "已连接", "details": details, "origin": origin, "source": source,
+              "image_ok": image_ok}
+    if not image_ok:
+        result["warnings"] = ["海报图片加载失败：可以开启“公共图片加速”，或填写代理后重试。"]
+    if form.get("with_posters") and image_ok:
+        result["posters"] = names
     return result
 
 
@@ -232,18 +273,21 @@ def test_tmdb(form: dict) -> dict:
 POSTER_SIZES = {"w185", "w342"}
 POSTER_NAME = re.compile(r"^[A-Za-z0-9_-]{6,64}\.(?:jpg|jpeg|png|webp)$")
 _poster_proxies: dict | None = None
+_poster_origin: str | None = None
 _poster_cache: dict[str, tuple[bytes, str]] = {}
 POSTER_CACHE_LIMIT = 96
 
 
-def trending_posters(origin: str, token: str, proxies: dict | None, limit: int = 40) -> list[str]:
-    global _poster_proxies
-    _poster_proxies = proxies
+def trending_posters(origin: str, token: str, proxies: dict | None, limit: int = 40,
+                     image_origin: str | None = None) -> list[str]:
+    global _poster_proxies, _poster_origin
+    _poster_proxies, _poster_origin = proxies, image_origin
     names: list[str] = []
-    headers = {"Authorization": f"Bearer {token}", "accept": "application/json"}
+    headers, params = tmdb.auth(token)
+    headers["accept"] = "application/json"
     for page in (1, 2):
         try:
-            response = requests.get(origin + "/trending/all/week", params={"language": "zh-CN", "page": page},
+            response = requests.get(origin + "/trending/all/week", params={**params, "language": "zh-CN", "page": page},
                                     headers=headers, proxies=proxies, timeout=TIMEOUT)
             items = response.json().get("results") or [] if response.status_code == 200 else []
         except (requests.RequestException, ValueError, AttributeError):
@@ -269,7 +313,7 @@ def poster(size: str, name: str) -> tuple[bytes, str] | None:
         proxy = os.environ["TMDB_PROXY"].strip()
         proxies = {"http": proxy, "https": proxy}
     try:
-        response = requests.get(f"{tmdb.image_origin()}/{key}", proxies=proxies, timeout=TIMEOUT)
+        response = requests.get(f"{_poster_origin or tmdb.image_origin()}/{key}", proxies=proxies, timeout=TIMEOUT)
     except requests.RequestException:
         return None
     kind = response.headers.get("Content-Type", "")
@@ -396,6 +440,22 @@ def run_test(service: str, form: dict) -> dict:
 # ---------------------------------------------------------------- 保存
 
 
+def _ai_updates(form: dict) -> dict[str, str | None]:
+    if not form.get("ai_enabled"):
+        return dict(LLM_BASE_URL=None, LLM_API_KEY=None, LLM_MODEL=None, LLM_RPM=None)
+    base = _url(_field(form, "LLM_BASE_URL"), "AI 接口地址") if _field(form, "LLM_BASE_URL") else ""
+    key, model = _field(form, "LLM_API_KEY"), _field(form, "LLM_MODEL")
+    if not (base and key and model):
+        raise SetupError("启用 AI 识别需要填写接口地址、API Key 和模型名称。")
+    rpm = _field(form, "LLM_RPM")
+    if llm.provider(base) == "deepseek":
+        base = re.sub(r"/v1/?$", "", base.rstrip("/"))  # 官方地址不带 /v1
+        rpm = ""  # DeepSeek 不限每分钟次数，只限并发
+    elif rpm and (not rpm.isdigit() or not 1 <= int(rpm) <= 1000):
+        raise SetupError("每分钟请求上限需要是 1–1000 的整数。")
+    return dict(LLM_BASE_URL=base, LLM_API_KEY=key, LLM_MODEL=model, LLM_RPM=rpm or None)
+
+
 def save(form: dict, database: Path) -> dict:
     """写入 .env、立即生效，并在首次使用时建好空媒体库。"""
     if not isinstance(form, dict):
@@ -403,36 +463,33 @@ def save(form: dict, database: Path) -> dict:
     updates: dict[str, str | None] = {}
     origin = _field(form, "ALIST_ORIGIN") or "http://127.0.0.1:5244"
     updates["ALIST_ORIGIN"] = _url(origin, "AList 地址")
-    for name in ("ALIST_USERNAME", "ALIST_PASSWORD", "TMDB_TOKEN"):
+    for name in ("ALIST_USERNAME", "ALIST_PASSWORD"):
         value = _field(form, name)
         if not value:
-            raise SetupError("AList 账号和 TMDB 令牌是必填项。")
+            raise SetupError("AList 账号和密码是必填项。")
         updates[name] = value
     updates["ALIST_PATH_PASSWORD"] = _field(form, "ALIST_PATH_PASSWORD") or None
+    token = _field(form, "TMDB_TOKEN")
+    if not token and not tmdb.BUILTIN_TOKEN:
+        raise SetupError("这个版本没有内置 TMDB 密钥，请填写你自己的。")
+    updates["TMDB_TOKEN"] = token or None
     proxy = _field(form, "TMDB_PROXY")
     updates["TMDB_PROXY"] = _url(proxy, "代理地址") if proxy else None
+    # 检测时选中的备用官方域名写入 .env，下次启动直接用它（连不上时仍会自动换回另一个）。
+    active = tmdb.api_origin()
+    if not os.environ.get("TMDB_API_ORIGIN", "").strip() and active != tmdb.DEFAULT_API_ORIGIN:
+        updates["TMDB_API_ORIGIN"] = active
+    if form.get("image_proxy"):
+        updates["TMDB_IMAGE_ORIGIN"] = tmdb.WSRV_IMAGE_ORIGIN
 
-    if form.get("ai_enabled"):
-        base = _url(_field(form, "LLM_BASE_URL"), "AI 接口地址") if _field(form, "LLM_BASE_URL") else ""
-        key, model = _field(form, "LLM_API_KEY"), _field(form, "LLM_MODEL")
-        if not (base and key and model):
-            raise SetupError("启用 AI 识别需要填写接口地址、API Key 和模型名称。")
-        rpm = _field(form, "LLM_RPM")
-        if llm.provider(base) == "deepseek":
-            base = re.sub(r"/v1/?$", "", base.rstrip("/"))  # 官方地址不带 /v1
-            rpm = ""  # DeepSeek 不限每分钟次数，只限并发
-        elif rpm and (not rpm.isdigit() or not 1 <= int(rpm) <= 1000):
-            raise SetupError("每分钟请求上限需要是 1–1000 的整数。")
-        updates.update(LLM_BASE_URL=base, LLM_API_KEY=key, LLM_MODEL=model, LLM_RPM=rpm or None)
-    else:
-        updates.update(LLM_BASE_URL=None, LLM_API_KEY=None, LLM_MODEL=None, LLM_RPM=None)
-    if form.get("mdblist_enabled"):
+    # AI 识别与 MDBList 已移出首次引导（改在设置页开启）；表单带了开关时才处理，避免清掉已有配置。
+    if "ai_enabled" in form:
+        updates.update(_ai_updates(form))
+    if "mdblist_enabled" in form:
         key = _field(form, "MDBLIST_APIKEY")
-        if not key:
+        if form.get("mdblist_enabled") and not key:
             raise SetupError("启用 MDBList 评分需要填写 API Key。")
-        updates["MDBLIST_APIKEY"] = key
-    else:
-        updates["MDBLIST_APIKEY"] = None
+        updates["MDBLIST_APIKEY"] = key if form.get("mdblist_enabled") else None
     if not os.environ.get("FLASK_SECRET_KEY", "").strip():
         updates["FLASK_SECRET_KEY"] = secrets.token_hex(32)
     ffprobe = ffprobe_status()

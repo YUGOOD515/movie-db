@@ -86,9 +86,9 @@ The settings page covers almost everything. You can also edit `.env` in the data
 
 | Variable | Description |
 |---|---|
-| `TMDB_TOKEN` | TMDB API Read Access Token (not the 32-character API key) |
+| `TMDB_TOKEN` | Your own TMDB key — an API Read Access Token or a 32-character API key. Leave empty to use the key built into the installers; running from source has no built-in key, so set one |
 | `TMDB_PROXY` | HTTP proxy used for TMDB only, e.g. `http://127.0.0.1:7890` |
-| `TMDB_API_ORIGIN`, `TMDB_IMAGE_ORIGIN` | Reverse proxy or mirror, defaults `https://api.themoviedb.org/3` and `https://image.tmdb.org/t/p` |
+| `TMDB_API_ORIGIN`, `TMDB_IMAGE_ORIGIN` | Reverse proxy or mirror, defaults `https://api.themoviedb.org/3` and `https://image.tmdb.org/t/p`. With no API origin set, MovieDB switches to the official `api.tmdb.org` domain when the main one is unreachable; if posters don't load, set the image origin to the public relay `https://wsrv.nl/?url=https://image.tmdb.org/t/p` (third-party) |
 | `MDBLIST_APIKEY` | MDBList API key for Rotten Tomatoes, Metacritic and other ratings |
 | `IMDB_RATINGS_PATH` | Location of the official IMDb ratings file, default `imdb/` in the data folder |
 
