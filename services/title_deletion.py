@@ -13,6 +13,7 @@ from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from models.database import connect_database, connect_writable
 from models.library import delete_library_titles
 from queries.deletion import query_title_deletion
+from services.import_runtime import write_lock
 
 
 class DeletionChanged(ValueError):
@@ -137,7 +138,7 @@ def execute_title_deletion(database_path, image_root, title_id, token, secret):
     moved = []
     warnings = []
     staging = None
-    with closing(connect_writable(database_path)) as db:
+    with write_lock, closing(connect_writable(database_path)) as db:
         db.execute("BEGIN IMMEDIATE")
         try:
             plan, fingerprint, paths = _plan(db, title_id, image_root)
@@ -149,6 +150,8 @@ def execute_title_deletion(database_path, image_root, title_id, token, secret):
                     target = staging / str(index)
                     path.replace(target)
                     moved.append((path, target))
+            from services.import_jobs import cancel_title
+            cancel_title(database_path, plan["title"]["title_id"])
             delete_library_titles(db, plan["title_ids"])
             db.commit()
         except Exception:

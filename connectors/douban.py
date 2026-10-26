@@ -124,12 +124,11 @@ def wikidata_ids(imdb_ids: list[str]) -> dict[str, str]:
 
 def v2_id(imdb_id: str) -> str | None:
     """旧版接口按 IMDb ID 查豆瓣 ID；查不到返回 None。"""
-    response = throttle.call("douban", lambda: requests.post(
+    data = throttle.call("douban", lambda: requests.post(
         f"{V2_BASE}/movie/imdb/{imdb_id}", data={"apikey": V2_KEY},
         headers={"User-Agent": random.choice(APP_UAS),
                  "Content-Type": "application/x-www-form-urlencoded; charset=utf-8"},
-        timeout=TIMEOUT, allow_redirects=False))
-    data = _check(response)
+        timeout=TIMEOUT, allow_redirects=False), consume=_check)
     match = re.search(r"(\d+)/?$", str(data.get("id") or data.get("alt") or ""))
     return match.group(1) if match else None
 
@@ -146,9 +145,9 @@ def _frodo(path: str) -> dict:
     url = FRODO_BASE + path
     ts = datetime.now().strftime("%Y%m%d")
     params = {"apiKey": FRODO_KEY, "os_rom": "android", "_ts": ts, "_sig": _sign(url, ts)}
-    response = throttle.call("douban", lambda: requests.get(
-        url, params=params, headers={"User-Agent": random.choice(APP_UAS)}, timeout=TIMEOUT, allow_redirects=False))
-    return _check(response)
+    return throttle.call("douban", lambda: requests.get(
+        url, params=params, headers={"User-Agent": random.choice(APP_UAS)}, timeout=TIMEOUT, allow_redirects=False),
+        consume=_check)
 
 
 def rating(douban_id: str, title_type: str) -> tuple[float | None, int | None] | None:
@@ -174,6 +173,18 @@ def lookup(imdb_id: str, title_type: str, douban_id: str | None = None, *, wikid
     wikidata=False 表示调用方已批量查过 Wikidata，直接用旧版接口兜底。
     被豆瓣拦截时抛出 DoubanBlocked（RateLimitError）；网络错误照常抛出 requests 异常。
     """
+    from models import api_usage
+    key = f"douban:v1:{imdb_id}:{title_type}"
+    cached = api_usage.cached(key)
+    if cached is not None and (not douban_id or cached.get("douban_id") == douban_id):
+        return cached
+    fields = _lookup(imdb_id, title_type, douban_id, wikidata=wikidata)
+    # 同一剧集分批导入时复用评分；服务错误不缓存，未找到仅缓存一小时。
+    api_usage.remember(key, fields, 21600 if fields else 3600)
+    return fields
+
+
+def _lookup(imdb_id: str, title_type: str, douban_id: str | None, *, wikidata: bool) -> dict:
     if not douban_id and wikidata:
         douban_id = wikidata_ids([imdb_id]).get(imdb_id)
     if not douban_id:

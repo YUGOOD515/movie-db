@@ -1,5 +1,6 @@
-// 首次使用引导：开场 → 片源 → 海报与资料 → AI 识别 → 评分 → 完成；右侧海报墙随进度逐级亮起。
-// 每一步都由用户点“下一步”前进，连接成功只更新按钮和状态行，不自动跳转。
+// 首次使用引导：开场 → 片源 →（需要时）海报与资料 → 完成；右侧海报墙随进度逐级亮起。
+// TMDB 在开场时就用内置密钥自动检测：连得上就跳过这一步，AList 连接后直接保存。
+// AI 识别与多平台评分不再占用引导步骤，完成页给出去设置页开启的入口。
 (() => {
     const root = document.querySelector("[data-onboard]");
     if (!root) return;
@@ -7,18 +8,15 @@
     const scenes = Object.fromEntries([...root.querySelectorAll("[data-scene]")].map(node => [node.dataset.scene, node]));
     const tiles = [...root.querySelectorAll(".onboard-tile")];
     const progress = root.querySelector("[data-progress]");
-    const STEPS = ["alist", "tmdb", "ai", "ratings"];
-    const NEXT = { alist: "tmdb", tmdb: "ai", ai: "ratings" };
+    const STEPS = ["alist", "tmdb"];
     const SERVICE_FIELDS = {
         alist: ["ALIST_ORIGIN", "ALIST_USERNAME", "ALIST_PASSWORD", "ALIST_PATH_PASSWORD"],
-        tmdb: ["TMDB_TOKEN", "TMDB_PROXY"],
-        llm: ["LLM_BASE_URL", "LLM_API_KEY", "LLM_MODEL"],
-        mdblist: ["MDBLIST_APIKEY"],
+        tmdb: ["TMDB_TOKEN", "TMDB_PROXY", "image_proxy"],
     };
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
     const field = name => form.elements.namedItem(name);
     const tests = {};
-    let state = null, at = "welcome", busy = false, postersShown = false;
+    let state = null, at = "welcome", busy = false, postersShown = false, tmdbCheck = Promise.resolve(null);
 
     const el = (tag, className, text) => {
         const node = document.createElement(tag);
@@ -52,14 +50,28 @@
         root.dataset.level = String(Math.max(Number(root.dataset.level) || 0, level));
     }
 
+    // TMDB 连通且海报能加载时，不需要单独的 TMDB 步骤
+    const tmdbReady = () => Boolean(tests.tmdb && tests.tmdb.ok && tests.tmdb.image_ok !== false);
+
     // 忙碌时锁住所有操作；触发的按钮原位显示转圈（宽度不变）
     function setBusy(value, button) {
         busy = value;
-        root.querySelectorAll("[data-connect], [data-finish], [data-next], [data-skip], [data-go], [data-test]").forEach(node => { node.disabled = value; });
+        root.querySelectorAll("[data-connect], [data-go]").forEach(node => { node.disabled = value; });
         if (button) button.toggleAttribute("aria-busy", value);
     }
 
     // ------------------------------------------------------------ 场景切换
+
+    function syncProgress() {
+        const index = STEPS.indexOf(at);
+        // 只剩“片源”一步时不显示进度条
+        progress.hidden = index < 0 || (at === "alist" && tmdbReady());
+        progress.querySelectorAll("li").forEach((item, i) => {
+            item.classList.toggle("is-current", i === index);
+            item.classList.toggle("is-done", i < index);
+            if (i === index) item.setAttribute("aria-current", "step"); else item.removeAttribute("aria-current");
+        });
+    }
 
     function go(name) {
         if (!scenes[name] || name === at) return;
@@ -71,13 +83,7 @@
         scene.classList.remove("is-entering");
         void scene.offsetWidth;  // 重新触发进场动画
         scene.classList.add("is-entering");
-        const index = STEPS.indexOf(name);
-        progress.hidden = index < 0;
-        progress.querySelectorAll("li").forEach((item, i) => {
-            item.classList.toggle("is-current", i === index);
-            item.classList.toggle("is-done", i < index);
-            if (i === index) item.setAttribute("aria-current", "step"); else item.removeAttribute("aria-current");
-        });
+        syncProgress();
         const first = scene.querySelector("input:not([type=checkbox]):not([type=hidden])") || scene.querySelector(".media-primary-action");
         if (first && window.matchMedia("(pointer: fine)").matches) first.focus({ preventScroll: true });
         window.scrollTo({ top: 0, behavior: reduceMotion.matches ? "auto" : "smooth" });
@@ -85,8 +91,10 @@
 
     // ------------------------------------------------------------ 结果显示
 
+    // 结果框优先在当前场景里找（保存结果在每个可能完成设置的场景里都有一个）
     function showResult(service, result) {
-        const box = root.querySelector(`[data-result="${service}"]`);
+        const selector = `[data-result="${service}"]`;
+        const box = scenes[at].querySelector(selector) || root.querySelector(selector);
         if (!box) return;
         box.replaceChildren();
         box.className = "onboard-result";
@@ -102,20 +110,19 @@
         if (result.skip) {
             const skip = el("button", "onboard-skip", "跳过检测，先继续");
             skip.type = "button";
-            skip.addEventListener("click", () => { tests[service] = { ok: true, skipped: true }; setLevel(1); go(NEXT[service]); });
+            skip.addEventListener("click", () => { tests[service] = { ok: true, skipped: true }; setLevel(1); afterAlist(skip); });
             box.append(skip);
         }
     }
 
     async function runTest(service, extra) {
         if (busy) return null;
-        const button = root.querySelector(`[data-connect="${service}"], [data-test="${service}"]`);
+        const button = root.querySelector(`[data-connect="${service}"]`);
         setBusy(true, button);
         showResult(service, null);
         const result = await post(`/setup/test/${service}`, payload(extra));
         setBusy(false, button);
         tests[service] = result;
-        if (service === "tmdb" && result.network) root.querySelector('[data-more="proxy"]').open = true;
         showResult(service, result);
         return result;
     }
@@ -124,20 +131,57 @@
         root.querySelector(`[data-connect="${service}"] [data-label]`).textContent = text;
     }
 
+    // AList 之后：TMDB 已就绪就直接保存，否则进入 TMDB 步骤
+    async function afterAlist(button) {
+        await tmdbCheck;
+        if (tmdbReady()) finish(button);
+        else { prepareTmdb(); go("tmdb"); }
+    }
+
     async function connect(service) {
-        const passed = tests[service] && tests[service].ok;
-        if (passed) { go(NEXT[service]); return; }
+        const button = root.querySelector(`[data-connect="${service}"]`);
+        if (service === "alist" && tests.alist && tests.alist.ok) { afterAlist(button); return; }
+        if (service === "tmdb" && tmdbReady()) { finish(button); return; }
         const result = await runTest(service, service === "tmdb" ? { with_posters: !postersShown } : undefined);
         if (!result) return;
-        if (!result.ok) {
-            // AList 暂时没开也允许先往下走，之后到设置里再检测
-            if (service === "alist" && !result.network) showResult(service, { ...result, skip: true });
+        if (service === "alist") {
+            if (!result.ok) {
+                // AList 暂时没开也允许先往下走，之后到设置里再检测
+                if (!result.network) showResult(service, { ...result, skip: true });
+                return;
+            }
+            setLevel(1);
+            await tmdbCheck;
+            setConnectLabel("alist", tmdbReady() ? "完成设置" : "下一步");
+            syncProgress();
             return;
         }
-        setConnectLabel(service, "下一步");
-        if (service === "alist") { setLevel(1); return; }
-        setLevel(2);
-        showPosters(result.posters || []);
+        tmdbResult(result);
+        if (result.ok && result.image_ok === false) {
+            root.querySelector("[data-image-proxy]").hidden = false;
+            field("image_proxy").checked = true;
+        }
+        if (!result.ok && result.need_token) root.querySelector('[data-more="token"]').open = true;
+        if (tmdbReady()) setConnectLabel("tmdb", "完成设置");
+    }
+
+    // 进入 TMDB 步骤前按开场检测的结果预先展开需要填写的部分
+    function prepareTmdb() {
+        const result = tests.tmdb;
+        const lead = root.querySelector("[data-tmdb-lead]");
+        if (!state || !state.tmdb_builtin || (result && result.need_token)) {
+            root.querySelector('[data-more="token"]').open = true;
+            lead.textContent = state && state.tmdb_builtin
+                ? "MovieDB 内置的 TMDB 密钥暂时不可用，填写你自己的密钥即可连接。"
+                : "这个版本没有内置 TMDB 密钥，填写你自己的密钥即可连接。";
+        }
+        if (result && result.ok && result.image_ok === false) {
+            lead.textContent = "TMDB 已连通，但海报图片加载失败。开启公共图片加速，或填写代理后重试。";
+            root.querySelector("[data-image-proxy]").hidden = false;
+            field("image_proxy").checked = true;
+            delete tests.tmdb;  // 换了图片线路，需要重新检测
+        }
+        if (result) showResult("tmdb", result);
     }
 
     // ------------------------------------------------------------ 海报墙
@@ -155,6 +199,18 @@
             }, { once: true });
             img.src = `/setup/poster/w342/${encodeURIComponent(names[index % names.length])}`;
         });
+    }
+
+    function tmdbResult(result) {
+        if (result.ok && result.image_ok !== false) {
+            setLevel(2);
+            showPosters(result.posters || []);
+        }
+        const details = (result.details || []).join(" · ");
+        check("tmdb", result.ok && result.image_ok !== false ? "ok" : "warn",
+            result.ok ? (result.image_ok === false ? "TMDB 已连通，但海报图片加载失败，稍后可开启图片加速" : `TMDB 已连通${details ? `（${details}）` : ""}`)
+                : result.need_token ? "需要填写 TMDB 密钥"
+                    : result.network ? "暂时连不上 TMDB，稍后可以填写代理" : result.message || "TMDB 检测失败");
     }
 
     // ------------------------------------------------------------ 开场检测
@@ -178,35 +234,15 @@
 
     // ------------------------------------------------------------ 保存
 
-    // AI 步：开启时先在本地确认必填项，免得到最后一步保存才报错
-    function nextFromAi() {
+    async function finish(button) {
         if (busy) return;
-        if (field("ai_enabled").checked) {
-            const missing = !field("LLM_API_KEY").value.trim() && !state?.saved.LLM_API_KEY ? "填写 API Key，或点“跳过”稍后再开。"
-                : !field("LLM_MODEL").value.trim() || !field("LLM_BASE_URL").value.trim() ? "请在“自定义模型与地址”中填写模型和接口地址。" : "";
-            if (missing) {
-                if (missing.includes("模型")) root.querySelector('[data-more="llm-custom"]').open = true;
-                showResult("llm", { ok: false, message: missing });
-                return;
-            }
-        }
-        go("ratings");
-    }
-
-    function skip(step) {
-        const input = field(step === "ai" ? "ai_enabled" : "mdblist_enabled");
-        input.checked = false;
-        syncFeature(input);
-        if (step === "ai") go("ratings"); else finish();
-    }
-
-    async function finish() {
-        if (busy) return;
-        const button = root.querySelector("[data-finish]");
+        const busyText = button && button.querySelector(".onboard-btn-busy span:last-child");
+        if (busyText) busyText.textContent = "正在保存…";
         setBusy(true, button);
         showResult("save", null);
         const result = await post("/setup/save", payload());
         setBusy(false, button);
+        if (busyText) busyText.textContent = "正在连接…";
         if (!result.ok) { showResult("save", result); return; }
         showResult("save", null);
         setLevel(3);
@@ -216,44 +252,7 @@
         go("finale");
     }
 
-    // ------------------------------------------------------------ 字段联动
-
-    function syncFeature(input) {
-        input.closest("[data-feature]").querySelector("[data-feature-body]").hidden = !input.checked;
-    }
-
-    function syncModelHint() {
-        const model = field("LLM_MODEL").value.trim();
-        root.querySelector("[data-model-hint]").textContent = model ? model : "";
-    }
-
-    function setupPresets(presets, baseUrl) {
-        const select = root.querySelector("[data-preset]"), keyLink = root.querySelector("[data-key-link]");
-        const custom = root.querySelector('[data-more="llm-custom"]');
-        select.replaceChildren(...presets.map(preset => new Option(preset.name, preset.id)), new Option("其他（自定义）", ""));
-        const match = presets.find(preset => preset.base_url === baseUrl || (preset.id === "deepseek" && /\/\/api\.deepseek\.com(\/v1)?\/?$/.test(baseUrl || "")));
-        select.value = match ? match.id : baseUrl ? "" : presets[0].id;
-        let previous = match || (baseUrl ? null : presets[0]);
-        const apply = fill => {
-            const preset = presets.find(item => item.id === select.value);
-            keyLink.hidden = !preset;
-            if (preset) keyLink.href = preset.key_url;
-            // DeepSeek 只限并发不限每分钟次数
-            root.querySelector("[data-rpm-field]").hidden = preset?.rpm === false;
-            // 预设平台的模型和地址自动填好并收起；选“其他（自定义）”时展开让用户填写
-            if (!preset) custom.open = true;
-            if (fill) { delete tests.llm; showResult("llm", null); }
-            if (!fill || !preset) { syncModelHint(); return; }
-            field("LLM_BASE_URL").value = preset.base_url;
-            const model = field("LLM_MODEL");
-            if (!model.value || (previous && model.value === previous.model)) model.value = preset.model;
-            model.placeholder = preset.model;
-            previous = preset;
-            syncModelHint();
-        };
-        select.addEventListener("change", () => apply(true));
-        apply(!baseUrl);
-    }
+    // ------------------------------------------------------------ 加载
 
     async function load() {
         state = await (await fetch("/setup/status", { headers: { Accept: "application/json" } })).json();
@@ -267,48 +266,46 @@
             if (input && saved) input.placeholder = "已保存，留空保持不变";
         }
         if (state.saved.ALIST_PATH_PASSWORD) root.querySelector('[data-more="path-password"]').open = true;
-        if (state.values.TMDB_PROXY) root.querySelector('[data-more="proxy"]').open = true;
-        setupPresets(state.presets, state.values.LLM_BASE_URL);
-        // 可选步骤默认打开开关，直接展示要填的内容；不需要就点“跳过”
-        field("ai_enabled").checked = true;
-        field("mdblist_enabled").checked = true;
-        form.querySelectorAll("[data-feature] input[type=checkbox]").forEach(syncFeature);
+        if (state.saved.TMDB_TOKEN) root.querySelector('[data-more="token"]').open = true;
         renderChecks();
+        // 后台检测 TMDB（无需用户操作），结果决定是否需要 TMDB 步骤
+        tmdbCheck = post("/setup/test/tmdb", payload({ with_posters: true })).then(result => {
+            tests.tmdb = result;
+            tmdbResult(result);
+            syncProgress();
+            return result;
+        });
     }
 
     form.addEventListener("input", event => {
         const name = event.target.name;
-        if (name === "LLM_MODEL") syncModelHint();
         for (const [service, names] of Object.entries(SERVICE_FIELDS)) {
             if (!names.includes(name) || !tests[service]) continue;
             delete tests[service];
             showResult(service, null);
-            if (service === "alist" || service === "tmdb") setConnectLabel(service, "连接");
+            setConnectLabel(service, "连接");
         }
     });
     form.addEventListener("keydown", event => {
         if (event.key !== "Enter" || !event.target.matches("input:not([type=checkbox])")) return;
         event.preventDefault();
         if (at === "alist" || at === "tmdb") connect(at);
-        else if (at === "ai") nextFromAi();
-        else if (at === "ratings") finish();
     });
     form.addEventListener("submit", event => event.preventDefault());
-    form.querySelectorAll("[data-feature] input[type=checkbox]").forEach(input => input.addEventListener("change", () => syncFeature(input)));
     root.querySelectorAll("[data-reveal]").forEach(button => button.addEventListener("click", () => {
         const input = button.previousElementSibling, shown = input.type === "text";
         input.type = shown ? "password" : "text";
         button.querySelector("i").className = shown ? "bi bi-eye" : "bi bi-eye-slash";
         button.title = shown ? "显示" : "隐藏";
     }));
-    root.querySelectorAll("[data-go]").forEach(button => button.addEventListener("click", () => go(button.dataset.go)));
+    root.querySelectorAll("[data-go]").forEach(button => button.addEventListener("click", () => {
+        if (button.dataset.go === "tmdb") prepareTmdb();
+        go(button.dataset.go);
+    }));
     root.querySelectorAll("[data-connect]").forEach(button => button.addEventListener("click", () => connect(button.dataset.connect)));
-    root.querySelectorAll("[data-test]").forEach(button => button.addEventListener("click", () => runTest(button.dataset.test)));
-    root.querySelector("[data-next]").addEventListener("click", nextFromAi);
-    root.querySelectorAll("[data-skip]").forEach(button => button.addEventListener("click", () => skip(button.dataset.skip)));
-    root.querySelector("[data-finish]").addEventListener("click", finish);
 
     load().catch(() => {
         check("alist", "warn", "无法读取当前状态，请刷新页面");
+        check("tmdb", "warn", "无法读取当前状态，请刷新页面");
     });
 })();

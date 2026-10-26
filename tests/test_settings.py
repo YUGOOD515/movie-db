@@ -82,10 +82,22 @@ def test_blank_secret_keeps_value_and_required_cannot_be_cleared(env):
     text = env["env"].read_text(encoding="utf-8")
     assert "ALIST_USERNAME=bob" in text and TOKEN not in text
 
-    refused = _save(client, {"TMDB_TOKEN": None, "ALIST_USERNAME": ""})
+    refused = _save(client, {"ALIST_PASSWORD": None, "ALIST_USERNAME": ""})
     assert refused.status_code == 400
-    assert set(refused.get_json()["errors"]) == {"TMDB_TOKEN", "ALIST_USERNAME"}
-    assert os.environ["TMDB_TOKEN"] == TOKEN
+    assert set(refused.get_json()["errors"]) == {"ALIST_PASSWORD", "ALIST_USERNAME"}
+    assert os.environ["ALIST_PASSWORD"] == "old-pass"
+
+
+def test_tmdb_key_is_optional_and_status_shows_source(env, monkeypatch):
+    from connectors import tmdb
+    monkeypatch.setattr(tmdb, "BUILTIN_TOKEN", "")
+    monkeypatch.setattr(tmdb.paths, "ENV_PATH", env["env"])
+    assert settings._tmdb_status()["text"] == "自己的密钥"
+    cleared = _save(env["client"], {"TMDB_TOKEN": None})
+    assert cleared.status_code == 200 and "TMDB_TOKEN" not in os.environ
+    assert settings._tmdb_status() == {"state": "warn", "text": "需要填写密钥"}
+    monkeypatch.setattr(tmdb, "BUILTIN_TOKEN", "builtin")
+    assert settings._tmdb_status() == {"state": "ok", "text": "内置密钥"}
 
 
 def test_optional_secret_can_be_cleared(env, monkeypatch):

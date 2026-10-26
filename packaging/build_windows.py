@@ -211,7 +211,20 @@ def copy_app(target: Path) -> int:
         destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / name, destination)
         count += 1
+    count += write_builtin_token(target)
     return count
+
+
+def write_builtin_token(target: Path) -> int:
+    """CI 从仓库 Secret 传入 TMDB_BUILTIN_TOKEN 时写入内置密钥（该文件不进 git，见 connectors/tmdb.py）。"""
+    token = os.environ.get("TMDB_BUILTIN_TOKEN", "").strip()
+    if not token:
+        log("未设置 TMDB_BUILTIN_TOKEN：安装包不含内置 TMDB 密钥，首次使用需要填写自己的。")
+        return 0
+    path = target / "connectors" / "tmdb_builtin.py"
+    path.write_text(f'"""构建时由 CI 写入的 TMDB 内置密钥。"""\n\nTOKEN = {token!r}\n', encoding="utf-8")
+    log("已写入内置 TMDB 密钥。")
+    return 1
 
 
 def write_icon(path: Path) -> None:

@@ -77,6 +77,8 @@ def get_file(path: str, token: str) -> dict:
     return {
         "signed_url": get_origin() + "/d" + quote(path, safe="/") + "?" + urlencode({"sign": data["sign"]}),
         "raw_url": data.get("raw_url") or "",
+        "size": data.get("size"),
+        "modified": data.get("modified"),
     }
 
 

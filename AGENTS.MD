@@ -16,6 +16,10 @@ SQL 代码书写准则：https://www.sqlstyle.guide/zh/
 
 待关联识别的本机状态（扫描目录、扫描快照、识别缓存、忽略列表、已确认别名、源文件健康、TMDB 查询缓存）单独存于 `discovery.db`（@models/discovery_store.py），不写入 `library.db`，以免触发云端同步。识别流程在 @services/recognition.py（名称清洗在 @services/name_cleaning.py），只产出建议，入库仍走 `media_association.complete`；AI 通过 @connectors/llm.py 调用 OpenAI 兼容接口，结果必须经 TMDB 校验。批量识别 `recognize_many` 是规则 / AI / 核对三段流水线，外部请求的速率与并发统一由 @connectors/throttle.py 控制（429 时并发自动减半），不要在调用方另加限速。
 
+关联任务由 @services/import_jobs.py 按根 Title ID 调度，通过 @models/import_store.py 持久化到 `discovery.db`；探测、图片与派生处理共用 @services/import_runtime.py 的有界资源池。核心关联提交后继续补齐资料，恢复时复用探测检查点；签名链接与令牌不存入任务。MDBList 请求预算及评分缓存存于 `api-usage.db`（@models/api_usage.py），重试也消耗预算，不进入云端快照。
+
+豆瓣评分走 @connectors/douban.py 与独立单并发评分队列，核心导入不等待它；IMDb → 豆瓣 ID 优先由 Wikidata 批量映射。豆瓣与 Wikidata 请求仍统一走 throttle，豆瓣被拒绝时暂停 30 分钟；评分缓存复用 `api-usage.db`。旧库的豆瓣字段在本机启动时由 `upgrade_library` 补齐，只读云端不执行迁移。
+
 ## Connector
 
 采用 Flask + Jinja 三层结构：@app.py 路由只做"查询 → 整理 → 渲染"编排；@queries/ 只查数据库，@viewmodels/ 把查询结果整理成页面形状（poster/backdrop 卡片、进度、徽章、播放文案），Jinja 只负责 HTML 显示，不做业务判断。
@@ -33,6 +37,8 @@ SQL 代码书写准则：https://www.sqlstyle.guide/zh/
 ## 设置
 
 可配置项以 @services/settings.py 的 `SECTIONS` 清单为唯一来源：设置页按它渲染、保存时按它校验并写入 `.env`、测试核对 `.env.example`；新增环境变量时登记到清单并补进 `.env.example`。保存后由 `settings.apply` 让修改立即生效，只有标记 `restart` 的项需要重启（桌面版通过 `app.config["RESTART_HANDLER"]` 重启）。首次引导 `/setup` 只在媒体库建好前出现。
+
+TMDB 密钥：用户填写的 `TMDB_TOKEN` 优先，留空时用安装包内置的 `connectors/tmdb_builtin.py`（Git 忽略，CI 构建时由仓库 Secret `TMDB_BUILTIN_TOKEN` 经 `packaging/build_windows.py` 的 `write_builtin_token` 写入；源码运行没有内置密钥）。`tmdb.auth()` 按格式区分 v3 API Key（查询参数）与读访问令牌（Bearer）；接口地址是官方域名时，连不上会在 `api.themoviedb.org` 与 `api.tmdb.org` 之间自动切换（`tmdb.use_origin`）。图片可能走第三方 CDN（wsrv.nl），下载图片时不要带上密钥。
 
 文件位置统一从 @services/paths.py 取：程序文件在 `paths.APP_DIR`，用户数据（`library.db`、`discovery.db`、`.env`、`static/images`、`static/thumbnails`、`imdb/`、`logs/`）在 `paths.DATA_DIR`（源码运行时两者相同，安装版分开）；不要再用 `Path(__file__)` 拼数据路径。代码要同时能在 Windows 与 macOS 上运行，平台差异集中处理（如 `desktop.py`、`desktop_window.py`、`connectors/player.py`）；桌面版界面是 pywebview 原生窗口，页面里通过 `window.pywebview.api` 调用的接口在 `desktop_window.Api`。
 

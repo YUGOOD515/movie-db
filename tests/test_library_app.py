@@ -1166,7 +1166,7 @@ class LibraryIntegrationTest(unittest.TestCase):
                 "episodes": [],
             }
 
-            def stage_images(payload, image_root):
+            def stage_images(payload, image_root, **options):
                 for image in payload["title_artwork"]:
                     relative = Path(*Path(image["local_path"]).parts[1:])
                     target = Path(image_root) / relative
@@ -1218,7 +1218,7 @@ class LibraryIntegrationTest(unittest.TestCase):
             "episodes": [],
         }
 
-        def stage_images(payload, staging_root):
+        def stage_images(payload, staging_root, **options):
             for image in payload["title_artwork"]:
                 target = Path(staging_root) / Path(*Path(image["local_path"]).parts[1:])
                 target.parent.mkdir(parents=True, exist_ok=True)
@@ -1340,7 +1340,7 @@ class LibraryIntegrationTest(unittest.TestCase):
             "episodes": [],
         }
 
-        def stage_images(payload, image_root):
+        def stage_images(payload, image_root, **options):
             image = payload["title_artwork"][0]
             target = Path(image_root) / Path(*Path(image["local_path"]).parts[1:])
             target.parent.mkdir(parents=True, exist_ok=True)

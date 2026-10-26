@@ -27,7 +27,7 @@ from services.name_cleaning import (
     english_title, folder_hints, guess_position, has_episode_marker, normalize,
 )
 
-VERSION = 4
+VERSION = 5
 READY = 0.8          # 高于此置信度且季集完整时，预选为“可直接确认”
 AI_THRESHOLD = 0.75  # 规则结果低于此值时才请求 AI
 AI_CEILING = 0.9
@@ -49,7 +49,7 @@ OUTPUT_TOKENS_PER_ITEM = 160
 
 def signature(record: dict, *, ai: bool | None = None) -> str:
     """识别缓存键。ai=False 表示本次没能用上 AI（未配置、限流或调用失败），AI 可用后签名不再匹配会重识别。"""
-    files = sorted(item["path"] for item in record["files"])
+    files = sorted(f"{item['path']}:{item.get('size')}:{item.get('modified')}" for item in record["files"])
     digest = hashlib.sha1("\n".join([record["name"], *files]).encode("utf-8")).hexdigest()[:16]
     used = llm.is_configured() if ai is None else ai
     return f"v{VERSION}:{digest}:{int(used)}"
@@ -421,11 +421,13 @@ def recognize_many(library_database, records: list[dict], *, titles: list[dict] 
     from concurrent.futures import ThreadPoolExecutor
 
     stats = {"needs_ai": 0, "requests": 0, "ai": 0, "deferred": 0, "failed": 0, "error": "", "usage": {}}
-    progress = {"total": len(records), "done": 0, "rules": 0, "ai": 0, "verifying": 0}
+    streaming = not isinstance(records, (list, tuple))
+    progress = {"total": 0 if streaming else len(records), "done": 0, "rules": 0, "ai": 0, "verifying": 0}
     lock = threading.Lock()
     stopped: list[Exception] = []  # 熔断原因；非空后不再发起新的 AI 请求
     errors: list[RuntimeError] = []
     arrivals: queue.Queue = queue.Queue()
+    submitted, ended = object(), object()
 
     def bump(**changes):
         with lock:
@@ -491,7 +493,7 @@ def recognize_many(library_database, records: list[dict], *, titles: list[dict] 
                 context["result"][key] = True if key == "ai_deferred" else (str(error) or "AI 请求失败。")
                 verify(context)
 
-        def ask(contexts, depth=0):
+        def ask(contexts, depth=0, transient=0):
             """请求一批并把答案交给核对线程；拆分与漏项重试都在这里循环完成。"""
             if stopped:
                 fail(contexts, stopped[0])
@@ -510,6 +512,16 @@ def recognize_many(library_database, records: list[dict], *, titles: list[dict] 
                     stopped.append(error)
                     fail(contexts, error)
                     return
+                if error.status is not None and error.status >= 500:
+                    # Service outages are independent of batch size. Never turn
+                    # one failed batch into a binary tree of failed requests.
+                    if transient < 2:
+                        time.sleep(throttle._backoff(transient))
+                        ask(contexts, depth, transient + 1)
+                    else:
+                        stopped.append(error)
+                        fail(contexts, error)
+                    return
                 if len(contexts) > 1 and depth < 4:
                     middle = len(contexts) // 2
                     ask(contexts[:middle], depth + 1)
@@ -517,7 +529,15 @@ def recognize_many(library_database, records: list[dict], *, titles: list[dict] 
                     return
                 fail(contexts, error)
                 return
-            except (requests.RequestException, ValueError, KeyError, TypeError) as error:
+            except requests.RequestException as error:
+                if transient < 2:
+                    time.sleep(throttle._backoff(transient))
+                    ask(contexts, depth, transient + 1)
+                else:
+                    stopped.append(error)
+                    fail(contexts, error)
+                return
+            except (ValueError, KeyError, TypeError) as error:
                 if len(contexts) > 1 and depth < 4:
                     middle = len(contexts) // 2
                     ask(contexts[:middle], depth + 1)
@@ -551,15 +571,37 @@ def recognize_many(library_database, records: list[dict], *, titles: list[dict] 
                 batches.append(asks.submit(ask, buffer))
                 buffer = []
 
-        for record in records:
-            rules.submit(first_stage, record)
-        remaining = len(records)
-        while remaining:
+        capacity = threading.Semaphore(workers * 4)
+
+        def produce():
+            try:
+                for record in records:
+                    capacity.acquire()
+                    if streaming:
+                        bump(total=1)
+                    arrivals.put(submitted)
+                    future = rules.submit(first_stage, record)
+                    future.add_done_callback(lambda _: capacity.release())
+            except Exception as error:
+                errors.append(RuntimeError(str(error)))
+            finally:
+                arrivals.put(ended)
+
+        producer = threading.Thread(target=produce, name="recognize-feed", daemon=True)
+        producer.start()
+        remaining, open_input = 0, True
+        while open_input or remaining:
             timeout = max(0.0, oldest + BATCH_WAIT - time.monotonic()) if buffer else None
             try:
                 item = arrivals.get(timeout=timeout)
             except queue.Empty:
                 flush()
+                continue
+            if item is submitted:
+                remaining += 1
+                continue
+            if item is ended:
+                open_input = False
                 continue
             if item is None:
                 remaining -= 1
@@ -574,6 +616,7 @@ def recognize_many(library_database, records: list[dict], *, titles: list[dict] 
             flush()
         for batch in batches:
             batch.result()
+        producer.join()
     if errors:
         raise errors[0]
     return stats

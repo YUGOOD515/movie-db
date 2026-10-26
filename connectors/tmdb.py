@@ -3,8 +3,11 @@
 import logging
 import os
 import re
+import hashlib
+import shutil
+import tempfile
 from collections import OrderedDict
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future
 from copy import deepcopy
 from pathlib import Path
 from threading import Lock, local
@@ -18,12 +21,46 @@ from services import paths
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 DEFAULT_API_ORIGIN = "https://api.themoviedb.org/3"
+# 官方备用域名：国内 api.themoviedb.org 常被 DNS 污染，api.tmdb.org 大多能直连。
+OFFICIAL_API_ORIGINS = (DEFAULT_API_ORIGIN, "https://api.tmdb.org/3")
 DEFAULT_IMAGE_ORIGIN = "https://image.tmdb.org/t/p"
+# 公共图片 CDN（第三方），image.tmdb.org 受干扰时由用户选择启用。
+WSRV_IMAGE_ORIGIN = "https://wsrv.nl/?url=https://image.tmdb.org/t/p"
+
+# 安装包打包时由 CI 写入 connectors/tmdb_builtin.py（Git 忽略）；源码运行没有内置密钥。
+try:
+    from connectors.tmdb_builtin import TOKEN as BUILTIN_TOKEN
+except ImportError:
+    BUILTIN_TOKEN = ""
+
+_active_origin: str | None = None
+
+
+def configured_api_origin() -> str:
+    return (os.environ.get("TMDB_API_ORIGIN", "").strip() or DEFAULT_API_ORIGIN).rstrip("/")
 
 
 def api_origin() -> str:
-    """每次读取环境变量：设置页修改接口地址后立即生效。"""
-    return (os.environ.get("TMDB_API_ORIGIN", "").strip() or DEFAULT_API_ORIGIN).rstrip("/")
+    """每次读取环境变量：设置页修改接口地址后立即生效。
+
+    配置的是官方域名时，若本次运行中已切换到另一个官方域名，沿用切换后的；自定义镜像不做切换。
+    """
+    configured = configured_api_origin()
+    if _active_origin and configured in OFFICIAL_API_ORIGINS:
+        return _active_origin
+    return configured
+
+
+def alternate_origin(origin: str) -> str | None:
+    if origin not in OFFICIAL_API_ORIGINS:
+        return None
+    return next(item for item in OFFICIAL_API_ORIGINS if item != origin)
+
+
+def use_origin(origin: str | None) -> None:
+    """记住本次运行可用的官方域名（不写入 .env）；None 表示恢复按配置。"""
+    global _active_origin
+    _active_origin = origin if origin in OFFICIAL_API_ORIGINS else None
 
 
 def image_origin() -> str:
@@ -33,6 +70,9 @@ def image_origin() -> str:
 LANGUAGE = "zh-CN"
 IMAGE_LANGUAGE = "zh,null"
 REQUEST_TIMEOUT = 20
+# 接口请求：连接阶段快速失败，以便换用备用域名。
+API_TIMEOUT = (6, REQUEST_TIMEOUT)
+V3_API_KEY = re.compile(r"[0-9a-f]{32}")
 ARTWORK_LIMIT = 5
 CAST_LIMIT = 24
 DOWNLOAD_ATTEMPTS = 3
@@ -61,6 +101,9 @@ LOCAL_PATH_PREFIX = "images"
 DEFAULT_IMAGE_ROOT = paths.IMAGE_ROOT
 
 logger = logging.getLogger(__name__)
+_image_lock = Lock()
+_image_cache = OrderedDict()
+_image_directory = None
 
 # 短时、有界缓存；同一键的并发请求共用一个 Future，失败不缓存。
 CACHE_TTL = 600
@@ -161,8 +204,8 @@ def remember_media_identity(imdb_id: str, media_type: str, tmdb_id: int):
     _remember(("find", imdb_id, LANGUAGE), (media_type, {"id": tmdb_id}))
 
 
-def _token() -> str:
-    """读取 TMDB_TOKEN：优先环境变量，回退数据目录的 .env。"""
+def user_token() -> str:
+    """用户自己填写的 TMDB_TOKEN：优先环境变量，回退数据目录的 .env；没有则返回空串。"""
     token = os.environ.get("TMDB_TOKEN", "").strip()
     if token:
         return token
@@ -171,18 +214,38 @@ def _token() -> str:
     if env_path.exists():
         for line in env_path.read_text(encoding="utf-8").splitlines():
             if line.startswith("TMDB_TOKEN="):
-                token = line.split("=", 1)[1].strip()
+                token = line.split("=", 1)[1].strip().strip("'\"")
                 if token:
                     return token
+    return ""
 
-    raise RuntimeError(f"未配置 TMDB_TOKEN（环境变量或 {paths.ENV_PATH}）。")
+
+def token_source() -> str:
+    """"user"：用户自己的密钥；"builtin"：安装包内置；""：都没有。"""
+    if user_token():
+        return "user"
+    return "builtin" if BUILTIN_TOKEN else ""
+
+
+def _token() -> str:
+    token = user_token() or BUILTIN_TOKEN
+    if not token:
+        raise RuntimeError(f"未配置 TMDB 密钥（环境变量 TMDB_TOKEN 或 {paths.ENV_PATH}）。")
+    return token
+
+
+def auth(token: str) -> tuple[dict, dict]:
+    """返回 (请求头, 查询参数)：32 位十六进制是 v3 API Key，其余按 API 读访问令牌（Bearer）。"""
+    if V3_API_KEY.fullmatch(token):
+        return {}, {"api_key": token}
+    return {"Authorization": f"Bearer {token}"}, {}
 
 
 def _session() -> requests.Session:
     session = requests.Session()
-    session.headers.update(
-        {"accept": "application/json", "Authorization": f"Bearer {_token()}"}
-    )
+    headers, params = auth(_token())
+    session.headers.update({"accept": "application/json", **headers})
+    session.params.update(params)
     # 只对 TMDB（接口与图片）走代理，本机 AList 等请求不受影响。
     proxy = os.environ.get("TMDB_PROXY", "").strip()
     if proxy:
@@ -191,12 +254,26 @@ def _session() -> requests.Session:
 
 
 def _get(session: requests.Session, endpoint: str, params: dict) -> dict:
-    response = throttle.call(
-        "tmdb",
-        lambda: session.get(api_origin() + endpoint, params=params, timeout=REQUEST_TIMEOUT),
-    )
-    response.raise_for_status()
-    return response.json()
+    def request(base: str):
+        return throttle.call("tmdb", lambda: session.get(base + endpoint, params=params, timeout=API_TIMEOUT))
+
+    # Cache remote responses independently of the set of locally known episode
+    # IDs: committing one chunk must not refetch every season for the next chunk.
+    def fetch():
+        origin = api_origin()
+        try:
+            response = request(origin)
+        except (requests.ConnectionError, requests.Timeout):
+            alternate = alternate_origin(origin)
+            if not alternate:
+                raise
+            response = request(alternate)
+            if _active_origin != alternate:
+                logger.info("TMDB 改用 %s（%s 无法连接）", alternate, origin)
+            use_origin(alternate)
+        response.raise_for_status()
+        return response.json()
+    return deepcopy(_cached(("response", configured_api_origin(), endpoint, tuple(sorted(params.items()))), fetch))
 
 
 
@@ -635,17 +712,67 @@ def _build_media_metadata(session: requests.Session, imdb_id: str, known: dict) 
 
 
 def _download_image(session: requests.Session, image_url: str, target_path: Path):
+    """Share a completed download even when imports have separate staging dirs."""
+    global _image_directory
+    from uuid import uuid4
+    with _image_lock:
+        if _image_directory is None:
+            _image_directory = tempfile.TemporaryDirectory(prefix="moviedb-images-")
+        entry = _image_cache.get(image_url)
+        owner = entry is None
+        if owner:
+            entry = {"future": Future(), "users": 0, "size": 0,
+                     "path": Path(_image_directory.name) / hashlib.sha256(image_url.encode()).hexdigest()}
+            _image_cache[image_url] = entry
+        entry["users"] += 1
+        _image_cache.move_to_end(image_url)
+    try:
+        if owner:
+            try:
+                _fetch_image(session, image_url, entry["path"])
+                entry["size"] = entry["path"].stat().st_size
+                entry["future"].set_result(entry["path"])
+            except BaseException as error:
+                entry["future"].set_exception(error)
+        source = entry["future"].result()
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = target_path.with_name(f".{target_path.name}.{uuid4().hex}.part")
+        try:
+            shutil.copyfile(source, temporary)
+            temporary.replace(target_path)
+        finally:
+            temporary.unlink(missing_ok=True)
+    finally:
+        with _image_lock:
+            entry["users"] -= 1
+            size = sum(item["size"] for item in _image_cache.values())
+            for key, item in list(_image_cache.items()):
+                failed = item["future"].done() and item["future"].exception() is not None
+                if item["users"] == 0 and (failed or len(_image_cache) > 128 or size > 64 * 1024 * 1024):
+                    _image_cache.pop(key)
+                    item["path"].unlink(missing_ok=True)
+                    size -= item["size"]
+
+
+def clear_image_cache():
+    global _image_directory
+    with _image_lock:
+        _image_cache.clear()
+        if _image_directory is not None:
+            _image_directory.cleanup()
+            _image_directory = None
+
+
+def _fetch_image(session: requests.Session, image_url: str, target_path: Path):
     """下载单张图片到临时文件后原子替换，带重试。"""
-    temporary_path = target_path.with_suffix(target_path.suffix + ".part")
+    from uuid import uuid4
+    temporary_path = target_path.with_name(f".{target_path.name}.{uuid4().hex}.part")
     target_path.parent.mkdir(parents=True, exist_ok=True)
 
     last_error = None
     for _ in range(DOWNLOAD_ATTEMPTS):
         try:
-            with throttle.call(
-                "tmdb-image",
-                lambda: session.get(image_url, timeout=REQUEST_TIMEOUT, stream=True),
-            ) as response:
+            def consume(response):
                 response.raise_for_status()
                 content_type = response.headers.get("Content-Type", "")
                 if not content_type.startswith("image/"):
@@ -654,6 +781,10 @@ def _download_image(session: requests.Session, image_url: str, target_path: Path
                     for chunk in response.iter_content(chunk_size=64 * 1024):
                         if chunk:
                             image_file.write(chunk)
+            # 第三方图片 CDN 不接收 TMDB 密钥；在响应体读完前一直占用下载并发槽。
+            throttle.call("tmdb-image", lambda: session.get(
+                image_url, timeout=REQUEST_TIMEOUT, stream=True,
+                headers={"Authorization": None}, params={"api_key": None}), consume=consume)
             temporary_path.replace(target_path)
             return
         except throttle.RateLimitError:
@@ -684,6 +815,7 @@ def download_metadata_images(
     metadata: dict,
     image_root: str | Path = DEFAULT_IMAGE_ROOT,
     session: requests.Session | None = None,
+    on_download=None,
 ) -> dict:
     """批量下载 metadata 中全部图片（title_artwork、演员图与单集 still）。
 
@@ -728,6 +860,8 @@ def download_metadata_images(
         try:
             _download_image(current_session(), _download_url(row), target_path)
             outcome = "downloaded"
+            if on_download:
+                on_download(row, target_path)
         except (requests.RequestException, ValueError) as error:
             logger.warning("下载失败 %s: %s", row["local_path"], error)
             outcome = "failed"
@@ -736,8 +870,12 @@ def download_metadata_images(
 
     try:
         if len(pending) > 1:
-            with ThreadPoolExecutor(max_workers=IMAGE_WORKERS, thread_name_prefix="tmdb-image") as pool:
-                list(pool.map(download, pending))
+            from services.import_runtime import pool
+            futures = [pool("image").submit(str(image_root), download, job) for job in pending]
+            from concurrent.futures import wait
+            wait(futures)
+            for future in futures:
+                future.result()
         else:
             for job in pending:
                 download(job)

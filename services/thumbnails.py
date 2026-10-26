@@ -10,6 +10,7 @@ import logging
 import os
 import stat
 import uuid
+from contextlib import nullcontext
 from pathlib import Path, PurePosixPath
 
 from services import paths
@@ -110,6 +111,7 @@ def generate_thumbnail(
     target_path: Path,
     target_size: tuple[int, int],
     quality: int = 85,
+    *, source_image=None,
 ) -> bool:
     """Generate a single thumbnail atomically using Pillow.
 
@@ -128,7 +130,7 @@ def generate_thumbnail(
 
         target_path.parent.mkdir(parents=True, exist_ok=True)
 
-        with Image.open(source_path) as img:
+        with (Image.open(source_path) if source_image is None else nullcontext(source_image.copy())) as img:
             img = ImageOps.exif_transpose(img)
             orig_w, orig_h = img.size
 

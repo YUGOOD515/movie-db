@@ -34,7 +34,7 @@ BUNDLED_FFPROBE = RUNTIME_DIR / "ffmpeg" / ("ffprobe.exe" if IS_WINDOWS else "ff
 
 # 迁移旧版安装目录里的数据时按这个清单搬（相对 DATA_DIR）。
 DATA_ITEMS = ("library.db", "library.db-wal", "library.db-shm", "discovery.db", "discovery.db-wal",
-              "discovery.db-shm", ".env", "static/images", "static/thumbnails", "imdb", "logs")
+              "discovery.db-shm", "api-usage.db", ".env", "static/images", "static/thumbnails", "imdb", "logs")
 
 
 def user_data_dir() -> Path:

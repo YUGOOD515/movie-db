@@ -38,12 +38,13 @@ class ResetError(Exception):
 
 
 def _targets(app) -> dict[str, list[Path]]:
+    from models import api_usage
     database = Path(app.config["DATABASE"])
     discovery = store.store_path(database)
     sqlite_files = lambda path: [path, *(Path(f"{path}{suffix}") for suffix in ("-wal", "-shm", "-journal"))]
     return {
         "library": sqlite_files(database),
-        "discovery": sqlite_files(discovery),
+        "discovery": [*sqlite_files(discovery), *sqlite_files(api_usage.database_path())],
         "images": [Path(app.config["IMAGE_ROOT"]), Path(app.config["THUMBNAIL_ROOT"])],
         "config": [setup_wizard.ENV_PATH],
     }
@@ -109,6 +110,9 @@ def clear(app, parts) -> dict:
         busy = any(state.get("status") in ("running", "recognizing") for state in media_discovery._scans.values())
     if busy:
         raise ResetError("正在扫描或识别影片，请等它结束后再清除。")
+    from services import import_jobs
+    if import_jobs.busy(app.config["DATABASE"]):
+        raise ResetError("正在关联影片，请等任务结束后再清除。")
 
     targets = _targets(app)
     failed: list[str] = []

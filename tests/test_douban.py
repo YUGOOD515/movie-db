@@ -16,6 +16,8 @@ from viewmodels.title import _external_links, format_ratings
 def _json(status=200, payload=None, headers=None):
     response = Mock(status_code=status, headers=headers or {}, is_redirect=status in (301, 302))
     response.json.return_value = payload if payload is not None else {}
+    response.__enter__ = Mock(return_value=response)
+    response.__exit__ = Mock(return_value=False)
     return response
 
 
@@ -140,3 +142,13 @@ def test_import_writes_douban_fields_even_without_mdblist():
     assert media_import._ratings_to_write({"status": "unavailable"}) == {}
     success = {"status": "success", "ratings": {"mdblist_score": 70}}
     assert media_import._ratings_to_write(success) == {"mdblist_score": 70}
+
+
+def test_lookup_reuses_persistent_cache_and_does_not_cache_errors():
+    fields = {"douban_id": "1292052", "douban_rating": 9.7, "douban_votes": 3200000}
+    with patch.object(douban, "_lookup", side_effect=[requests.Timeout(), fields]) as lookup:
+        with pytest.raises(requests.Timeout):
+            douban.lookup("tt0111161", "movie")
+        assert douban.lookup("tt0111161", "movie") == fields
+        assert douban.lookup("tt0111161", "movie", "1292052") == fields
+    assert lookup.call_count == 2

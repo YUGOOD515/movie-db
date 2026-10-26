@@ -31,7 +31,7 @@ A self-hosted movie & TV library for videos stored on cloud drives. MovieDB read
 ## Requirements
 
 - **AList** (v3) with your cloud drives mounted. MovieDB can start a local AList for you.
-- A free **TMDB API Read Access Token** — [themoviedb.org → Settings → API](https://www.themoviedb.org/settings/api).
+- Posters and details come from TMDB. The installers ship with a built-in API key, so you don't need your own (you can still set one in Settings).
 - Optional: an **MDBList** API key for extra ratings, an **AI** API key for smarter recognition, and a **video player** (MPC-HC on Windows, IINA on macOS, or mpv / VLC).
 
 ## Install
@@ -64,12 +64,10 @@ MovieDB serves `http://127.0.0.1:5000` locally (if another program already uses 
 
 ![First-run walkthrough](docs/images/onboarding.webp)
 
-1. **Welcome** — checks whether AList is running, whether ffprobe works, and where the library will be created.
-2. **Source · AList** — address and account. MovieDB checks the login, the visible storages and whether *Sign all* is enabled (needed for playback links). You can skip the check if AList isn't running yet.
-3. **Posters & details · TMDB** — paste your API Read Access Token (the page shows how to get one). If TMDB is blocked on your network, set a proxy that is used for TMDB only.
-4. **AI recognition (optional)** — pick a provider (DeepSeek, SiliconFlow, Zhipu, Gemini, OpenRouter, OpenAI…) and paste an API key; model and endpoint are filled in for you.
-5. **Ratings (optional)** — an MDBList API key adds Rotten Tomatoes, Metacritic and more.
-6. **Done** — an empty library is created and **Add a folder to scan** opens right away.
+1. **Welcome** — checks whether AList is running, whether ffprobe works and where the library will be created, and connects to TMDB with the built-in key (falling back to the official `api.tmdb.org` domain when `api.themoviedb.org` is unreachable).
+2. **Source · AList** — address and account. MovieDB checks the login, the visible storages and whether *Sign all* is enabled (needed for playback links). You can skip the check if AList isn't running yet. If TMDB is already reachable, setup finishes here.
+3. **Posters & details · TMDB** (only when TMDB can't be reached) — set a proxy used for TMDB only, turn on the public image relay (wsrv.nl) if posters don't load, or enter your own TMDB key.
+4. **Done** — an empty library is created and **Add a folder to scan** opens right away. The page also points to optional extras in Settings: **AI recognition** (Zhipu GLM-4.7-Flash is free; DeepSeek, SiliconFlow, Gemini, OpenRouter, OpenAI and others work too) and **MDBList** ratings.
 
 Then open **Media management → Link** (媒体资源管理 → 关联) in the sidebar, add your AList folders and confirm what MovieDB found. See [Adding media](docs/en/adding-media.md) for the details.
 

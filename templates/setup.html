@@ -41,8 +41,6 @@
             <ol class="onboard-progress" aria-label="设置进度" data-progress hidden>
                 <li data-progress-step="alist">片源</li>
                 <li data-progress-step="tmdb">海报与资料</li>
-                <li data-progress-step="ai">AI 识别</li>
-                <li data-progress-step="ratings">评分</li>
             </ol>
         </header>
 
@@ -55,9 +53,10 @@
             <section class="onboard-scene" data-scene="welcome" aria-labelledby="ob-welcome">
                 <p class="onboard-eyebrow">欢迎使用 MovieDB</p>
                 <h1 class="onboard-title" id="ob-welcome">你的网盘电影库，<br>从这里开始。</h1>
-                <p class="onboard-lead">接上 AList 和 TMDB，几分钟后就能浏览带海报、简介和演员的片库。所有设置之后都能在“设置”里修改。</p>
+                <p class="onboard-lead">连上 AList，一分钟后就能浏览带海报、简介和演员的片库。所有设置之后都能在“设置”里修改。</p>
                 <ul class="onboard-checks" data-checks>
                     <li data-check="alist"><span class="onboard-dot"></span><span data-check-text>正在检查 AList…</span></li>
+                    <li data-check="tmdb"><span class="onboard-dot"></span><span data-check-text>正在检查 TMDB…</span></li>
                     <li data-check="ffprobe"><span class="onboard-dot"></span><span data-check-text>正在检查 ffprobe…</span></li>
                     <li data-check="library"><span class="onboard-dot"></span><span data-check-text>正在检查媒体库…</span></li>
                 </ul>
@@ -95,6 +94,7 @@
                     </details>
                 </div>
                 <div class="onboard-result" data-result="alist" role="status" aria-live="polite"></div>
+                <div class="onboard-result" data-result="save" role="status" aria-live="polite"></div>
                 <div class="onboard-actions">
                     {{ action('data-connect="alist"', "连接", "正在连接…") }}
                     <button class="btn onboard-link" type="button" data-go="welcome">返回</button>
@@ -104,113 +104,35 @@
             <section class="onboard-scene" data-scene="tmdb" aria-labelledby="ob-tmdb" hidden>
                 <p class="onboard-eyebrow">海报与资料 · TMDB</p>
                 <h2 class="onboard-title" id="ob-tmdb">让每部片子都有海报。</h2>
-                <p class="onboard-lead">TMDB 提供海报、简介、演员和评分。粘贴 API 读访问令牌即可连接。</p>
+                <p class="onboard-lead" data-tmdb-lead>TMDB 提供海报、简介和演员。MovieDB 已内置访问密钥，当前网络连不上时，填写代理地址后重试。</p>
                 <div class="onboard-fields">
-                    <div class="onboard-field">
-                        <label for="ob-TMDB_TOKEN">API 读访问令牌</label>
-                        {{ secret("TMDB_TOKEN", "API 读访问令牌") }}
+                    <label class="onboard-field">
+                        <span>代理地址（可选）</span>
+                        <input class="form-control" id="ob-TMDB_PROXY" name="TMDB_PROXY" type="url" inputmode="url" placeholder="http://127.0.0.1:7890" spellcheck="false">
+                        <small>只用于访问 TMDB，填写代理软件提供的 HTTP 端口。</small>
+                    </label>
+                    <div class="form-check" data-image-proxy hidden>
+                        <input class="form-check-input" id="ob-image_proxy" name="image_proxy" type="checkbox">
+                        <label class="form-check-label" for="ob-image_proxy">使用公共图片加速（wsrv.nl）加载海报</label>
                     </div>
-                    <details class="onboard-more">
-                        <summary>怎么获取？</summary>
+                    <details class="onboard-more" data-more="token">
+                        <summary>使用自己的 TMDB 密钥</summary>
+                        <div class="onboard-field">
+                            <label for="ob-TMDB_TOKEN">API 读访问令牌或 API Key</label>
+                            {{ secret("TMDB_TOKEN", "API 读访问令牌或 API Key") }}
+                        </div>
                         <ol class="onboard-howto">
                             <li>在 <a href="https://www.themoviedb.org/signup" target="_blank" rel="noopener">themoviedb.org</a> 注册并登录。</li>
                             <li>打开 <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">设置 → API</a>，申请个人用途的 API。</li>
-                            <li>复制较长的“API 读访问令牌”（API Read Access Token），不是 32 位的 API Key。</li>
+                            <li>复制“API 读访问令牌”（API Read Access Token）或 32 位的 API Key。</li>
                         </ol>
-                    </details>
-                    <details class="onboard-more" data-more="proxy">
-                        <summary>无法直接访问 TMDB？使用代理</summary>
-                        <label class="onboard-field">
-                            <span>代理地址</span>
-                            <input class="form-control" id="ob-TMDB_PROXY" name="TMDB_PROXY" type="url" inputmode="url" placeholder="http://127.0.0.1:7890" spellcheck="false">
-                            <small>只用于访问 TMDB，填写代理软件提供的 HTTP 端口。</small>
-                        </label>
                     </details>
                 </div>
                 <div class="onboard-result" data-result="tmdb" role="status" aria-live="polite"></div>
+                <div class="onboard-result" data-result="save" role="status" aria-live="polite"></div>
                 <div class="onboard-actions">
                     {{ action('data-connect="tmdb"', "连接", "正在连接…") }}
                     <button class="btn onboard-link" type="button" data-go="alist">返回</button>
-                </div>
-            </section>
-
-            <section class="onboard-scene" data-scene="ai" aria-labelledby="ob-ai-title" hidden>
-                <p class="onboard-eyebrow">AI 识别 · 可选</p>
-                <h2 class="onboard-title" id="ob-ai-title">让 AI 帮你认片。</h2>
-                <p class="onboard-lead">规则拿不准时，由大模型判断片名、年份和季集。选好平台、填入 API Key 即可。</p>
-                <div class="onboard-option" data-feature="ai">
-                    <div class="onboard-option-head">
-                        <label class="onboard-option-title" for="ob-ai">启用 AI 识别</label>
-                        <div class="form-check form-switch m-0"><input class="form-check-input" id="ob-ai" name="ai_enabled" type="checkbox" role="switch"></div>
-                    </div>
-                    <div class="onboard-option-body" data-feature-body hidden>
-                        <div class="onboard-pair">
-                            <div class="onboard-field">
-                                <label for="ob-preset">平台</label>
-                                <select class="form-select" id="ob-preset" data-preset></select>
-                            </div>
-                            <div class="onboard-field">
-                                <span class="onboard-field-label"><label for="ob-LLM_API_KEY">API Key</label><a href="#" target="_blank" rel="noopener" data-key-link hidden>获取<i class="bi bi-arrow-up-right" aria-hidden="true"></i></a></span>
-                                {{ secret("LLM_API_KEY", "API Key") }}
-                            </div>
-                        </div>
-                        <details class="onboard-more" data-more="llm-custom">
-                            <summary>自定义模型与地址<span class="onboard-more-hint" data-model-hint></span></summary>
-                            <div class="onboard-fields">
-                                <label class="onboard-field">
-                                    <span>模型</span>
-                                    <input class="form-control" id="ob-LLM_MODEL" name="LLM_MODEL" type="text" spellcheck="false">
-                                </label>
-                                <label class="onboard-field">
-                                    <span>接口地址</span>
-                                    <input class="form-control" id="ob-LLM_BASE_URL" name="LLM_BASE_URL" type="url" inputmode="url" placeholder="https://…/v1" spellcheck="false">
-                                </label>
-                                <label class="onboard-field" data-rpm-field>
-                                    <span>每分钟请求上限</span>
-                                    <input class="form-control" id="ob-LLM_RPM" name="LLM_RPM" type="number" min="1" max="1000" step="1" placeholder="10">
-                                    <small>按平台套餐填写，留空为 10。</small>
-                                </label>
-                            </div>
-                        </details>
-                        <div class="onboard-test">
-                            {{ action('data-test="llm"', "检测", "检测中…", none, "btn btn-sm chip-btn") }}
-                            <div class="onboard-result" data-result="llm" role="status" aria-live="polite"></div>
-                        </div>
-                    </div>
-                </div>
-                <div class="onboard-actions">
-                    <button class="btn media-primary-action" type="button" data-next="ai"><span>下一步</span><i class="bi bi-arrow-right" aria-hidden="true"></i></button>
-                    <button class="btn onboard-link" type="button" data-skip="ai">跳过</button>
-                    <button class="btn onboard-link" type="button" data-go="tmdb">返回</button>
-                </div>
-            </section>
-
-            <section class="onboard-scene" data-scene="ratings" aria-labelledby="ob-ratings-title" hidden>
-                <p class="onboard-eyebrow">评分 · 可选</p>
-                <h2 class="onboard-title" id="ob-ratings-title">多看几家评分。</h2>
-                <p class="onboard-lead">通过 MDBList 补充烂番茄、Metacritic 等平台的评分。免费账号每天可查询 1000 次。</p>
-                <div class="onboard-option" data-feature="mdblist">
-                    <div class="onboard-option-head">
-                        <label class="onboard-option-title" for="ob-mdblist">启用多平台评分</label>
-                        <div class="form-check form-switch m-0"><input class="form-check-input" id="ob-mdblist" name="mdblist_enabled" type="checkbox" role="switch"></div>
-                    </div>
-                    <div class="onboard-option-body" data-feature-body hidden>
-                        <div class="onboard-field">
-                            <label for="ob-MDBLIST_APIKEY">MDBList API Key</label>
-                            {{ secret("MDBLIST_APIKEY", "MDBList API Key") }}
-                            <small>在 <a href="https://mdblist.com/preferences/" target="_blank" rel="noopener">mdblist.com</a> 登录后，于 Preferences → API Access 中生成。</small>
-                        </div>
-                        <div class="onboard-test">
-                            {{ action('data-test="mdblist"', "检测", "检测中…", none, "btn btn-sm chip-btn") }}
-                            <div class="onboard-result" data-result="mdblist" role="status" aria-live="polite"></div>
-                        </div>
-                    </div>
-                </div>
-                <div class="onboard-result" data-result="save" role="status" aria-live="polite"></div>
-                <div class="onboard-actions">
-                    {{ action("data-finish", "完成设置", "正在保存…", "check-lg") }}
-                    <button class="btn onboard-link" type="button" data-skip="ratings">跳过</button>
-                    <button class="btn onboard-link" type="button" data-go="ai">返回</button>
                 </div>
             </section>
 
@@ -218,9 +140,23 @@
                 <p class="onboard-eyebrow">一切就绪</p>
                 <h2 class="onboard-title" id="ob-finale">片库已就绪。</h2>
                 <p class="onboard-lead" data-finale-text>接下来选择网盘里的影片目录，MovieDB 会识别并补全资料。</p>
+                <div class="onboard-extras">
+                    <p class="onboard-extras-title">可选增强 · 随时在设置里开启</p>
+                    <a class="onboard-extra" href="{{ url_for('settings_page') }}#ai">
+                        <i class="bi bi-stars" aria-hidden="true"></i>
+                        <span><strong>AI 识别</strong><small>规则拿不准的文件名交给大模型判断，智谱 GLM-4.7-Flash 免费可用。</small></span>
+                        <i class="bi bi-chevron-right" aria-hidden="true"></i>
+                    </a>
+                    <a class="onboard-extra" href="{{ url_for('settings_page') }}#metadata">
+                        <i class="bi bi-bar-chart" aria-hidden="true"></i>
+                        <span><strong>多平台评分</strong><small>通过 MDBList 补充烂番茄、Metacritic 等评分，免费账号每天 1000 次。</small></span>
+                        <i class="bi bi-chevron-right" aria-hidden="true"></i>
+                    </a>
+                </div>
                 <div class="onboard-actions">
                     <a class="btn media-primary-action" href="{{ url_for('media') }}" data-next-link><span>去关联第一批影片</span><i class="bi bi-arrow-right" aria-hidden="true"></i></a>
                 </div>
+                {% include "_tmdb_credit.html" %}
             </section>
         </form>
     </div>

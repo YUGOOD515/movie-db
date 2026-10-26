@@ -14,6 +14,7 @@ import math
 import os
 import threading
 import uuid
+from contextlib import nullcontext
 from pathlib import Path, PurePosixPath
 
 from services.thumbnails import DEFAULT_STATIC_ROOT, _file_stat, normalize_image_path
@@ -126,11 +127,11 @@ def ambient_color(image) -> str:
     return "#{:02x}{:02x}{:02x}".format(round(r * 255), round(g * 255), round(b * 255))
 
 
-def compute_tone(source_path: Path) -> dict | None:
+def compute_tone(source_path: Path, *, source_image=None) -> dict | None:
     from PIL import Image, ImageOps
 
     try:
-        with Image.open(source_path) as image:
+        with (Image.open(source_path) if source_image is None else nullcontext(source_image.copy())) as image:
             image = ImageOps.exif_transpose(image)
             if image.mode != "RGB":
                 image = image.convert("RGBA").convert("RGB") if image.mode in ("P", "LA") else image.convert("RGB")
@@ -198,11 +199,18 @@ def ensure_tones(local_paths, static_root: str | Path | None = None) -> int:
             pending[local_path] = {**tone, "mtime": source_stat.st_mtime_ns}
     if not pending:
         return 0
-    with _lock:
-        data = dict(load_tones(root))
-        data.update(pending)
-        _write_tones(tones_path(root), data)
+    merge_tones(pending, root)
     return len(pending)
+
+
+def merge_tones(pending: dict, static_root: str | Path | None = None) -> None:
+    """Merge precomputed tones only after their corresponding images commit."""
+    if not pending:
+        return
+    with _lock:
+        data = dict(load_tones(static_root))
+        data.update(pending)
+        _write_tones(tones_path(static_root), data)
 
 
 def public_tones(static_root: str | Path | None = None) -> dict:

@@ -29,6 +29,10 @@ imdb/
 imdb.db
 library.db
 discovery.db
+api-usage.db
+api-usage.db-wal
+api-usage.db-shm
+api-usage.db-journal
 
 # Scratch & agent workdir
 scratch/
@@ -38,3 +42,6 @@ local-test-data/
 
 # local backup db
 library.backup-20261020.db
+
+# 打包时由 CI 写入的内置 TMDB 密钥
+connectors/tmdb_builtin.py
