@@ -18,6 +18,8 @@ SQL 代码书写准则：https://www.sqlstyle.guide/zh/
 
 关联任务由 @services/import_jobs.py 按根 Title ID 调度，通过 @models/import_store.py 持久化到 `discovery.db`；探测、图片与派生处理共用 @services/import_runtime.py 的有界资源池。核心关联提交后继续补齐资料，恢复时复用探测检查点；签名链接与令牌不存入任务。MDBList 请求预算及评分缓存存于 `api-usage.db`（@models/api_usage.py），重试也消耗预算，不进入云端快照。
 
+豆瓣评分走 @connectors/douban.py 与独立单并发评分队列，核心导入不等待它；IMDb → 豆瓣 ID 优先由 Wikidata 批量映射。豆瓣与 Wikidata 请求仍统一走 throttle，豆瓣被拒绝时暂停 30 分钟；评分缓存复用 `api-usage.db`。旧库的豆瓣字段在本机启动时由 `upgrade_library` 补齐，只读云端不执行迁移。
+
 ## Connector
 
 采用 Flask + Jinja 三层结构：@app.py 路由只做"查询 → 整理 → 渲染"编排；@queries/ 只查数据库，@viewmodels/ 把查询结果整理成页面形状（poster/backdrop 卡片、进度、徽章、播放文案），Jinja 只负责 HTML 显示，不做业务判断。

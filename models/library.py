@@ -23,7 +23,32 @@ RATING_COLUMNS = {
     "roger_ebert_rating",
     "myanimelist_score",
     "myanimelist_votes",
+    "douban_id",
+    "douban_rating",
+    "douban_votes",
 }
+
+# 建表脚本之后新增的列：已有媒体库在启动时补上（ALTER TABLE ADD COLUMN，旧数据不变）。
+ADDED_COLUMNS = (
+    ("title_basic", "douban_id", "TEXT"),
+    ("title_basic", "douban_rating", "REAL"),
+    ("title_basic", "douban_votes", "INTEGER"),
+)
+
+
+def upgrade_library(database_path: str | Path) -> list[str]:
+    """给旧媒体库补上新增的列，返回补上的列名；媒体库不存在或已是最新时什么都不做。"""
+    database_path = Path(database_path)
+    if not database_path.is_file() or database_path.stat().st_size == 0:
+        return []
+    added = []
+    with closing(connect_writable(database_path)) as db, db:
+        for table, column, kind in ADDED_COLUMNS:
+            existing = {row[1] for row in db.execute(f"PRAGMA table_info({table})")}
+            if existing and column not in existing:
+                db.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
+                added.append(column)
+    return added
 
 
 def delete_library_titles(db: sqlite3.Connection, title_ids: list[str]) -> None:

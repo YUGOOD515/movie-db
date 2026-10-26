@@ -118,7 +118,7 @@ def pool(name):
     with _lock:
         workers = {"probe": throttle.ffprobe_workers, "metadata": lambda: 4,
                    "artwork": lambda: 4, "image": lambda: 6,
-                   "rating": lambda: 2, "imdb": lambda: 1,
+                   "rating": lambda: 2, "douban": lambda: 1, "imdb": lambda: 1,
                    "derive": lambda: setting("IMAGE_CONCURRENCY", 2, 8)}[name]()
         if name not in _pools:
             _pools[name] = FairPool(workers, f"import-{name}")

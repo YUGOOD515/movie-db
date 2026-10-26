@@ -156,6 +156,38 @@ class ImportJobsTest(unittest.TestCase):
         finally:
             release.set()
 
+    def test_slow_douban_does_not_block_core_and_writes_without_mdblist(self):
+        paths = ["/share/movie.mkv", "/share/S01E01.mkv"]
+        self.seed(paths)
+        started, release = threading.Event(), threading.Event()
+        calls = []
+
+        def lookup(title_id, title_type, known_id):
+            calls.append((title_id, title_type, known_id))
+            started.set()
+            assert release.wait(5)
+            return {"douban_id": "1292052", "douban_rating": 9.7, "douban_votes": 3200000}
+
+        try:
+            with patch.object(media_import, "fetch_douban_rating", side_effect=lookup):
+                jobs = self.submit([self.selection(paths[:1]), self.selection(paths[1:], "tt9000002")])
+                self.assertTrue(started.wait(5))
+                def all_committed():
+                    with closing(self.connect()) as db:
+                        return db.execute("SELECT COUNT(*) FROM media_file WHERE alist_path IN (?, ?)", paths).fetchone()[0] == 2
+                eventually(all_committed)
+                # 豆瓣只有一个工作线程；另一部作品等待评分时仍能完成核心关联。
+                self.assertEqual(len(calls), 1)
+                release.set()
+                self.assertTrue(all(job["state"] == "complete" for job in self.finished([job["id"] for job in jobs])))
+                with closing(self.connect()) as db:
+                    for title_id in ("tt9000001", "tt9000002"):
+                        row = db.execute("SELECT douban_id, douban_rating, douban_votes FROM title_basic WHERE title_id = ?", (title_id,)).fetchone()
+                        self.assertEqual(tuple(row), ("1292052", 9.7, 3200000))
+                self.assertCountEqual([(title, kind) for title, kind, _ in calls], [("tt9000001", "movie"), ("tt9000002", "series")])
+        finally:
+            release.set()
+
     def test_link_and_probe_do_not_have_a_batch_barrier(self):
         paths = ["/share/a.mkv", "/share/b.mkv"]
         self.seed(paths)

@@ -443,10 +443,14 @@ def _build_episode_state(
     }
 
 
+def douban_url(douban_id) -> str | None:
+    return f"https://movie.douban.com/subject/{douban_id}/" if douban_id and str(douban_id).isdigit() else None
+
+
 def format_ratings(title: dict) -> list[dict]:
     ratings = []
 
-    def add(key, name, field, icon, score_format, tooltip, votes_field=None, votes_format="", *, number=int):
+    def add(key, name, field, icon, score_format, tooltip, votes_field=None, votes_format="", *, number=int, url=None):
         value = title.get(field)
         if value is None or value == "":
             return
@@ -458,10 +462,14 @@ def format_ratings(title: dict) -> list[dict]:
             "icon": icon(value) if callable(icon) else icon,
             "score": score_format.format(value),
             "title": tooltip.format(value) + (votes_format.format(votes) if votes else ""),
+            "url": url,
         })
 
     add("imdb", "IMDb", "average_rating", "imdb.png", "{:.1f}",
         "IMDb: {:.1f}/10", "num_votes", " ({:,} 票)", number=float)
+    add("douban", "豆瓣", "douban_rating", "icons/ratings/douban.svg", "{:.1f}",
+        "豆瓣: {:.1f}/10", "douban_votes", " ({:,} 人评价)", number=float,
+        url=douban_url(title.get("douban_id")))
     add("rt_critics", "Rotten Tomatoes (影评人)", "rt_critics_score",
         lambda score: "icons/ratings/" + (
             "rt_certified.svg" if score >= 75 else "rt_fresh.svg" if score >= 60 else "rt_rotten.svg"
@@ -524,6 +532,8 @@ def _external_links(title: dict, is_series: bool) -> list[dict]:
                 ),
             }
         )
+    if douban_url(title.get("douban_id")):
+        links.append({"label": "豆瓣", "url": douban_url(title.get("douban_id"))})
     return links
 
 

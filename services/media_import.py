@@ -17,7 +17,7 @@ from connectors import alist, imdb_ratings, media_probe, throttle, tmdb
 from models.database import connect_database, connect_writable
 from models.library import import_media_bundle, enrich_media_bundle
 from queries.association import get_series_episodes
-from services.rating_sync import fetch_title_rating
+from services.rating_sync import fetch_douban_rating, fetch_title_rating
 from services.image_tones import ensure_tones, compute_tone, merge_tones, wants_tone
 from services.thumbnails import ensure_thumbnail, normalize_image_path, generate_thumbnail, get_target_size_for_path
 from services import import_runtime as runtime
@@ -197,6 +197,7 @@ class ImportContext:
     staged_files: list[tuple[Path, Path]] = field(default_factory=list)
     images_prepared: bool = False
     rating_future: object = None
+    douban_future: object = None
     tone_data: dict = field(default_factory=dict)
     image_future: object = None
     enrichment_failed: bool = False
@@ -219,9 +220,21 @@ class _PersistenceError(MediaImportError):
         self.title_id = prepared.input_title_id if prepared else ""
 
 
+def _known_douban_id(library_db: sqlite3.Connection, title_id: str) -> str | None:
+    try:
+        row = library_db.execute("SELECT douban_id FROM title_basic WHERE title_id = ?", (title_id,)).fetchone()
+    except sqlite3.OperationalError:  # 旧媒体库还没有这一列
+        return None
+    return row[0] if row else None
+
+
 def _build_context(library_db: sqlite3.Connection, root_title_id: str, scope=None) -> ImportContext:
     catalog = load_title_catalog(library_db, root_title_id)
     rating_future = scope.submit("rating", root_title_id, fetch_title_rating, root_title_id) if scope else runtime.pool("rating").submit(root_title_id, fetch_title_rating, root_title_id)
+    # 豆瓣的低速接口使用独立有界队列，不占用 TMDB 元数据或 MDBList 评分工作线程。
+    submit = scope.submit if scope else lambda name, key, fn, *args: runtime.pool(name).submit(key, fn, *args)
+    douban_future = submit("douban", root_title_id, fetch_douban_rating,
+                           root_title_id, catalog["root"]["title_type"], _known_douban_id(library_db, root_title_id))
 
     metadata = catalog["metadata"]
     root = catalog["root"]
@@ -249,6 +262,7 @@ def _build_context(library_db: sqlite3.Connection, root_title_id: str, scope=Non
         cast=list(metadata.get("title_cast") or []),
         rating_result={"status": "pending"},
         rating_future=rating_future,
+        douban_future=douban_future,
         episodes_by_position={
             (episode["season_number"], episode["episode_number"]): episode
             for episode in catalog["episodes"]
@@ -584,17 +598,23 @@ def _write_prepared_import(
         target_title_id=prepared.target["title_id"],
         alist_path=prepared.alist_path,
         probe=prepared.probe,
+        # MDBList 成功时带全部平台评分，否则只有豆瓣的字段（可能为空）
         ratings_by_title=(
-            {root_title_id: bundle.rating_result["ratings"]}
-            if write_bundle
-            and enrichment
-            and bundle.rating_result.get("status") == "success"
+            {root_title_id: _ratings_to_write(bundle.rating_result)}
+            if write_bundle and enrichment and _ratings_to_write(bundle.rating_result)
             else None
         ),
         db=db,
     )
     written_root_ids.add(root_title_id)
     return file_id
+
+
+def _ratings_to_write(rating_result: dict) -> dict:
+    ratings = rating_result.get("ratings") or {}
+    if rating_result.get("status") == "success":
+        return ratings
+    return {key: value for key, value in ratings.items() if key.startswith("douban_")}
 
 
 def _result(prepared: PreparedMediaImport, file_id: int) -> dict:
@@ -628,6 +648,22 @@ def _apply_imdb_ratings(prepared_items: list[PreparedMediaImport]) -> None:
         titles[title_id]["num_votes"] = votes
 
 
+def _collect_ratings(bundle: ImportContext) -> None:
+    if bundle.rating_future is not None:
+        try:
+            bundle.rating_result = bundle.rating_future.result()
+        except Exception:
+            bundle.rating_result = {"status": "error"}
+    if bundle.douban_future is not None:
+        try:
+            fields = bundle.douban_future.result()
+        except Exception as error:
+            logger.info("豆瓣评分获取失败（%s）：%s", bundle.root["title_id"], type(error).__name__)
+            fields = {}
+        bundle.rating_result = {**bundle.rating_result,
+            "ratings": {**(bundle.rating_result.get("ratings") or {}), **fields}}
+
+
 def _persist_prepared_imports(
     database_path: Path,
     image_root: Path,
@@ -635,11 +671,7 @@ def _persist_prepared_imports(
     *, enrichment=True, commit_guard=None,
 ) -> list[dict]:
     for bundle in ({id(item.bundle): item.bundle for item in prepared_items}.values() if enrichment else ()):
-        if bundle.rating_future is not None:
-            try:
-                bundle.rating_result = bundle.rating_future.result()
-            except Exception:
-                bundle.rating_result = {"status": "error"}
+        _collect_ratings(bundle)
     if enrichment:
         _apply_imdb_ratings(prepared_items)
     published_files = []
@@ -694,7 +726,7 @@ def _enrich_prepared(database_path, image_root, prepared_items, commit_guard=Non
     for bundle in bundles:
         try:
             bundle.image_future.result()
-            bundle.rating_result = bundle.rating_future.result()
+            _collect_ratings(bundle)
             imdb_future.result()
             published = []
             with runtime.write_lock:
@@ -706,7 +738,7 @@ def _enrich_prepared(database_path, image_root, prepared_items, commit_guard=Non
                             continue
                         _publish_staged_files(bundle.staged_files, published)
                         enrich_media_bundle(db, bundle.root["title_id"], artwork=bundle.artwork, cast=bundle.cast,
-                            ratings=bundle.rating_result.get("ratings") if bundle.rating_result.get("status") == "success" else None,
+                            ratings=_ratings_to_write(bundle.rating_result),
                             imdb=[(title["average_rating"], title["num_votes"], title["title_id"]) for title in bundle.titles if title.get("average_rating") is not None])
                 except Exception:
                     _remove_moved_files(published)

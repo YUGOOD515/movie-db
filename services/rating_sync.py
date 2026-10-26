@@ -6,7 +6,9 @@ from threading import Lock, Thread
 import logging
 from contextlib import closing
 
-from connectors import imdb_ratings, mdblist
+import requests
+
+from connectors import douban, imdb_ratings, mdblist
 from models.database import connect_database
 from models.library import update_imdb_ratings, update_title_ratings
 from queries.manager import get_all_title_ids
@@ -22,6 +24,11 @@ _job_state = {
     "succeeded": 0,
     "failed": 0,
     "current_title_id": None,
+    "phase": None,
+    "douban_total": 0,
+    "douban_completed": 0,
+    "douban_succeeded": 0,
+    "douban_message": None,
 }
 
 
@@ -120,6 +127,52 @@ def fetch_title_rating(title_id: str) -> dict:
     }
 
 
+def fetch_douban_rating(title_id: str, title_type: str, douban_id: str | None = None) -> dict:
+    """录入时查豆瓣评分：返回要写入的 douban_* 字段；关闭、查不到或失败时返回空字典（保留旧值）。"""
+    if not douban.enabled():
+        return {}
+    try:
+        return douban.lookup(title_id, title_type, douban_id)
+    except requests.RequestException as error:
+        logger.info("豆瓣评分获取失败（%s）：%s", title_id, error)
+        return {}
+
+
+def refresh_douban_ratings(database_path: str | Path, progress_callback=None) -> dict:
+    """全库刷新豆瓣评分：先用 Wikidata 批量补豆瓣 ID，再逐部取分（约 2 秒一部）。
+
+    被豆瓣拦截时立即停止，已取到的照常写入；单部失败保留库内旧值。
+    """
+    with closing(connect_database(database_path)) as db:
+        rows = [dict(row) for row in db.execute(
+            "SELECT title_id, title_type, douban_id FROM title_basic "
+            "WHERE title_type IN ('movie', 'series') ORDER BY title_id")]
+    result = {"douban_total": len(rows), "douban_completed": 0, "douban_succeeded": 0, "douban_message": None}
+    if not rows:
+        return result
+    mapped = douban.wikidata_ids([row["title_id"] for row in rows if not row["douban_id"]])
+    for row in rows:
+        title_id = row["title_id"]
+        try:
+            fields = douban.lookup(title_id, row["title_type"], row["douban_id"] or mapped.get(title_id),
+                                   wikidata=False)
+            if fields and update_title_ratings(database_path, title_id, fields):
+                result["douban_succeeded"] += 1
+        except douban.DoubanBlocked:
+            result["douban_message"] = "豆瓣暂时拒绝访问，已停止，稍后再试。"
+            break
+        except requests.RequestException as error:
+            if isinstance(error, douban.throttle.RateLimitError):
+                result["douban_message"] = str(error)
+                break
+            logger.info("豆瓣评分获取失败（%s）：%s", title_id, error)
+        finally:
+            result["douban_completed"] += 1
+            if progress_callback:
+                progress_callback({**result, "current_title_id": title_id})
+    return result
+
+
 def refresh_imdb_ratings(database_path: str | Path) -> int:
     """用 IMDb 官方评分文件更新库内全部作品（含单集），返回变化的行数。"""
     with closing(connect_database(database_path)) as db:
@@ -177,6 +230,11 @@ def start_rating_refresh(
             succeeded=0,
             failed=0,
             current_title_id=None,
+            phase="mdblist",
+            douban_total=0,
+            douban_completed=0,
+            douban_succeeded=0,
+            douban_message=None,
         )
     worker = Thread(
         target=_run_rating_refresh,
@@ -197,25 +255,38 @@ def _run_rating_refresh(database_path: Path, title_ids: list[str]) -> None:
         refresh_imdb_ratings(database_path)
     except Exception as error:
         logger.warning("IMDb 评分刷新失败：%s", error)
-    try:
-        result = sync_title_ratings(
-            database_path,
-            title_ids,
-            progress_callback=update_progress,
-        )
-    except Exception:
-        with _job_lock:
-            completed = _job_state["completed"]
-            succeeded = _job_state["succeeded"]
-            failed = _job_state["failed"]
-        result = {
-            "total": len(title_ids),
-            "completed": len(title_ids),
-            "succeeded": succeeded,
-            "failed": failed + len(title_ids) - completed,
-        }
+    if mdblist.create_config().mdblist_apikey:
+        try:
+            result = sync_title_ratings(
+                database_path,
+                title_ids,
+                progress_callback=update_progress,
+            )
+        except Exception:
+            with _job_lock:
+                completed = _job_state["completed"]
+                succeeded = _job_state["succeeded"]
+                failed = _job_state["failed"]
+            result = {
+                "total": len(title_ids),
+                "completed": len(title_ids),
+                "succeeded": succeeded,
+                "failed": failed + len(title_ids) - completed,
+            }
+    else:
+        # 没有 MDBList API Key：不计为失败
+        result = {"total": 0, "completed": 0, "succeeded": 0, "failed": 0}
     with _job_lock:
-        _job_state.update(result, running=False, current_title_id=None)
+        _job_state.update(result, current_title_id=None)
+    if douban.enabled():
+        update_progress({"phase": "douban"})
+        try:
+            update_progress(refresh_douban_ratings(database_path, progress_callback=update_progress))
+        except Exception as error:
+            logger.warning("豆瓣评分刷新失败：%s", error)
+            update_progress({"douban_message": "豆瓣评分刷新失败。"})
+    with _job_lock:
+        _job_state.update(running=False, current_title_id=None, phase=None)
 
 
 def get_rating_refresh_status() -> dict:

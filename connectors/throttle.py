@@ -8,6 +8,8 @@
   DeepSeek 官方不限每分钟次数，只限账号并发（deepseek-flash 2500、deepseek-v4-pro 500），
   超出返回 429，服务器繁忙返回 503；因此只限并发（默认 64，LLM_CONCURRENCY），忽略 LLM_RPM。
 - MDBList：免费档每日 1000 次，且每 5 分钟最多 1000 次读取。
+- 豆瓣（非官方 App 接口）：没有公开配额，过快会要求登录或人机验证；约 2 秒一次、不并发。
+- Wikidata 查询服务：要求带说明性 User-Agent，单个客户端不要并发，约 1 秒一次。
 
 每个服务一只令牌桶（平均速率）加一个自适应并发上限（同时在途请求数）：遇到 429/503 时并发减半，
 之后每连续成功一轮（成功次数达到当前上限）加 1，直到恢复配置值（AIMD）。遇到 429/503 时按服务端给出的
@@ -52,7 +54,8 @@ class RateLimitError(requests.RequestException):
         super().__init__(f"{label}{gap}请求过于频繁或额度已用尽{wait}。")
 
 
-LABELS = {"tmdb": "TMDB", "tmdb-image": "TMDB 图片", "alist": "AList", "llm": "AI 接口", "mdblist": "MDBList"}
+LABELS = {"tmdb": "TMDB", "tmdb-image": "TMDB 图片", "alist": "AList", "llm": "AI 接口", "mdblist": "MDBList",
+          "douban": "豆瓣", "wikidata": "Wikidata"}
 
 
 def _env_float(name: str, default: float) -> float:
@@ -104,6 +107,9 @@ def _policies() -> dict[str, Policy]:
         ),
         "llm": _llm_policy(),
         "mdblist": Policy(rate=min(2, _env_float("MDBLIST_RATE", 2)), burst=1, concurrency=2, max_wait=60),
+        # 豆瓣被拦截时由 connectors/douban.py 直接暂停 30 分钟（超过 max_wait 即熔断）。
+        "douban": Policy(rate=0.5, burst=1, concurrency=1, max_wait=60, attempts=2),
+        "wikidata": Policy(rate=1, burst=1, concurrency=1, max_wait=60, attempts=2),
     }
 
 

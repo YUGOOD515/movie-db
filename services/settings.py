@@ -218,6 +218,10 @@ SECTIONS: tuple[Section, ...] = (
               hint="留空使用数据目录的 api-usage.db；更换位置前先迁移原文件以保留请求计数。"),
         ), test="mdblist", icon="bar-chart"),
         Group("imdb", "IMDb 评分", "官方评分文件，超过一天自动重新下载", (), icon="star"),
+        Group("douban", "豆瓣评分", "录入和刷新评分时一并获取", (
+            S("DOUBAN_ENABLED", "获取豆瓣评分", "bool", True,
+              hint="使用豆瓣 App 的非官方接口，可能随时失效；请求过快时豆瓣会暂时拒绝访问，MovieDB 会自动暂停 30 分钟。"),
+        ), icon="chat-square-quote"),
     ), icon="collection"),
     Section("ai", "AI", "识别文件名拿不准的影片", (
         Group("llm", "AI 识别", "文件名规则拿不准时，让大模型判断片名、年份和季集", (
@@ -296,6 +300,7 @@ def statuses() -> dict:
         "tmdb": _tmdb_status(),
         "mdblist": configured(env("MDBLIST_APIKEY", "").strip(), off="未开启"),
         "imdb": _ratings_status(),
+        "douban": configured(FIELDS["DOUBAN_ENABLED"].display(), "已开启", "已关闭"),
         "llm": configured(llm.is_configured(), "已开启", "未开启"),
     }
 

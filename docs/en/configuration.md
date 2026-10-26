@@ -90,6 +90,7 @@ The settings page covers almost everything. You can also edit `.env` in the data
 | `TMDB_PROXY` | HTTP proxy used for TMDB only, e.g. `http://127.0.0.1:7890` |
 | `TMDB_API_ORIGIN`, `TMDB_IMAGE_ORIGIN` | Reverse proxy or mirror, defaults `https://api.themoviedb.org/3` and `https://image.tmdb.org/t/p`. With no API origin set, MovieDB switches to the official `api.tmdb.org` domain when the main one is unreachable; if posters don't load, set the image origin to the public relay `https://wsrv.nl/?url=https://image.tmdb.org/t/p` (third-party) |
 | `MDBLIST_APIKEY` | MDBList API key for Rotten Tomatoes, Metacritic and other ratings |
+| `DOUBAN_ENABLED` | Fetch Douban ratings on import and rating refresh (default on, `0` turns it off). Uses Douban's unofficial app API, which may stop working; when Douban refuses requests MovieDB pauses for 30 minutes |
 | `IMDB_RATINGS_PATH` | Location of the official IMDb ratings file, default `imdb/` in the data folder |
 
 **AI recognition** (any OpenAI-compatible API, see [Adding media → AI recognition](adding-media.md#ai-recognition))
