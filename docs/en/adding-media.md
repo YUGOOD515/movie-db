@@ -38,7 +38,7 @@ After you configure `LLM_BASE_URL`, `LLM_API_KEY` and `LLM_MODEL` (or pick a pro
 
 ### Pipeline
 
-Rules, AI and verification run **as a pipeline**: 16 threads run rule-based recognition (TMDB searches), uncertain folders are batched for the AI as soon as they appear, and another group of threads verifies AI answers on TMDB and maps episodes — the AI doesn't wait for all rules to finish. The status bar shows rule progress and how many items are with the AI or being verified. In a simulation with 400 folders (40% needing AI), total time dropped from about 260 s to about 47 s; the bottleneck is then TMDB's 30 requests/second limit.
+Each fully read directory enters recognition immediately while other directories continue scanning. Rules, AI and verification run **as a pipeline**: 16 threads run rule-based searches, uncertain folders are batched for AI, and another pool verifies answers and maps episodes. You can confirm recognized items while scanning continues. Incomplete directories remain available for review.
 
 TMDB results are cached in `discovery.db` (searches 7 days, title summaries 30 days, titles without an IMDb ID 1 day), so re-recognizing after enabling AI, after a rule upgrade, or with *Recognize again* doesn't repeat the searches. When a folder's type is unclear, `/search/multi` finds movies and series in one request.
 
@@ -46,7 +46,7 @@ TMDB results are cached in `discovery.db` (searches 7 days, title summaries 30 d
 
 - **Batching** — each request carries up to `LLM_BATCH_SIZE` items (8 for DeepSeek, 20 for others; a batch is sent when full or when its oldest item has waited 1 s). Input and output are JSON: `{"items":[{"id":"1","name":…,"samples":[…],"rules":[…]}]}` → `{"items":[{"id":"1","kind":"movie|tv|other","candidates":[…]}]}`. *Recognize again* on a single item uses the same format.
 - **Cache-friendly prompts** — batches and single items share one fixed system prompt at the start of the request (`instructions` in the Responses API). DeepSeek's context cache matches on exact prefixes, and cached input costs about 1/50 of uncached input.
-- **Retries** — if a batch's output is truncated, the JSON is incomplete or the server returns 5xx, the batch is split in half and retried; items the model skipped are asked again in one batch.
+- **Retries** — truncated output and malformed JSON split the batch. Service and network failures retry the original batch up to three times, then stop further AI requests. Missing answers are batched for another request.
 - **Circuit breaker and fallback** — an invalid key (401), insufficient balance (402) or bad parameters (400/422) stop AI requests for the current scan immediately. Rate limits (429/503) back off according to `Retry-After` and stop if they don't recover. Failed and skipped items fall back to rule results and are cached as “AI not used”, so the next scan retries them. The end-of-scan message lists the failure reason and count, plus request count, token usage and cache hit rate.
 - **Protocol** — `LLM_API` selects `responses` (`/responses`) or `chat` (`/chat/completions`); both ask for JSON object output. On non-DeepSeek providers without JSON mode, MovieDB falls back to plain prompting.
 
@@ -76,7 +76,7 @@ Open a pending item to get the link editor:
   - The season can come from the file name, the folder name (such as “第二季” or “Season 2”) or a fixed value; with several folders you can set the season and an episode offset per folder. If every season folder starts at 01 but TMDB has only one season, MovieDB suggests continuous numbering and can shift it in one click (e.g. 01–06 in the second folder become episodes 7–12 of season 1).
   - The footer summarizes the file count, whether every season/episode was read and whether TMDB has them all; click an issue to jump to it.
 
-The bottom bar shows live whether everything matches. When there are no problems, **Link N** finishes in one step (large batches are split automatically) and returns to the list. While linking, the server streams real progress (fetch playback URL → read media info file by file → write to the library). The whole batch is written all-or-nothing, so closing the page midway never leaves a half-written import.
+The bottom bar shows whether everything matches. **Link N** submits durable background jobs and returns to the list. Titles run concurrently and episodes share the probe pool. The status bar shows committed files, completed probes and active titles, and offers a stop action. Jobs continue after the page closes and resume after an application restart. Each server chunk of at most 100 files is atomic; successful chunks remain committed if a later chunk fails.
 
 ## Manual entry
 
@@ -98,7 +98,11 @@ When you re-import an existing title, names, genres and season/episode relations
 
 ## How importing works
 
-Linking requests AList `fs/get` only once per file, which returns both the signed playback URL and the `raw_url` used for probing (the AList login token is cached in memory for an hour). After metadata and local checks, ffprobe runs on the files in parallel while artwork downloads in another thread pool and thumbnails are generated concurrently; the database write is a single all-or-nothing transaction. Scans read top-level entries 4 at a time from a shared pool, so large collections are also expanded in parallel. Rate limits for each external service are listed in [Configuration → Rate limits](configuration.md#rate-limits).
+Confirmed jobs are scheduled by root IMDb title ID, with four titles preparing core associations by default. Committed titles continue enrichment in separate resource pools, freeing preparation slots. The total active window is four times the preparation concurrency, capped at 32 titles. Bounded process-wide pools prevent overlapping imports from multiplying concurrency. Each file obtains its AList signed and raw URLs immediately before probing; expired links refresh once. Probe checkpoints survive restarts, while signed URLs and credentials are never stored in jobs.
+
+Core associations commit as soon as required metadata and probes are ready. Artwork, scores, thumbnails and tones run alongside them, retrying unavailable services at their recovery time for up to three rounds. Images are processed as they arrive, shared actor photos download once, thumbnails and tones share a decode, and only selected episodes' images are prepared. A local SQLite index of each IMDb ratings-file version avoids repeatedly decompressing it for separate titles. Manual JSON imports retain their batch atomicity.
+
+Jobs and probe checkpoints live in `discovery.db`; request budgets and cached MDBList scores live in `api-usage.db` in the data folder. Neither is included in cloud snapshots. Duplicate submissions reuse jobs; deleting a title cancels unfinished jobs before they can write it back. Resource pools and short write transactions are shared within the desktop application's process; a multi-process deployment needs a single import dispatcher. See [Configuration → Rate limits](configuration.md#rate-limits).
 
 ## Deleting a title
 

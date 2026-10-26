@@ -30,3 +30,17 @@ def get_series_episodes(db, series_id: str) -> list[dict]:
          ORDER BY relation.season_number, relation.episode_number
     """, (series_id,)).fetchall()
     return [dict(row) for row in rows]
+
+
+def get_file_targets(db, paths) -> dict[str, dict]:
+    paths = list(paths)
+    if not paths:
+        return {}
+    rows = db.execute(f"""
+        SELECT media.alist_path, media.title_id, relation.series_id,
+               relation.season_number, relation.episode_number
+          FROM media_file AS media
+          LEFT JOIN title_relation AS relation ON relation.episode_id = media.title_id
+         WHERE media.alist_path IN ({','.join('?' for _ in paths)})
+    """, paths).fetchall()
+    return {row["alist_path"]: dict(row) for row in rows}

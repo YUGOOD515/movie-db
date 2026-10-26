@@ -1,0 +1,55 @@
+name: Tests
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "**/*.py"
+      - "tests/**"
+      - "templates/**"
+      - "static/**"
+      - "migrations/**"
+      - ".env.example"
+      - "pyproject.toml"
+      - "uv.lock"
+      - ".github/workflows/**"
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-15]
+    env:
+      ALIST_AUTOSTART: "0"
+      MOVIEDB_AUTOSCAN_DISABLED: "1"
+      MOVIEDB_TONES_DISABLED: "1"
+      MOVIEDB_SYNC_DISABLED: "1"
+      MOVIEDB_IMPORTS_DISABLED: "1"
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Python tests (offline services)
+        run: uv run --frozen --with pytest python -m pytest -q
+      - name: Frontend rules
+        run: node --test tests/test_filename_rules.cjs
+      - name: JavaScript syntax
+        run: node --check static/media-association.js

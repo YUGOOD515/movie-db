@@ -172,12 +172,17 @@ SECTIONS: tuple[Section, ...] = (
         Group("scan", "待关联扫描", "发现新文件、检查失效文件", (
             S("MOVIEDB_AUTOSCAN", "启动时自动扫描", "bool", True,
               hint="MovieDB 启动后在后台扫描已选择的片库目录。"),
+            S("IMPORT_TITLE_CONCURRENCY", "核心关联作品并行数", "int", 4, advanced=True, low=1, high=16, placeholder="4",
+              hint="多个作品共用接口限额和视频探测池；图片与评分在独立资源池继续补齐。"),
         ), icon="radar"),
         Group("player", "播放器", "播放影片并记录观看进度", PLAYER_SETTINGS, test="player", icon="play-circle"),
         Group("ffprobe", "ffprobe", "读取分辨率、HDR 与音轨", (
             S("FFPROBE_PATH", "程序路径", "path", placeholder="ffprobe", hint="安装包已自带；留空使用系统 PATH 中的 ffprobe。"),
             S("FFPROBE_TIMEOUT", "超时（秒）", "int", 60, advanced=True, low=5, high=600, placeholder="60"),
             S("FFPROBE_CONCURRENCY", "并行进程数", "int", 3, advanced=True, low=1, high=8, placeholder="3"),
+            S("FFPROBE_PER_SOURCE", "每个来源的并行数", "int", advanced=True, low=1, high=8, placeholder="跟随总并行数",
+              hint="按 AList 路径的第一级目录区分来源，风控严格时调低。"),
+            S("IMAGE_CONCURRENCY", "图片处理并行数", "int", 2, advanced=True, low=1, high=8, placeholder="2"),
         ), test="ffprobe", icon="film"),
         Group("sync", "云端只读快照", "本机离线时，在 Cloudflare 上浏览片库", (
             S("MOVIEDB_SYNC_TOKEN", "同步令牌", "secret", hint="设置后，媒体库变化时自动同步到云端。"),
@@ -201,9 +206,16 @@ SECTIONS: tuple[Section, ...] = (
               hint="留空时自动选择：api.themoviedb.org 连不上就改用 api.tmdb.org。使用反向代理或镜像时填写。"),
             S("TMDB_IMAGE_ORIGIN", "图片地址", "url", advanced=True, placeholder="https://image.tmdb.org/t/p",
               hint="海报加载不出来时，可填公共图片加速 https://wsrv.nl/?url=https://image.tmdb.org/t/p（第三方服务）。"),
+            S("TMDB_RATE", "每秒请求预算", "float", 25, advanced=True, low=0.1, high=30, placeholder="25",
+              hint="扫描、识别与导入共用预算；不积攒突发额度。"),
         ), test="tmdb", icon="image"),
         Group("mdblist", "MDBList", "烂番茄、Metacritic 等多平台评分", (
             S("MDBLIST_APIKEY", "API Key", "secret", hint="在 mdblist.com 登录后，于 Preferences → API Access 中生成；免费账号每天 1000 次。"),
+            S("MDBLIST_DAILY_BUDGET", "24 小时请求预算", "int", 900, advanced=True, low=1, high=100000, placeholder="900",
+              hint="按连续 24 小时统计，包含重试。根据账号套餐设置并保留余量。"),
+            S("MDBLIST_RATE", "每秒请求预算", "float", 2, advanced=True, low=0.1, high=2, placeholder="2"),
+            S("MOVIEDB_API_USAGE_DATABASE", "请求预算与评分缓存位置", "path", advanced=True,
+              hint="留空使用数据目录的 api-usage.db；更换位置前先迁移原文件以保留请求计数。"),
         ), test="mdblist", icon="bar-chart"),
         Group("imdb", "IMDb 评分", "官方评分文件，超过一天自动重新下载", (), icon="star"),
     ), icon="collection"),
@@ -375,7 +387,7 @@ def apply(changed: list[str], app) -> list[str]:
         app.config["ALIST_ORIGIN"] = os.environ.get("ALIST_ORIGIN", "http://127.0.0.1:5244").rstrip("/")
         actions.append("alist-login")
     if changed:
-        throttle.reset()  # 限速与并发按新值重建
+        throttle.configure()  # 保留正在进行的请求和服务冷却时间
         actions.append("throttle")
     testing = app.config.get("TESTING")
     if changed & {"ALIST_DIR", "ALIST_AUTOSTART", "ALIST_ORIGIN"} and not testing:

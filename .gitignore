@@ -29,6 +29,10 @@ imdb/
 imdb.db
 library.db
 discovery.db
+api-usage.db
+api-usage.db-wal
+api-usage.db-shm
+api-usage.db-journal
 
 # Scratch & agent workdir
 scratch/

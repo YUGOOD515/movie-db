@@ -70,7 +70,7 @@ class NormalizeAListNamesTest(unittest.TestCase):
         )
 
     def test_list_directory_uses_the_alist_api(self):
-        response = Mock()
+        response = Mock(status_code=200)
         response.json.return_value = {"code": 200, "data": {"content": [{"name": "Movies", "is_dir": True}]}}
         with patch.object(alist.requests, "post", return_value=response) as post:
             entries = alist.list_directory("/", "token")

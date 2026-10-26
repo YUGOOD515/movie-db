@@ -31,12 +31,15 @@
     let files = [], title = null, task = null, blocks = [], waitingForTitle = false;
     let useGuess = false, busy = false, taskVersion = 0, onlyErrors = false, ruleOpen = false, progress = null;
     let blockDragActive = false;
+    const importJobs = new Map(), importErrors = new Map();
+    let jobTimer = null;
+    const pendingPaths = () => new Set([...importJobs.values()].filter(job => ["queued", "running"].includes(job.state)).flatMap(job => job.paths));
     // 识别规则：季号来源、各文件夹的季号与集号偏移、当前样例。
     let seasonSource = "file", sampleIndex = 0, pendingMarks = null, suggestion = null;
     const adjust = new Map();
 
     async function json(url, payload) {
-        const response = await fetch(url, payload === undefined ? {} : {
+        const response = await fetch(url, payload === undefined ? { cache: "no-store" } : {
             method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
         });
         let data;
@@ -46,39 +49,75 @@
     }
     const feedback = (text, category = "info") => window.showAppToast?.(text, category);
 
-    // 关联导入：服务端逐行返回 NDJSON 进度（取直链 → 读取媒体信息 → 写入），最后一行是结果。
-    async function completeStream(payload, onStep) {
-        const response = await fetch(`${root.dataset.completeUrl}?stream=1`, {
-            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+    function updateJobs(jobs, restoring = false) {
+        let imported = 0, failed = 0, incomplete = false;
+        for (const job of jobs) {
+            const previous = importJobs.get(job.id);
+            if (restoring && !["queued", "running"].includes(job.state)) continue;
+            importJobs.set(job.id, job);
+            if (["queued", "running"].includes(job.state)) {
+                job.paths.forEach(path => importErrors.delete(path));
+            } else if (!previous || ["queued", "running"].includes(previous.state)) {
+                if (job.state === "complete" || (job.state === "cancelled" && job.progress.core >= job.total)) {
+                    const done = new Set(job.paths);
+                    records = records.flatMap(record => {
+                        const remaining = record.files.filter(file => !done.has(file.path));
+                        return remaining.length ? [{ ...record, files: remaining }] : [];
+                    });
+                    imported += job.result?.imported || job.total;
+                    incomplete ||= !!job.result?.warning || job.state === "cancelled";
+                } else {
+                    failed += job.total;
+                    job.paths.forEach(path => importErrors.set(path, job.error || "关联失败，请核对后重试。"));
+                }
+            }
+        }
+        renderList();
+        const all = [...importJobs.values()], active = all.filter(job => ["queued", "running"].includes(job.state));
+        if (active.length) {
+            const complete = all.reduce((sum, job) => sum + (job.state === "complete" ? job.total : job.progress.core || 0), 0);
+            const total = all.reduce((sum, job) => sum + job.total, 0);
+            const probes = active.reduce((sum, job) => sum + (job.progress.core ? 0 : job.progress.probe || 0), 0);
+            const waiting = active.some(job => job.state === "queued" && job.next_at > Date.now() / 1000);
+            bar.progress("association-work", { layer: "task", text: waiting ? "正在关联 · 部分任务等待重试" : "正在并行关联",
+                done: complete, total, detail: `已关联 ${complete}/${total} 个视频 · 另已读取 ${probes} 个 · ${new Set(active.map(job => job.title_id)).size} 部作品处理中`,
+                action: { label: "停止", run: async () => {
+                    try { updateJobs((await json(root.dataset.jobsUrl, { action: "cancel", ids: active.map(job => job.id) })).jobs); }
+                    catch (error) { feedback(error.message, "danger"); }
+                } } });
+        } else bar.clear("association-work");
+        if (imported || failed) bar.result("association-done", {
+            tone: failed || incomplete ? "warning" : "success", text: `已关联 ${imported} 个视频${failed ? ` · ${failed} 个需核对` : incomplete ? " · 部分资料未补齐" : ""}`,
+            ...(failed ? { duration: 0, action: { label: "查看", run: () => { tab = "review"; showView("list"); renderList(); } } } : {}),
         });
-        if (!response.body || !(response.headers.get("Content-Type") || "").includes("ndjson")) {
-            let data;
-            try { data = await response.json(); } catch { throw new Error("服务未返回有效数据，请稍后重试。"); }
-            if (!response.ok && !data.rows) throw new Error(data.error || "请求失败，请重试。");
-            return data;
+        return active;
+    }
+
+    async function pollJobs(restoring = false) {
+        clearTimeout(jobTimer);
+        try {
+            let jobs;
+            if (restoring) jobs = (await json(root.dataset.jobsUrl)).jobs;
+            else {
+                const ids = [...importJobs.values()].filter(job => ["queued", "running"].includes(job.state)).map(job => job.id);
+                if (!ids.length) return;
+                const requests = [];
+                for (let index = 0; index < ids.length; index += 64) requests.push(json(`${root.dataset.jobsUrl}?ids=${ids.slice(index, index + 64).join(",")}`));
+                jobs = (await Promise.all(requests)).flatMap(data => data.jobs);
+            }
+            if (updateJobs(jobs, restoring).length) jobTimer = setTimeout(() => pollJobs(), 1000);
+        } catch {
+            // Jobs persist on the server; losing a browser connection never
+            // submits them again or changes their result to failure.
+            jobTimer = setTimeout(() => pollJobs(restoring), 3000);
         }
-        const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
-        let buffer = "", result = null, failure = "";
-        const handle = line => {
-            if (!line.trim()) return;
-            let message;
-            try { message = JSON.parse(line); } catch { return; }
-            if (message.progress) onStep(message.progress);
-            else if (message.result) result = message.result;
-            else if (message.error) failure = message.error;
-        };
-        for (;;) {
-            const { value, done } = await reader.read();
-            if (done) break;
-            buffer += value;
-            const lines = buffer.split("\n");
-            buffer = lines.pop();
-            lines.forEach(handle);
-        }
-        handle(buffer);
-        if (failure) throw new Error(failure);
-        if (!result) throw new Error("连接中断，结果未知：请刷新待关联列表确认是否已关联。");
-        return result;
+    }
+
+    async function enqueue(selections) {
+        const data = await json(root.dataset.jobsUrl, { selections });
+        updateJobs(data.jobs);
+        clearTimeout(jobTimer);
+        jobTimer = setTimeout(() => pollJobs(), 250);
     }
 
     // 进度换算：一组文件里取直链约占 15%，逐个读取媒体信息占 80%，写入媒体库占 5%。
@@ -104,7 +143,16 @@
     const scanning = () => ["running", "recognizing"].includes(scan.status);
     const stateOf = item => item.recognition?.status || "unknown";
     const query = () => $("[data-discovery-filter]").value.trim().toLowerCase();
-    const visibleRecords = () => records.filter(item => `${item.name} ${item.path} ${item.recognition?.title?.name || ""}`.toLowerCase().includes(query()));
+    const availableRecords = () => {
+        const pending = pendingPaths();
+        return records.flatMap(item => {
+            const remaining = item.files.filter(file => !pending.has(file.path));
+            if (!remaining.length) return [];
+            const error = remaining.map(file => importErrors.get(file.path)).find(Boolean);
+            return [{ ...item, files: remaining, ...(error ? { importError: error, recognition: { ...item.recognition, status: "review" } } : {}) }];
+        });
+    };
+    const visibleRecords = () => availableRecords().filter(item => `${item.name} ${item.path} ${item.recognition?.title?.name || ""}`.toLowerCase().includes(query()));
     const kindLabel = type => type === "tv" ? "剧集" : "电影";
 
     function poster(found, fallback, classes = "discovery-poster") {
@@ -153,6 +201,7 @@
     // 待核对 / 未识别的原因，直接写在行内。
     function reasons(item, readyTitles) {
         const result = item.recognition || {}, count = item.files.length, list = [];
+        if (item.importError) list.push(item.importError);
         if (result.not_media && !result.title) list.push("可能不是影视");
         if (!result.title) return list;
         if (result.coverage != null && result.coverage < 1) list.push(`${Math.round(result.coverage * count)}/${count} 集对上`);
@@ -308,7 +357,7 @@
         };
         // 当前分组清空后（例如全部确认完），自动切到下一个有内容的分组。
         const totals = { ready: 0, review: 0, unknown: 0, ignored: ignored.length };
-        for (const item of records) totals[stateOf(item)] = (totals[stateOf(item)] || 0) + 1;
+        for (const item of availableRecords()) totals[stateOf(item)] = (totals[stateOf(item)] || 0) + 1;
         if (!tab || !totals[tab]) tab = TABS.map(([key]) => key).find(key => totals[key]) || "ready";
         renderTabs(counts);
 
@@ -327,7 +376,7 @@
         $("[data-discovery-count]").textContent = records.length ? String(records.length) : "";
         const empty = $("[data-discovery-empty]");
         empty.querySelector("span").textContent = search && (records.length || ignored.length) ? "没有匹配的内容"
-            : scanning() && !records.length ? "正在扫描…" : "全部已关联";
+            : pendingPaths().size ? "正在关联…" : scanning() && !records.length ? "正在扫描…" : "全部已关联";
         show(empty, !list.childElementCount);
         const missing = $("[data-discovery-missing]");
         missing.querySelector("span").textContent = `${scan.missing || 0} 个源文件失效`;
@@ -469,43 +518,19 @@
         // 进度按视频数计算：多来源合并的一行包含多个记录，按视频数才与“已选”提示一致。
         confirming = { base: 0, size: 0, step: null, label: "", total: list.reduce((sum, item) => sum + item.files.length, 0) };
         renderList();
-        let videos = 0, processed = 0;
-        const failed = [];
-        for (const item of list) {
-            const imported = new Set();
-            try {
-                for (const items of confirmBatches(item)) {
-                    Object.assign(confirming, { size: items.length, step: null, label: item.recognition.title.name });
-                    renderBar();
-                    const data = await completeStream({ title_id: item.recognition.title.title_id, source_name: item.name, items }, step => {
-                        confirming.step = step; renderBar();
-                    });
-                    if (!data.valid) throw new Error(data.error || "需核对");
-                    items.forEach(entry => imported.add(entry.path));
-                    videos += data.imported;
-                    confirming.base += items.length;
-                }
-            } catch { failed.push(item); }
-            records = records.flatMap(record => {
-                if (record !== item) return [record];
-                const remaining = record.files.filter(file => !imported.has(file.path));
-                if (!remaining.length) return [];
-                return [{ ...record, files: remaining, recognition: { ...record.recognition, status: "review" } }];
-            });
-            // 失败的条目也计入已处理，进度只往前走。
-            confirming.base = Math.max(confirming.base, processed += item.files.length);
-            confirming.size = 0; confirming.step = null;
+        try {
+            await enqueue(list.map(item => ({ title_id: item.recognition.title.title_id, source_name: item.name,
+                items: confirmBatches(item).flat() })));
+        } catch (error) { feedback(error.message, "danger"); }
+        finally {
+            confirming = null;
             renderList();
         }
-        confirming = null;
-        renderList();
-        bar.result("association-done", failed.length
-            ? { tone: "warning", text: `已关联 ${videos} 个视频 · ${failed.length} 项移至待核对`, duration: 0, action: { label: "查看", run: () => { tab = "review"; showView("list"); renderList(); bar.clear("association-done"); } } }
-            : { tone: "success", text: `已关联 ${videos} 个视频` });
     }
 
     async function recognizeAgain(item) {
-        item.busy = true; renderList();
+        records = records.map(record => record.path === item.path ? { ...record, busy: true } : record);
+        renderList();
         try {
             const result = await json(root.dataset.recognizeUrl, { path: item.path });
             records = records.map(record => record.path === item.path ? { ...record, recognition: result, busy: false } : record);
@@ -1492,50 +1517,18 @@
         if (busy || !title) return;
         const chosen = files.filter(file => file.included);
         if (!chosen.length) return;
-        const chunks = [];
-        for (let index = 0; index < chosen.length; index += 100) chunks.push(chosen.slice(index, index + 100));
         progress = { base: 0, size: 0, step: null, label: "", total: chosen.length };
         lockEditor(true);
         renderTaskBar();
-        let imported = 0, failed = false;
         try {
-            for (const chunk of chunks) {
-                const payload = { title_id: title.title_id, source_name: task.name, items: chunk.map(file => ({ path: file.path, season_number: file.season, episode_number: file.episode })) };
-                Object.assign(progress, { size: chunk.length, step: null });
-                renderTaskBar();
-                const data = await completeStream(payload, step => { progress.step = step; renderTaskBar(); });
-                for (const row of data.rows || []) {
-                    const file = files.find(item => item.path === row.path);
-                    if (file) file.serverError = row.error || "";
-                }
-                if (!data.valid) {
-                    failed = true;
-                    feedback(data.error || "有文件需要处理，已在列表中标出。", "warning");
-                    break;
-                }
-                const done = new Set(chunk.map(file => file.path));
-                files = files.filter(file => !done.has(file.path));
-                records = records.flatMap(record => {
-                    const remaining = record.files.filter(file => !done.has(file.path));
-                    return remaining.length ? [{ ...record, files: remaining }] : [];
-                });
-                imported += data.imported;
-                Object.assign(progress, { base: progress.base + chunk.length, size: 0, step: null });
-                renderTaskBar();
-            }
-        } catch (error) { failed = true; feedback(error.message, "danger"); }
-        progress = null;
-        if (imported && !files.length) {
-            busy = false;
-            bar.result("association-done", { tone: "success", text: `已关联 ${imported} 个视频 · ${title.name}` });
+            await enqueue([{ title_id: title.title_id, source_name: task.name,
+                items: chosen.map(file => ({ path: file.path, season_number: file.season, episode_number: file.episode })) }]);
             closeEditor();
-            return;
+        } catch (error) {
+            feedback(error.message, "danger");
+            progress = null;
+            lockEditor(false);
         }
-        if (imported) {
-            task = records.find(record => record.path === task.path) || task;
-            bar.result("association-done", { tone: failed ? "warning" : "success", text: `已关联 ${imported} 个视频，剩余 ${files.length} 个` });
-        }
-        lockEditor(false);
     }
 
     // ---- 事件 ------------------------------------------------------------
@@ -1594,6 +1587,7 @@
     if (wantsRoot) { pageUrl.searchParams.delete("add_root"); history.replaceState(history.state, "", pageUrl); }
     // 打开页面先显示已有结果（启动时的后台扫描或上次快照），没有结果时才开始扫描。
     discover().then(data => {
+        pollJobs(true);
         if (wantsRoot) $("[data-root-add]").click();
         if (data && (data.status === "idle" || data.restored)) discover(true);
     });

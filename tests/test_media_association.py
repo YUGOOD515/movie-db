@@ -156,7 +156,11 @@ class AssociationIntegrationTest(unittest.TestCase):
             # 重复提交同一批文件：流里只有校验结果，没有进度。
             again = [json.loads(line) for line in self.client.post("/manager/association/complete?stream=1", json=payload).get_data(as_text=True).splitlines()]
         steps = [(line["progress"]["phase"], line["progress"]["done"]) for line in lines if "progress" in line]
-        self.assertEqual(steps, [("link", 0), ("link", 1), ("link", 2), ("probe", 1), ("probe", 2), ("write", 0)])
+        # Link/probe events may interleave; each stage still reports real,
+        # monotonic counts and the transaction starts after all probes finish.
+        self.assertEqual([count for phase, count in steps if phase == "link"], [0, 1, 2])
+        self.assertEqual([count for phase, count in steps if phase == "probe"], [1, 2])
+        self.assertEqual(steps[-1], ("write", 0))
         self.assertEqual(lines[-1]["result"]["imported"], 2)
         self.assertNotIn("secret", "".join(map(json.dumps, lines)))
         self.assertEqual(len(again), 1)

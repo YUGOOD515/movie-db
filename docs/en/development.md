@@ -115,6 +115,8 @@ Rare formats the slim build doesn't know only lose their quality info; importing
 
 ## CI and releases
 
+`.github/workflows/tests.yml` runs Python tests, frontend rules and association-script syntax checks on Linux, Windows and macOS for pull requests, without contacting live media or rating services. Packaging reuses this test matrix and waits for it before building installers. Model, query, migration and environment-configuration changes also trigger packaging.
+
 `.github/workflows/windows-package.yml` (“安装包（Windows / macOS）”) runs on pushes to `main`, `release/**`, `feat/**` and `perf/**` that touch program files. It builds and verifies the slim ffprobe, builds the Windows installer and portable zip and the macOS `.dmg` for both architectures, and tests installation, the portable data location, migration of old data and the `.dmg` signature. Build artifacts of any branch can be downloaded at the bottom of the run page (GitHub sign-in required).
 
 On `main`, if no release `v<version from pyproject.toml>` exists yet, one is created with the installers attached; its notes are the `## v<version>` section of [CHANGELOG.md](../../CHANGELOG.md). To release: bump the version in `pyproject.toml`, rename the CHANGELOG's “未发布” (Unreleased) section to that version, and merge into `main`.

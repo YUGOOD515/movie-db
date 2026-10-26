@@ -29,6 +29,7 @@ def tmdb_state(monkeypatch):
     monkeypatch.delenv("TMDB_API_ORIGIN", raising=False)
     monkeypatch.delenv("TMDB_IMAGE_ORIGIN", raising=False)
     tmdb.use_origin(None)
+    tmdb.clear_cache()
     yield tmdb
     tmdb.use_origin(None)
 
@@ -263,6 +264,10 @@ def test_tmdb_auth_and_domain_fallback(tmdb_state, monkeypatch):
     assert tmdb_state._get(session, "/movie/1", {}) == {"id": 1}
     assert session.get.call_args.args[0] == "https://api.tmdb.org/3/movie/1"
     assert tmdb_state.api_origin() == "https://api.tmdb.org/3"
+    # 域名回退后继续复用响应缓存，不再请求；调用方修改结果也不会污染缓存。
+    tmdb_state._get(session, "/movie/1", {})["id"] = 99
+    assert tmdb_state._get(session, "/movie/1", {}) == {"id": 1}
+    assert session.get.call_count == 2
     # 自定义镜像不切换，直接报错
     monkeypatch.setenv("TMDB_API_ORIGIN", "https://tmdb.mirror.test/3")
     session.get.side_effect = requests.ConnectionError()
@@ -285,7 +290,6 @@ def test_tmdb_builtin_token_is_fallback_and_images_skip_key(tmdb_state, monkeypa
     assert tmdb_state.token_source() == "user" and tmdb_state._session().headers["Authorization"] == f"Bearer {TOKEN}"
 
     # 图片可能来自第三方 CDN：下载时去掉密钥
-    monkeypatch.setattr(tmdb_state.throttle, "call", lambda service, send, **kwargs: send())
     response = Mock(status_code=200, headers={"Content-Type": "image/jpeg"})
     response.__enter__ = Mock(return_value=response)
     response.__exit__ = Mock(return_value=False)
@@ -293,6 +297,7 @@ def test_tmdb_builtin_token_is_fallback_and_images_skip_key(tmdb_state, monkeypa
     session = Mock()
     session.get.return_value = response
     tmdb_state._download_image(session, "https://wsrv.nl/?url=https://image.tmdb.org/t/p/w185/a.jpg", tmp_path / "a.jpg")
+    assert (tmp_path / "a.jpg").read_bytes() == b"jpeg"
     assert session.get.call_args.kwargs["headers"] == {"Authorization": None}
     assert session.get.call_args.kwargs["params"] == {"api_key": None}
 

@@ -2,6 +2,8 @@
 
 import os
 import re
+import queue
+from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import closing
 from datetime import datetime
@@ -66,6 +68,7 @@ def _timestamp(item):
 def _file(path, item):
     added, sort_time, time_source = _timestamp(item)
     return {"path": path, "name": item["name"], "size": item.get("size", 0),
+            "modified": item.get("modified"),
             "added": added, "sort_time": sort_time, "time_source": time_source}
 
 
@@ -205,18 +208,22 @@ def _ai_summary(stats: dict) -> str:
     return text
 
 
-def _recognize_pending(key, database):
+def _recognize_pending(key, database, records=None):
     from services import recognition
 
-    with _lock:
-        records = list(_scans[key]["records"])
+    streaming = records is not None
+    if not streaming:
+        with _lock:
+            records = list(_scans[key]["records"])
     cached = store.load_recognitions(database)
-    pending = [record for record in records
-               if cached.get(record["path"], {}).get("signature") != recognition.signature(record)]
+    pending = (record for record in records if cached.get(record["path"], {}).get("signature") != recognition.signature(record))
+    if not streaming:
+        pending = list(pending)
     with _lock:
-        _scans[key].update(status="recognizing", recognized=0, to_recognize=len(pending),
+        _scans[key].update(status=_scans[key]["status"] if streaming else "recognizing", recognized=0,
+                           to_recognize=0 if streaming else len(pending),
                            rule_done=0, ai_pending=0, verifying=0)
-    if not pending:
+    if not streaming and not pending:
         return
     try:
         titles = recognition._library_titles(database)
@@ -224,6 +231,8 @@ def _recognize_pending(key, database):
         titles = []
 
     def saved(record, result):
+        if record.get("incomplete") and result.get("title"):
+            result = {**result, "status": "review", "incomplete": True}
         store.save_recognition(database, record["path"],
                                recognition.signature(record, ai=recognition.ai_used(result)), result)
 
@@ -231,6 +240,7 @@ def _recognize_pending(key, database):
         # 规则、AI、核对三段并行：分别显示各段进度，recognized 为已完成（含失败）的条数。
         with _lock:
             _scans[key].update(recognized=counts["done"], rule_done=counts["rules"],
+                               to_recognize=counts["total"],
                                ai_pending=counts["ai"], verifying=counts["verifying"])
 
     try:
@@ -248,6 +258,29 @@ def _recognize_pending(key, database):
         if stats["failed"]:
             state["warnings"].append(
                 f"AI 识别失败 {stats['failed']} 项：{stats['error']} 这些项暂用规则结果，重新扫描会再试。")
+
+
+@contextmanager
+def _recognition_pipeline(key, database):
+    arrivals = queue.Queue(maxsize=64)
+
+    def run():
+        records = iter(arrivals.get, None)
+        try:
+            _recognize_pending(key, database, records)
+        finally:
+            # Even a missing TMDB configuration must drain the bounded input so
+            # the scanner can finish and report its directory warnings.
+            for _ in records:
+                pass
+
+    with ThreadPoolExecutor(max_workers=1, thread_name_prefix="scan-recognition") as executor:
+        future = executor.submit(run)
+        try:
+            yield arrivals
+        finally:
+            arrivals.put(None)
+            future.result()
 
 
 def _run_scan(key, database, refresh):
@@ -286,7 +319,8 @@ def _run_scan(key, database, refresh):
             return root, entry["name"], records, warnings, {item["path"] for item in files}
 
         # 顶层条目 4 路并行；目录读取共用一个池，单个大合集也能并行展开。
-        with ThreadPoolExecutor(max_workers=4, thread_name_prefix="scan") as pool, \
+        with _recognition_pipeline(key, database) as recognizing, \
+                ThreadPoolExecutor(max_workers=4, thread_name_prefix="scan") as pool, \
                 ThreadPoolExecutor(max_workers=4, thread_name_prefix="alist-list") as listing_pool:
             for future in as_completed([pool.submit(scan, root, entry) for root, entry in plan]):
                 root, name, records, warnings, seen = future.result()
@@ -294,6 +328,7 @@ def _run_scan(key, database, refresh):
                     state = _scans[key]
                     for record in records:
                         record["root"] = root
+                        record["incomplete"] = bool(warnings)
                         if record["path"] in ignored:
                             state["ignored"].append({"path": record["path"], "name": record["name"],
                                                      "count": len(record["files"])})
@@ -304,6 +339,11 @@ def _run_scan(key, database, refresh):
                     if not warnings:
                         listings[root]["complete"].add(name)
                     listings[root]["seen"].update(seen)
+                for record in records:
+                    if record["path"] not in ignored:
+                        recognizing.put(record)
+            with _lock:
+                _scans[key]["status"] = "recognizing"
         health = _health_from_scan(associated, list(listings), listings)
         if health:
             store.save_health(database, health)
@@ -315,7 +355,6 @@ def _run_scan(key, database, refresh):
         with _lock:
             snapshot = {field: _scans[key][field] for field in ("roots", "root", "records", "ignored", "warnings")}
         store.save_snapshot(database, snapshot)
-        _recognize_pending(key, database)
         with _lock:
             _scans[key]["status"] = "complete"
     except (OSError, requests.RequestException, RuntimeError, ValueError) as error:
@@ -366,7 +405,7 @@ def scan_status(database, *, prune=True):
                  "records": list(state["records"]), "warnings": list(state["warnings"]),
                  "ignored": list(state.get("ignored") or [])}
     records = state["records"]
-    if prune and state["status"] != "running":
+    if prune:
         try:
             with closing(connect_database(database)) as db:
                 associated = get_associated_paths(db)
@@ -385,10 +424,17 @@ def scan_status(database, *, prune=True):
         from services.recognition import signature
 
         merged = []
+        originals = {record["path"]: record for record in state["records"]}
         for record in records:
             found = cached.get(record["path"])
-            if found and found.get("signature") == signature(record):
+            if found and found.get("signature") == signature(originals[record["path"]]):
                 found = {name: value for name, value in found.items() if name != "signature"}
+                if found.get("positions"):
+                    paths = {item["path"] for item in record["files"]}
+                    positions = {path: position for path, position in found["positions"].items() if path in paths}
+                    found = {**found, "positions": positions}
+                    if found.get("coverage") == 1:
+                        found["episodes"] = len({tuple(position) for position in positions.values()})
                 merged.append({**record, "recognition": found})
             else:
                 merged.append(record)
