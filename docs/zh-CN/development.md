@@ -115,6 +115,8 @@ uv run python packaging/build_macos.py [--arch arm64|x86_64] [--ffprobe-dir <目
 
 ## 持续集成与发布
 
+`.github/workflows/tests.yml` 在 PR 上运行 Linux、Windows、macOS 的 Python 测试、前端规则测试与关联脚本语法检查，不连接真实网盘或评分服务。安装包工作流复用同一测试矩阵，全部通过后才构建 Windows / macOS 安装包；`models/`、查询、迁移和环境配置变更也会触发构建。
+
 `.github/workflows/windows-package.yml`（“安装包（Windows / macOS）”）在推送到 `main`、`release/**`、`feat/**`、`perf/**` 且改动了程序文件时运行：编译并校验精简版 ffprobe，构建 Windows 安装包与免安装 zip、两种架构的 macOS .dmg，并测试安装、免安装版数据位置、旧版数据迁移与 .dmg 签名。各分支的构建产物在运行记录底部的 Artifacts 下载（需登录 GitHub）。
 
 推送到 `main` 时，如果还没有 `v<pyproject.toml 版本号>` 的 Release，就自动创建并上传安装包，发行说明取 [CHANGELOG.md](../../CHANGELOG.md) 中 `## v<版本号>` 的段落。发布新版本：更新 `pyproject.toml` 的版本号，把 CHANGELOG 的“未发布”改为该版本号，合并到 `main`。
