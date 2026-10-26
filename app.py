@@ -161,6 +161,9 @@ if not READ_ONLY:
         from services.media_discovery import start_autoscan
 
         start_autoscan(DATABASE_PATH)
+    if not os.environ.get("MOVIEDB_IMPORTS_DISABLED") and Path(DATABASE_PATH).is_file():
+        from services.import_jobs import start as resume_imports
+        resume_imports(DATABASE_PATH)
 
 
 def serve_static(filename: str):
@@ -750,6 +753,34 @@ def import_title_metadata():
         return jsonify(error="TMDB 暂时无法访问，请稍后重试。"), 502
     except RuntimeError:
         return jsonify(error="TMDB 尚未配置。"), 503
+
+
+@app.route("/manager/association/jobs", methods=["GET", "POST"])
+def association_jobs():
+    from services import import_jobs
+
+    if request.content_length and request.content_length > MAX_BATCH_JSON_BYTES:
+        return jsonify(error="关联数据过大。"), 413
+    try:
+        if request.method == "POST":
+            payload = request.get_json(silent=True)
+            if not isinstance(payload, dict):
+                raise ValueError("请求数据必须是 JSON 对象。")
+            if payload.get("action") == "cancel":
+                result = import_jobs.cancel(app.config["DATABASE"], payload.get("ids"))
+            else:
+                result = import_jobs.submit(app.config["DATABASE"], app.config["IMAGE_ROOT"], payload.get("selections"))
+        else:
+            ids = request.args.get("ids")
+            result = import_jobs.status(app.config["DATABASE"], ids.split(",") if ids else None)
+            import_jobs.start(app.config["DATABASE"])
+    except ValueError as error:
+        return jsonify(error=str(error)), 400
+    except (OSError, RuntimeError, sqlite3.Error):
+        return jsonify(error="无法读取关联任务，请稍后重试。"), 503
+    response = jsonify(result)
+    response.cache_control.no_store = True
+    return response, 202 if request.method == "POST" else 200
 
 
 @app.post("/manager/association/<action>")

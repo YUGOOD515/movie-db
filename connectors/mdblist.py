@@ -3,18 +3,24 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from concurrent.futures import Future
+import hashlib
 import os
 from pathlib import Path
 import time
+from threading import Lock
 from typing import Any, Final, Mapping, Optional, Sequence
 
 import requests
 
 from connectors import throttle
 from services import paths
+from models import api_usage
 
 PROJECT_ROOT: Final[Path] = Path(__file__).resolve().parents[1]
 ENV_PATH: Final[Path] = paths.ENV_PATH
+_pending = {}
+_pending_lock = Lock()
 
 # ==============================================================================
 # 不可变数据模型 (Immutable Data Models)
@@ -48,6 +54,7 @@ class TitleRatingsSummary:
     score_average: Optional[int] # MDBList 平均总分 (0-100)
     platform_ratings: tuple[PlatformRating, ...] = field(default_factory=tuple)
     error_message: Optional[str] = None
+    retry_after: Optional[float] = None
 
 # ==============================================================================
 # 纯函数：环境配置读取 (Pure Config Loader)
@@ -196,7 +203,7 @@ def parse_mdblist_payload(imdb_id: str, data: Mapping[str, Any], latency_ms: flo
 # 纯函数：核心调用入口 (Core Fetch Pipeline)
 # ==============================================================================
 
-def fetch_mdblist_ratings(
+def _fetch_mdblist_ratings(
     imdb_id: str, config: Optional[Config] = None
 ) -> TitleRatingsSummary:
     """
@@ -221,8 +228,21 @@ def fetch_mdblist_ratings(
 
     t0 = time.perf_counter()
     try:
-        resp = throttle.call("mdblist", lambda: requests.get(
-            cfg.api_url, params={"apikey": cfg.mdblist_apikey, "i": imdb_id}, timeout=cfg.timeout_seconds))
+        account = hashlib.sha256(f"{cfg.api_url}\n{cfg.mdblist_apikey}".encode()).hexdigest()
+        cache_key = f"mdblist:{account}:{imdb_id}"
+        data = api_usage.cached(cache_key)
+        if data is not None:
+            return parse_mdblist_payload(imdb_id, data, 0)
+
+        def send():
+            try:
+                budget = max(1, int(os.environ.get("MDBLIST_DAILY_BUDGET", "900")))
+            except ValueError:
+                budget = 900
+            api_usage.reserve(account, budget)
+            return requests.get(cfg.api_url, params={"apikey": cfg.mdblist_apikey, "i": imdb_id}, timeout=cfg.timeout_seconds)
+
+        resp = throttle.call("mdblist", send)
         elapsed_ms = (time.perf_counter() - t0) * 1000
         if resp.status_code != 200:
             return TitleRatingsSummary(
@@ -237,7 +257,10 @@ def fetch_mdblist_ratings(
                 error_message=resp.text[:120],
             )
         data = resp.json()
-        return parse_mdblist_payload(imdb_id, data, elapsed_ms)
+        summary = parse_mdblist_payload(imdb_id, data, elapsed_ms)
+        if summary.status in ("success", "not_found"):
+            api_usage.remember(cache_key, data, 21600 if summary.status == "success" else 3600)
+        return summary
     except Exception as e:
         elapsed_ms = (time.perf_counter() - t0) * 1000
         return TitleRatingsSummary(
@@ -250,6 +273,29 @@ def fetch_mdblist_ratings(
             score=None,
             score_average=None,
             error_message=str(e),
+            retry_after=getattr(e, "retry_after", None),
         )
+
+def fetch_mdblist_ratings(imdb_id: str, config: Optional[Config] = None) -> TitleRatingsSummary:
+    cfg = config or create_config()
+    key = (cfg.api_url, cfg.mdblist_apikey, imdb_id, str(api_usage.database_path()))
+    with _pending_lock:
+        future = _pending.get(key)
+        owner = future is None
+        if owner:
+            future = _pending[key] = Future()
+    if not owner:
+        return future.result()
+    try:
+        result = _fetch_mdblist_ratings(imdb_id, cfg)
+        future.set_result(result)
+        return result
+    except BaseException as error:
+        future.set_exception(error)
+        raise
+    finally:
+        with _pending_lock:
+            _pending.pop(key, None)
+
 
 fetch_title_ratings = fetch_mdblist_ratings

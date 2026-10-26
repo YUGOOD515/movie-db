@@ -1,9 +1,9 @@
 """Validate discovery selections, then reuse the transactional media importer."""
 
 import re
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import closing
 from pathlib import PurePosixPath
+from urllib.parse import quote
 
 from connectors import alist
 from connectors import tmdb
@@ -36,7 +36,7 @@ def _position(value, minimum):
     return number if number >= minimum else None
 
 
-def check_association(library_database, payload):
+def check_association(library_database, payload, *, allow_existing=False):
     if not isinstance(payload, dict):
         raise ValueError("关联数据必须是 JSON 对象。")
     items = payload.get("items")
@@ -61,7 +61,7 @@ def check_association(library_database, payload):
         position = (season, episode)
         if path not in discovered or PurePosixPath(path).suffix.lower() not in alist.VIDEO_EXTENSIONS:
             error = "文件不在本次发现结果中，请刷新待关联列表。"
-        elif path in associated:
+        elif path in associated and not allow_existing:
             error = "该文件已完成关联，请刷新待关联列表。"
         elif path in seen_paths:
             error = "同一文件重复选择。"
@@ -100,10 +100,12 @@ def _learn_alias(library_database, source_name, title):
             pass
 
 
-def complete_association(*, library_database, image_root, payload, on_progress=None):
+def complete_association(*, library_database, image_root, payload, on_progress=None,
+                         probe_cache=None, on_probe=None, defer_enrichment=False,
+                         commit_guard=None, allow_existing=False, expected_files=None):
     """校验后整批导入。on_progress(phase, done, total)：link 取直链、probe 读取媒体信息、write 写入。"""
     report = on_progress or (lambda *_: None)
-    checked = check_association(library_database, payload)
+    checked = check_association(library_database, payload, allow_existing=allow_existing)
     if not checked["valid"]:
         return checked
     token = alist.configured_token()
@@ -111,29 +113,28 @@ def complete_association(*, library_database, image_root, payload, on_progress=N
     rows = checked["rows"]
     total = len(rows)
     report("link", 0, total)
-    # 每个文件一次 fs/get，同时得到播放用签名链接与探测用 raw_url；并发受 AList 限速约束。
-    links, done = [None] * total, 0
-    with ThreadPoolExecutor(max_workers=min(4, max(1, total)), thread_name_prefix="alist-link") as pool:
-        futures = {pool.submit(alist.get_file, row["path"], token): position for position, row in enumerate(rows)}
-        for future in as_completed(futures):
-            position = futures[future]
-            try:
-                links[position] = future.result()
-            except Exception:
-                for other in futures:
-                    other.cancel()
-                rows[position]["error"] = "无法获取视频直链，请检查 AList 文件权限后重试。"
-                checked["valid"] = False
-                return checked
-            done += 1
-            report("link", done, total)
-    items = [{"title_id": checked["title"]["title_id"], "alist_url": link["signed_url"],
+    # Internal placeholders are only parsed locally. A worker obtains a fresh
+    # signed/raw link immediately before probing, never while queued for minutes.
+    items = [{"title_id": checked["title"]["title_id"],
+              "alist_url": alist.get_origin() + "/d" + quote(row["path"], safe="/") + "?sign=pending",
               "season_number": str(row["season_number"]) if is_series else "",
               "episode_number": str(row["episode_number"]) if is_series else ""}
-             for row, link in zip(rows, links)]
-    raw_urls = {row["path"]: link["raw_url"] for row, link in zip(rows, links) if link["raw_url"]}
+             for row in rows]
+
+    def resolve(path):
+        link = alist.get_file(path, token)
+        expected = (expected_files or {}).get(path)
+        if expected is not None:
+            if expected[0] is not None and link.get("size") is not None and expected[0] != link["size"]:
+                raise ValueError("源文件大小已变化，请重新扫描后确认。")
+            if expected[1] and link.get("modified") and expected[1] != link["modified"]:
+                raise ValueError("源文件已修改，请重新扫描后确认。")
+        return link
+
     result = import_media_batch(library_database=library_database, image_root=image_root, items=items,
-                                on_progress=on_progress, raw_urls=raw_urls)
+                                on_progress=on_progress, link_resolver=resolve,
+                                probe_cache=probe_cache, on_probe=on_probe,
+                                defer_enrichment=defer_enrichment, commit_guard=commit_guard)
     for failure in result["failures"]:
         index = failure["index"] - 1
         if 0 <= index < len(checked["rows"]):
@@ -144,4 +145,7 @@ def complete_association(*, library_database, image_root, payload, on_progress=N
         _learn_alias(library_database, source, checked["title"])
     return {**checked, "valid": not result["failures"],
             "imported": len(result["successes"]),
+            "retry_after": max((failure.get("retry_after", 0) for failure in result["failures"]), default=0),
+            "enrichment_retry_after": max((success.get("enrichment_retry_after", 0) for success in result["successes"]), default=0),
+            "enrichment_warning": any(success.get("enrichment_warning") for success in result["successes"]),
             "error": "批量导入失败，全部内容均未写入。" if result["failures"] else ""}

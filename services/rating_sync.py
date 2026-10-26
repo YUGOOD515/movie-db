@@ -110,6 +110,7 @@ def fetch_title_rating(title_id: str) -> dict:
             "status": summary.status,
             "ratings": {},
             "message": summary.error_message,
+            "retry_after": summary.retry_after,
         }
     return {
         "title_id": title_id,

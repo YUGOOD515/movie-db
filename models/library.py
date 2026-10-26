@@ -528,6 +528,22 @@ def update_title_ratings(
         return _update_title_ratings(db, title_id, ratings)
 
 
+def enrich_media_bundle(db, root_title_id, *, artwork, cast, ratings, imdb):
+    """Attach optional data to an existing work; never recreate deleted titles."""
+    if db.execute("SELECT 1 FROM title_basic WHERE title_id = ?", (root_title_id,)).fetchone() is None:
+        return False
+    for image in artwork:
+        db.execute("""INSERT OR IGNORE INTO title_artwork
+            (title_id, artwork_type, position, remote_path, local_path)
+            SELECT :title_id, :artwork_type, :position, :remote_path, :local_path
+            WHERE EXISTS (SELECT 1 FROM title_basic WHERE title_id = :title_id)""", image)
+    _replace_title_cast(db, root_title_id, cast)
+    if ratings:
+        _update_title_ratings(db, root_title_id, ratings)
+    db.executemany("UPDATE title_basic SET average_rating = ?, num_votes = ? WHERE title_id = ?", imdb)
+    return True
+
+
 def update_imdb_ratings(
     database_path: str | Path,
     ratings: dict[str, tuple[float, int]],

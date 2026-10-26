@@ -3,8 +3,11 @@
 import logging
 import os
 import re
+import hashlib
+import shutil
+import tempfile
 from collections import OrderedDict
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import Future
 from copy import deepcopy
 from pathlib import Path
 from threading import Lock, local
@@ -61,6 +64,9 @@ LOCAL_PATH_PREFIX = "images"
 DEFAULT_IMAGE_ROOT = paths.IMAGE_ROOT
 
 logger = logging.getLogger(__name__)
+_image_lock = Lock()
+_image_cache = OrderedDict()
+_image_directory = None
 
 # 短时、有界缓存；同一键的并发请求共用一个 Future，失败不缓存。
 CACHE_TTL = 600
@@ -191,12 +197,16 @@ def _session() -> requests.Session:
 
 
 def _get(session: requests.Session, endpoint: str, params: dict) -> dict:
-    response = throttle.call(
-        "tmdb",
-        lambda: session.get(api_origin() + endpoint, params=params, timeout=REQUEST_TIMEOUT),
-    )
-    response.raise_for_status()
-    return response.json()
+    # Cache remote responses independently of the set of locally known episode
+    # IDs: committing one chunk must not refetch every season for the next chunk.
+    def fetch():
+        response = throttle.call(
+            "tmdb",
+            lambda: session.get(api_origin() + endpoint, params=params, timeout=REQUEST_TIMEOUT),
+        )
+        response.raise_for_status()
+        return response.json()
+    return deepcopy(_cached(("response", api_origin(), endpoint, tuple(sorted(params.items()))), fetch))
 
 
 
@@ -635,17 +645,67 @@ def _build_media_metadata(session: requests.Session, imdb_id: str, known: dict) 
 
 
 def _download_image(session: requests.Session, image_url: str, target_path: Path):
+    """Share a completed download even when imports have separate staging dirs."""
+    global _image_directory
+    from uuid import uuid4
+    with _image_lock:
+        if _image_directory is None:
+            _image_directory = tempfile.TemporaryDirectory(prefix="moviedb-images-")
+        entry = _image_cache.get(image_url)
+        owner = entry is None
+        if owner:
+            entry = {"future": Future(), "users": 0, "size": 0,
+                     "path": Path(_image_directory.name) / hashlib.sha256(image_url.encode()).hexdigest()}
+            _image_cache[image_url] = entry
+        entry["users"] += 1
+        _image_cache.move_to_end(image_url)
+    try:
+        if owner:
+            try:
+                _fetch_image(session, image_url, entry["path"])
+                entry["size"] = entry["path"].stat().st_size
+                entry["future"].set_result(entry["path"])
+            except BaseException as error:
+                entry["future"].set_exception(error)
+        source = entry["future"].result()
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = target_path.with_name(f".{target_path.name}.{uuid4().hex}.part")
+        try:
+            shutil.copyfile(source, temporary)
+            temporary.replace(target_path)
+        finally:
+            temporary.unlink(missing_ok=True)
+    finally:
+        with _image_lock:
+            entry["users"] -= 1
+            size = sum(item["size"] for item in _image_cache.values())
+            for key, item in list(_image_cache.items()):
+                failed = item["future"].done() and item["future"].exception() is not None
+                if item["users"] == 0 and (failed or len(_image_cache) > 128 or size > 64 * 1024 * 1024):
+                    _image_cache.pop(key)
+                    item["path"].unlink(missing_ok=True)
+                    size -= item["size"]
+
+
+def clear_image_cache():
+    global _image_directory
+    with _image_lock:
+        _image_cache.clear()
+        if _image_directory is not None:
+            _image_directory.cleanup()
+            _image_directory = None
+
+
+def _fetch_image(session: requests.Session, image_url: str, target_path: Path):
     """下载单张图片到临时文件后原子替换，带重试。"""
-    temporary_path = target_path.with_suffix(target_path.suffix + ".part")
+    from uuid import uuid4
+    temporary_path = target_path.with_name(f".{target_path.name}.{uuid4().hex}.part")
     target_path.parent.mkdir(parents=True, exist_ok=True)
 
     last_error = None
     for _ in range(DOWNLOAD_ATTEMPTS):
         try:
-            with throttle.call(
-                "tmdb-image",
-                lambda: session.get(image_url, timeout=REQUEST_TIMEOUT, stream=True),
-            ) as response:
+            def consume(response):
                 response.raise_for_status()
                 content_type = response.headers.get("Content-Type", "")
                 if not content_type.startswith("image/"):
@@ -654,6 +714,7 @@ def _download_image(session: requests.Session, image_url: str, target_path: Path
                     for chunk in response.iter_content(chunk_size=64 * 1024):
                         if chunk:
                             image_file.write(chunk)
+            throttle.call("tmdb-image", lambda: session.get(image_url, timeout=REQUEST_TIMEOUT, stream=True), consume=consume)
             temporary_path.replace(target_path)
             return
         except throttle.RateLimitError:
@@ -684,6 +745,7 @@ def download_metadata_images(
     metadata: dict,
     image_root: str | Path = DEFAULT_IMAGE_ROOT,
     session: requests.Session | None = None,
+    on_download=None,
 ) -> dict:
     """批量下载 metadata 中全部图片（title_artwork、演员图与单集 still）。
 
@@ -728,6 +790,8 @@ def download_metadata_images(
         try:
             _download_image(current_session(), _download_url(row), target_path)
             outcome = "downloaded"
+            if on_download:
+                on_download(row, target_path)
         except (requests.RequestException, ValueError) as error:
             logger.warning("下载失败 %s: %s", row["local_path"], error)
             outcome = "failed"
@@ -736,8 +800,12 @@ def download_metadata_images(
 
     try:
         if len(pending) > 1:
-            with ThreadPoolExecutor(max_workers=IMAGE_WORKERS, thread_name_prefix="tmdb-image") as pool:
-                list(pool.map(download, pending))
+            from services.import_runtime import pool
+            futures = [pool("image").submit(str(image_root), download, job) for job in pending]
+            from concurrent.futures import wait
+            wait(futures)
+            for future in futures:
+                future.result()
         else:
             for job in pending:
                 download(job)

@@ -110,7 +110,10 @@ The settings page covers almost everything. You can also edit `.env` in the data
 | `MOVIEDB_AUTOSCAN` | Scan the chosen folders in the background at startup, default `1`; `0` turns it off |
 | `FFPROBE_PATH` | Path to ffprobe; the installers bundle a slim build, which you can replace with a full one |
 | `FFPROBE_TIMEOUT` | Per-file timeout in seconds, default 60 |
-| `FFPROBE_CONCURRENCY` | Parallel ffprobe processes during import, default 3 |
+| `IMPORT_TITLE_CONCURRENCY` | Concurrent core preparations, default 4, range 1–16; enrichment uses separate resource pools |
+| `FFPROBE_CONCURRENCY` | Total ffprobe processes shared by all imports, default 3, range 1–8 |
+| `FFPROBE_PER_SOURCE` | Probe concurrency per first-level AList directory, defaults to the global cap |
+| `IMAGE_CONCURRENCY` | Shared thumbnail/tone processing concurrency, default 2 |
 | `PLAYER` | `mpc-hc` / `iina` / `mpv` / `vlc` / `system`; empty picks automatically |
 | `PLAYER_PATH` | Program path for players other than MPC-HC; on macOS this can be an `.app` |
 | `MPC_PATH`, `MPC_WEB_URL` | MPC-HC program path and web interface (default `http://127.0.0.1:13579`) |
@@ -151,11 +154,13 @@ Free API tiers are limited, so every external request goes through `connectors/t
 
 | Service | Known limits | Default | Tune with |
 | --- | --- | --- | --- |
-| TMDB API | About 40 requests/s, 429 beyond that | 30/s, 16 concurrent; image CDN separately, 6 concurrent | — |
+| TMDB API | Service-dependent limits; retain headroom | 25/s by default, 16 concurrent, no accumulated bursts; image CDN separately, 6 concurrent | `TMDB_RATE` (maximum 30) |
 | AList (Quark and other drives) | AList itself doesn't throttle, but drive backends do (“too many requests”) | 20/s, 4 concurrent; backs off on throttling errors. If forced-refresh scans keep hitting limits, lower to 5–10 | `ALIST_RATE`, `ALIST_CONCURRENCY` |
 | AI (DeepSeek) | No per-minute limit; per-account concurrency (flash 2500, v4-pro 500), 429 beyond that | 64 concurrent (halved on 429), up to 8 items per batch | `LLM_CONCURRENCY`, `LLM_BATCH_SIZE` |
 | AI (other OpenAI-compatible) | Free tiers usually allow a dozen to a few dozen requests per minute, tens to thousands per day | 10 per minute, 2 concurrent, up to 20 items per batch | `LLM_RPM`, `LLM_CONCURRENCY`, `LLM_BATCH_SIZE` |
-| MDBList | Free tier: 1000 requests per day, at most 1000 reads per 5 minutes | 3/s, 2 concurrent | — |
-| ffprobe | Each process reads file headers from the drive through AList | 3 processes | `FFPROBE_CONCURRENCY` |
+| MDBList | Free tier: 1000 requests per day, at most 1000 reads per 5 minutes | 2/s, 2 concurrent; rolling 24-hour budget of 900 including retries; successful scores cached for 6 hours | `MDBLIST_DAILY_BUDGET`, `MDBLIST_RATE` (maximum 2) |
+| ffprobe | Each process reads file headers from the drive | 3 processes shared across titles, with an optional per-source cap | `FFPROBE_CONCURRENCY`, `FFPROBE_PER_SOURCE` |
+
+MDBList usage and cache are persisted in `api-usage.db` in the data directory (`MOVIEDB_API_USAGE_DATABASE` overrides it). Accounts are distinguished by credential hashes; keys are not stored. Configure the budget for your plan and leave room for other clients using the same account. Queued requests recheck service cooldowns, streaming responses retain their slots until consumed, and live settings changes preserve in-flight requests and cooldowns.
 
 When the AI quota runs out, recognition falls back to rule results and says so in the scan message. Those results are cached as “AI not used”, so a later scan fills them in once the quota is back; fallback results are never treated as final.

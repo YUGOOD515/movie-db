@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import email.utils
 import logging
+import math
 import os
 import random
 import re
@@ -59,7 +60,7 @@ def _env_float(name: str, default: float) -> float:
         value = float(os.environ.get(name, "") or default)
     except ValueError:
         return default
-    return value if value > 0 else default
+    return value if math.isfinite(value) and value > 0 else default
 
 
 def _human(seconds: float) -> str:
@@ -84,25 +85,25 @@ def _llm_policy() -> Policy:
     deepseek = re.search(r"//([a-z0-9-]+\.)*deepseek\.com(?:[:/]|$)", base_url.strip().lower()) is not None
     if deepseek:
         # 按并发限流：速率只做防抖（每秒 20 次），真正的约束是同时在途数。
-        return Policy(rate=50, burst=16, concurrency=int(_env_float("LLM_CONCURRENCY", 64)), max_wait=90)
+        return Policy(rate=50, burst=1, concurrency=max(1, min(500, int(_env_float("LLM_CONCURRENCY", 64)))), max_wait=90)
     return Policy(rate=_env_float("LLM_RPM", 10) / 60, burst=1,
-                  concurrency=int(_env_float("LLM_CONCURRENCY", 2)), max_wait=90)
+                  concurrency=max(1, min(500, int(_env_float("LLM_CONCURRENCY", 2)))), max_wait=90)
 
 
 def _policies() -> dict[str, Policy]:
     return {
-        # TMDB 上限约 40 req/s，留余量取 30；并发 16 足以把速率跑满（单次请求约 0.3–0.5 秒）。
-        "tmdb": Policy(rate=30, burst=10, concurrency=16, max_wait=30),
-        "tmdb-image": Policy(rate=20, burst=10, concurrency=6, max_wait=30),
+        # Conservative pacing without stored burst tokens; all application paths share it.
+        "tmdb": Policy(rate=min(30, _env_float("TMDB_RATE", 25)), burst=1, concurrency=16, max_wait=30),
+        "tmdb-image": Policy(rate=20, burst=1, concurrency=6, max_wait=30),
         "alist": Policy(
             # 目录读取多数命中 AList 自身缓存，速率不是网盘风控的关键；同时在途数才是，保持 4。
             rate=_env_float("ALIST_RATE", 20),
-            burst=8,
-            concurrency=int(_env_float("ALIST_CONCURRENCY", 4)),
+            burst=1,
+            concurrency=max(1, min(16, int(_env_float("ALIST_CONCURRENCY", 4)))),
             max_wait=30,
         ),
         "llm": _llm_policy(),
-        "mdblist": Policy(rate=3, burst=3, concurrency=2, max_wait=60),
+        "mdblist": Policy(rate=min(2, _env_float("MDBLIST_RATE", 2)), burst=1, concurrency=2, max_wait=60),
     }
 
 
@@ -110,7 +111,7 @@ class Limiter:
     def __init__(self, name: str, policy: Policy):
         self.name = name
         self.policy = policy
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
         self._tokens = policy.burst
         self._updated = time.monotonic()
         self._paused_until = 0.0
@@ -118,7 +119,7 @@ class Limiter:
         self._limit = self._ceiling      # 当前并发上限，限流时减半、成功后缓慢恢复
         self._active = 0
         self._streak = 0
-        self._free = threading.Condition(threading.Lock())
+        self._free = threading.Condition(self._lock)
 
     @property
     def concurrency(self) -> int:
@@ -155,8 +156,9 @@ class Limiter:
 
     def pause(self, seconds: float) -> None:
         """整个服务暂停 seconds 秒（所有线程共享）。"""
-        with self._lock:
+        with self._free:
             self._paused_until = max(self._paused_until, time.monotonic() + seconds)
+            self._free.notify_all()
 
     def blocked_for(self) -> float:
         with self._lock:
@@ -177,13 +179,23 @@ class Limiter:
 
     @contextmanager
     def slot(self):
-        blocked = self.blocked_for()
-        if blocked > self.policy.max_wait:
-            raise RateLimitError(self.name, blocked)
-        self._acquire()
+        # Reserve rate and concurrency together: rate waiters consume no in-flight
+        # slot, and every wake-up rechecks a circuit opened by another request.
+        deadline = time.monotonic() + self.policy.max_wait
+        with self._free:
+            while True:
+                now = time.monotonic()
+                blocked = self.blocked_for()
+                if blocked > self.policy.max_wait or now >= deadline:
+                    raise RateLimitError(self.name, blocked or None)
+                delay = blocked
+                if self._active < self._limit and not blocked:
+                    delay = self._take()
+                    if delay == 0:
+                        self._active += 1
+                        break
+                self._free.wait(min(delay or .5, deadline - now))
         try:
-            while (delay := self._take()) > 0:
-                time.sleep(min(delay, 5))
             yield
         finally:
             self._release()
@@ -204,6 +216,19 @@ def reset() -> None:
     """清空全部限速状态（测试或修改环境变量后使用）。"""
     with _limiters_lock:
         _limiters.clear()
+
+
+def configure() -> None:
+    """Apply live settings without forgetting active requests or cooldowns."""
+    policies = _policies()
+    with _limiters_lock:
+        for name, gate in _limiters.items():
+            with gate._free:
+                gate.policy = policies[name]
+                gate._ceiling = max(1, gate.policy.concurrency)
+                gate._limit = min(gate._limit, gate._ceiling)
+                gate._tokens = min(gate._tokens, gate.policy.burst)
+                gate._free.notify_all()
 
 
 _DURATION = re.compile(r"(?:(\d+(?:\.\d+)?)h)?(?:(\d+(?:\.\d+)?)m(?!s))?(?:(\d+(?:\.\d+)?)s)?$")
@@ -254,7 +279,7 @@ def _backoff(attempt: int) -> float:
     return min(30.0, 2 ** attempt) * (0.5 + random.random() / 2)
 
 
-def call(service: str, send, *, throttled=None):
+def call(service: str, send, *, throttled=None, consume=None):
     """在服务的速率与并发限制内执行 send()（返回 requests.Response）。
 
     throttled(response) 可识别“HTTP 200 但业务上被限流”的响应（如 AList 驱动风控），
@@ -267,6 +292,24 @@ def call(service: str, send, *, throttled=None):
         with gate.slot():
             try:
                 response = send()
+                limited = response.status_code in RETRY_STATUS or bool(throttled and throttled(response))
+                if not limited:
+                    # Streaming users consume AND close the response while the
+                    # slot is held. Ordinary callers keep the Response API.
+                    if consume is not None:
+                        with response:
+                            result = consume(response)
+                        if response.status_code < 400:
+                            gate.succeeded()
+                        return result
+                    if response.status_code < 400:
+                        gate.succeeded()
+                    return response
+                gate.limited()
+                delay = retry_after(response)
+                wait = delay if delay is not None else _backoff(attempt)
+                response.close()
+                gate.pause(wait)
             except requests.ConnectionError:
                 if last:
                     raise
@@ -274,15 +317,6 @@ def call(service: str, send, *, throttled=None):
         if response is None:
             time.sleep(_backoff(attempt))
             continue
-        limited = response.status_code in RETRY_STATUS or bool(throttled and throttled(response))
-        if not limited:
-            gate.succeeded()
-            return response
-        gate.limited()
-        delay = retry_after(response)
-        wait = delay if delay is not None else _backoff(attempt)
-        response.close()
-        gate.pause(wait)
         if wait > policy.max_wait or last:
             # 每日额度用尽或持续限流：服务暂停到恢复时间，期间请求直接降级而不是排队等待。
             logger.warning("%s 限流，暂停约 %s", service, _human(wait))
