@@ -4,6 +4,7 @@ import json
 import os
 import socket
 import threading
+import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -86,9 +87,17 @@ def test_system_default_opens_link(monkeypatch):
     opener.assert_called_once_with("https://media.test/a.mkv")
 
 
-@pytest.mark.skipif(not hasattr(socket, "AF_UNIX"), reason="需要 Unix 套接字")
-def test_mpv_ipc_reports_progress(tmp_path, monkeypatch):
-    path = str(tmp_path / "mpv.sock")
+@pytest.fixture
+def unix_socket_path():
+    # macOS limits AF_UNIX paths to roughly 104 bytes; pytest's default
+    # /private/var/folders/... hierarchy already exceeds that on hosted runners.
+    with tempfile.TemporaryDirectory(prefix="mpv-", dir="/tmp") as folder:
+        yield str(Path(folder) / "mpv.sock")
+
+
+@pytest.mark.skipif(player.IS_WINDOWS or not hasattr(socket, "AF_UNIX"), reason="mpv/IINA 的 Unix IPC 仅用于 macOS/Linux")
+def test_mpv_ipc_reports_progress(unix_socket_path, monkeypatch):
+    path = unix_socket_path
     server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     server.bind(path)
     server.listen(1)

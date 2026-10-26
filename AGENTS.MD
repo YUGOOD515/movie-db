@@ -16,6 +16,8 @@ SQL 代码书写准则：https://www.sqlstyle.guide/zh/
 
 待关联识别的本机状态（扫描目录、扫描快照、识别缓存、忽略列表、已确认别名、源文件健康、TMDB 查询缓存）单独存于 `discovery.db`（@models/discovery_store.py），不写入 `library.db`，以免触发云端同步。识别流程在 @services/recognition.py（名称清洗在 @services/name_cleaning.py），只产出建议，入库仍走 `media_association.complete`；AI 通过 @connectors/llm.py 调用 OpenAI 兼容接口，结果必须经 TMDB 校验。批量识别 `recognize_many` 是规则 / AI / 核对三段流水线，外部请求的速率与并发统一由 @connectors/throttle.py 控制（429 时并发自动减半），不要在调用方另加限速。
 
+关联任务由 @services/import_jobs.py 按根 Title ID 调度，通过 @models/import_store.py 持久化到 `discovery.db`；探测、图片与派生处理共用 @services/import_runtime.py 的有界资源池。核心关联提交后继续补齐资料，恢复时复用探测检查点；签名链接与令牌不存入任务。MDBList 请求预算及评分缓存存于 `api-usage.db`（@models/api_usage.py），重试也消耗预算，不进入云端快照。
+
 ## Connector
 
 采用 Flask + Jinja 三层结构：@app.py 路由只做"查询 → 整理 → 渲染"编排；@queries/ 只查数据库，@viewmodels/ 把查询结果整理成页面形状（poster/backdrop 卡片、进度、徽章、播放文案），Jinja 只负责 HTML 显示，不做业务判断。

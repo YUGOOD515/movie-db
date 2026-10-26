@@ -1,8 +1,12 @@
-"""IMDb 官方评分文件 title.ratings.tsv.gz：按需下载、流式查询，不建本地大库。"""
+"""IMDb official ratings, with an on-disk index rebuilt once per source version."""
 
 import gzip
 import logging
 import os
+import sqlite3
+import threading
+import uuid
+from contextlib import closing
 from pathlib import Path
 from time import time
 
@@ -20,9 +24,15 @@ MAX_AGE_SECONDS = 24 * 3600
 REQUEST_TIMEOUT = 60
 
 logger = logging.getLogger(__name__)
+_lock = threading.RLock()
 
 
 def ensure_ratings_file(path: Path = RATINGS_PATH, max_age: float = MAX_AGE_SECONDS) -> Path | None:
+    with _lock:
+        return _ensure_ratings_file(path, max_age)
+
+
+def _ensure_ratings_file(path: Path, max_age: float) -> Path | None:
     """返回可用的评分文件路径；过期时重新下载，下载失败且无旧文件时返回 None。"""
     if path.is_file() and time() - path.stat().st_mtime < max_age:
         return path
@@ -45,21 +55,52 @@ def ensure_ratings_file(path: Path = RATINGS_PATH, max_age: float = MAX_AGE_SECO
 
 
 def lookup_ratings(title_ids, path: Path | None = None) -> dict[str, tuple[float, int]]:
-    """流式扫描评分文件，只返回指定 Title ID 的 (评分, 票数)。"""
+    """Use bounded memory; concurrent movie jobs share one refresh/index build."""
     wanted = set(title_ids)
     if not wanted:
         return {}
-    path = path or ensure_ratings_file()
-    if path is None:
-        return {}
-    ratings = {}
-    with gzip.open(path, "rt", encoding="utf-8") as file:
-        next(file, None)
-        for line in file:
-            title_id, _, rest = line.partition("\t")
-            if title_id in wanted:
-                rating, _, votes = rest.rstrip("\n").partition("\t")
-                ratings[title_id] = (float(rating), int(votes))
-                if len(ratings) == len(wanted):
-                    break
+    with _lock:
+        path = path or ensure_ratings_file()
+        if path is None:
+            return {}
+        index = _ensure_index(Path(path))
+    ratings, ids = {}, list(wanted)
+    with closing(sqlite3.connect(f"file:{index.as_posix()}?mode=ro", uri=True)) as db:
+        for start in range(0, len(ids), 500):
+            chunk = ids[start:start + 500]
+            for title_id, rating, votes in db.execute(f"SELECT title_id, rating, votes FROM rating WHERE title_id IN ({','.join('?' for _ in chunk)})", chunk):
+                ratings[title_id] = (rating, votes)
     return ratings
+
+
+def _ensure_index(path):
+    stat = path.stat()
+    signature = f"{stat.st_size}:{stat.st_mtime_ns}"
+    index = path.with_name(path.name + ".sqlite3")
+    if index.is_file():
+        try:
+            with closing(sqlite3.connect(f"file:{index.as_posix()}?mode=ro", uri=True)) as db:
+                if db.execute("SELECT signature FROM source").fetchone() == (signature,):
+                    return index
+        except sqlite3.Error:
+            pass
+    temporary = index.with_name(f".{index.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        with closing(sqlite3.connect(temporary)) as db, db:
+            db.executescript("CREATE TABLE source (signature TEXT); CREATE TABLE rating (title_id TEXT PRIMARY KEY, rating REAL, votes INTEGER) WITHOUT ROWID;")
+            db.execute("INSERT INTO source VALUES (?)", (signature,))
+            with gzip.open(path, "rt", encoding="utf-8") as file:
+                if not next(file, "").startswith("tconst\taverageRating\tnumVotes"):
+                    raise ValueError("IMDb 评分文件格式无法识别")
+                batch = []
+                for line in file:
+                    title_id, rating, votes = line.rstrip("\n").split("\t")
+                    batch.append((title_id, float(rating), int(votes)))
+                    if len(batch) >= 10000:
+                        db.executemany("INSERT INTO rating VALUES (?, ?, ?)", batch)
+                        batch.clear()
+                db.executemany("INSERT INTO rating VALUES (?, ?, ?)", batch)
+        temporary.replace(index)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return index

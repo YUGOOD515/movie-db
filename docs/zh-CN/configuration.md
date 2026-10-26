@@ -110,7 +110,10 @@
 | `MOVIEDB_AUTOSCAN` | 启动时后台扫描所选目录，默认 `1`，设为 `0` 关闭 |
 | `FFPROBE_PATH` | ffprobe 路径；安装包自带精简版，需要时可换成完整版 |
 | `FFPROBE_TIMEOUT` | 单个文件的超时（秒），默认 60 |
-| `FFPROBE_CONCURRENCY` | 导入时并行的 ffprobe 进程数，默认 3 |
+| `IMPORT_TITLE_CONCURRENCY` | 同时准备核心关联的作品数，默认 4，范围 1–16；资料补齐使用独立资源池 |
+| `FFPROBE_CONCURRENCY` | 所有导入任务合计的 ffprobe 进程数，默认 3，范围 1–8 |
+| `FFPROBE_PER_SOURCE` | 每个 AList 第一级目录的探测并发，默认跟随总上限 |
+| `IMAGE_CONCURRENCY` | 缩略图与色调处理的共享并发数，默认 2 |
 | `PLAYER` | `mpc-hc` / `iina` / `mpv` / `vlc` / `system`，留空自动选择 |
 | `PLAYER_PATH` | 非 MPC-HC 播放器的程序路径，macOS 可以填 `.app` |
 | `MPC_PATH`、`MPC_WEB_URL` | MPC-HC 程序路径与 Web 接口地址（默认 `http://127.0.0.1:13579`） |
@@ -151,11 +154,13 @@
 
 | 服务 | 已知限制 | 默认策略 | 调整 |
 | --- | --- | --- | --- |
-| TMDB API | 约 40 次/秒，超出返回 429 | 30 次/秒，16 并发；图片 CDN 另计，6 并发 | — |
+| TMDB API | 上限随服务状态变化，保留余量 | 默认 25 次/秒，16 并发，无突发积攒；图片 CDN 另计，6 并发 | `TMDB_RATE`（最高 30） |
 | AList（夸克等网盘） | AList 本身不限流，网盘驱动有风控，过快会提示“请求太频繁” | 20 次/秒，4 并发；识别“频繁”类错误后退避重试。“强制刷新”扫描时如常出现频繁提示，可调低到 5–10 | `ALIST_RATE`、`ALIST_CONCURRENCY` |
 | AI（DeepSeek） | 不限每分钟次数，按账号并发限制（flash 2500、v4-pro 500），超出返回 429 | 64 并发（429 时自动减半），每批最多 8 条 | `LLM_CONCURRENCY`、`LLM_BATCH_SIZE` |
 | AI（其他 OpenAI 兼容） | 免费档通常每分钟十几到几十次、每日几十到上千次 | 每分钟 10 次，2 并发，每批最多 20 条 | `LLM_RPM`、`LLM_CONCURRENCY`、`LLM_BATCH_SIZE` |
-| MDBList | 免费档每日 1000 次，每 5 分钟最多 1000 次读取 | 3 次/秒，2 并发 | — |
-| ffprobe | 每个进程都经 AList 读取网盘文件头 | 3 个进程并行 | `FFPROBE_CONCURRENCY` |
+| MDBList | 免费档每日 1000 次，每 5 分钟最多 1000 次读取 | 2 次/秒，2 并发；连续 24 小时预算 900 次，成功评分缓存 6 小时；重试也计数 | `MDBLIST_DAILY_BUDGET`、`MDBLIST_RATE`（最高 2） |
+| ffprobe | 每个进程都读取网盘文件头 | 所有作品共用 3 个进程，可额外限制每个来源 | `FFPROBE_CONCURRENCY`、`FFPROBE_PER_SOURCE` |
+
+MDBList 的请求计数与缓存持久化到数据目录的 `api-usage.db`，可用 `MOVIEDB_API_USAGE_DATABASE` 指定位置。预算按账号凭据的哈希区分，不保存密钥。请按套餐设置预算，并为其他使用同一账号的客户端留出余量。排队请求会重新检查冷却状态，流式下载占用槽位直到读取结束；更改设置不会忘记正在进行的请求或服务冷却时间。
 
 AI 额度用尽时，识别自动退回规则结果并在扫描提示中说明；这些结果的缓存签名记为“未用 AI”，额度恢复后重新扫描会自动补识别，不会把降级结果当成最终结论。

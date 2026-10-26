@@ -1,7 +1,14 @@
 import json
 import os
 import subprocess
+import re
 from fractions import Fraction
+
+
+class ProbeError(ValueError):
+    def __init__(self, message, *, code="invalid", retryable=False):
+        super().__init__(message)
+        self.code, self.retryable = code, retryable
 
 
 def _probe_integer(value, *, positive: bool = False):
@@ -66,11 +73,13 @@ def probe_video(video_url: str) -> dict:
     try:
         result = subprocess.run(command, **run_options)
     except FileNotFoundError as error:
-        raise ValueError("未找到 ffprobe，请安装 FFmpeg 或设置 FFPROBE_PATH。") from error
+        raise ProbeError("未找到 ffprobe，请安装 FFmpeg 或设置 FFPROBE_PATH。") from error
     except subprocess.TimeoutExpired as error:
-        raise ValueError("ffprobe 读取媒体参数超时。") from error
+        raise ProbeError("ffprobe 读取媒体参数超时。", code="timeout", retryable=True) from error
     if result.returncode != 0:
-        raise ValueError("ffprobe 读取媒体参数失败。")
+        detail = result.stderr or ""
+        code = "expired" if re.search(r"\b(?:401|403)\b|expired|forbidden", detail, re.I) else "busy" if re.search(r"\b(?:429|503)\b|too many|频繁", detail, re.I) else "invalid"
+        raise ProbeError("ffprobe 读取媒体参数失败。", code=code, retryable=code == "busy")
 
     try:
         payload = json.loads(result.stdout)
