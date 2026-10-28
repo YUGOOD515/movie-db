@@ -1,34 +1,38 @@
-{% from "_ui.html" import rating_items %}
+{% from "_ui.html" import icon as ui_icon %}
+{% from "_ui.html" import rating_items, media_parameter %}
+{% from "_media_versions.html" import media_versions with context %}
 
 {% macro play_control(sources, current_source, label, button_class, wrapper_class="", show_label=true) %}
     {% if current_source %}
         <div class="{{ wrapper_class }}{% if sources|length > 1 %} dropdown{% endif %}">
             {% if sources|length > 1 %}
                 <button class="{{ button_class }} dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="{{ label }}，选择版本">
-                    <i class="bi bi-play-fill" aria-hidden="true"></i>
+                    {{ ui_icon('play', '') }}
                     {% if show_label %}<span class="text-truncate">{{ label }}</span>{% else %}<span class="visually-hidden">{{ label }}</span>{% endif %}
                 </button>
             {% else %}
                 <form class="d-contents" action="{{ current_source.play_url }}" method="post">
                     <button class="{{ button_class }}" type="submit" aria-label="{{ label }}">
-                        <i class="bi bi-play-fill" aria-hidden="true"></i>
+                        {{ ui_icon('play', '') }}
                         {% if show_label %}<span class="text-truncate">{{ label }}</span>{% else %}<span class="visually-hidden">{{ label }}</span>{% endif %}
                     </button>
                 </form>
             {% endif %}
             {% if sources|length > 1 %}
-            <ul class="dropdown-menu media-menu detail-version-menu">
-                {% for source in sources %}
-                    <li>
-                        <form action="{{ source.play_url }}" method="post">
-                            <button class="dropdown-item d-flex align-items-center gap-2{% if current_source and source.source_id == current_source.source_id %} active{% endif %}" type="submit" title="{{ source.alist_path }}">
-                                <i class="bi bi-play-fill flex-shrink-0" aria-hidden="true"></i>
-                                <span class="text-truncate">{{ source.source_label }}</span>
-                            </button>
-                        </form>
-                    </li>
-                {% endfor %}
-            </ul>
+            <div class="dropdown-menu media-menu detail-version-menu" style="--version-count: {{ sources|length }}">
+                <div class="version-comparison" aria-label="播放版本参数对比">
+                    {% for source in sources %}
+                    <form action="{{ source.play_url }}" method="post">
+                        <button class="dropdown-item version-play{% if source.source_id == current_source.source_id %} is-current{% endif %}" type="submit" aria-label="播放：{{ source.source_name }}" title="{{ source.alist_path }}"{% if source.source_id == current_source.source_id %} aria-current="true"{% endif %}>
+                            <span class="version-filename" dir="rtl"><bdi dir="ltr">{{ source.source_name }}</bdi></span>
+                            <span class="version-parameters">
+                                {% for field in source.parameters %}{{ media_parameter(field) }}{% endfor %}
+                            </span>
+                        </button>
+                    </form>
+                    {% endfor %}
+                </div>
+            </div>
             {% endif %}
         </div>
     {% endif %}
@@ -36,10 +40,9 @@
 
 {% macro media_badges(badges) %}
     {% for badge in badges %}
-        {% if badge.kind == "dolby_vision" %}
-            <span class="dolby-vision-badge" title="杜比视界 (Dolby Vision)" aria-label="杜比视界">
-                <img class="dolby-vision-logo dolby-vision-logo--dark" src="{{ url_for('static', filename='DolbyVision_white.png') }}" alt="Dolby Vision" height="15">
-                <img class="dolby-vision-logo dolby-vision-logo--light" src="{{ url_for('static', filename='DolbyVision.png') }}" alt="Dolby Vision" height="15">
+        {% if badge.asset %}
+            <span class="media-brand" title="{{ badge.label }}">
+                <img class="nard-badge" data-brand="{{ badge.brand }}" src="{{ url_for('static', filename=badge.asset) }}" alt="{{ badge.label }}" height="15" decoding="async">
             </span>
         {% else %}
             <span>{{ badge.label }}</span>
@@ -92,15 +95,6 @@
 
 {% macro episode_facts(episode) %}
 <div class="episode-facts-panel" data-episode-facts="{{ episode.episode_id }}">
-    {% if episode.media_facts %}
-        <dl class="row gy-3 mb-0 detail-facts">
-            {% for fact in episode.media_facts %}
-                <dt class="col-sm-3 text-body-secondary fw-normal">{{ fact.label }}</dt>
-                <dd class="col-sm-9 mb-0 text-break">{{ fact.value }}</dd>
-            {% endfor %}
-        </dl>
-    {% else %}
-        <p class="small text-body-secondary mb-0">暂无本地媒体参数。</p>
-    {% endif %}
+    {{ media_versions(episode.versions, 'S' ~ episode.season_number ~ ' · E' ~ episode.episode_number) }}
 </div>
 {% endmacro %}

@@ -1,4 +1,10 @@
 // Site-wide behavior: image fallbacks, theme, filter forms and notifications.
+window.appIcon = (name, classes = '') => {
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('class', `app-icon ${classes}`.trim()); svg.setAttribute('width','16'); svg.setAttribute('height','16'); svg.setAttribute('aria-hidden','true'); svg.setAttribute('focusable','false'); svg.dataset.icon = name;
+    const use = document.createElementNS(svg.namespaceURI, 'use');
+    use.setAttribute('href', `${document.body.dataset.iconUrl}#${name}`); svg.append(use); return svg;
+};
 // Page scripts (detail.js, manager.js, …) reuse the helpers exposed on window.
 (() => {
     function bindMediaFallback(root = document) {
@@ -24,14 +30,10 @@
     // Theme toggle
     const themeToggle = document.getElementById("theme-toggle");
     if (themeToggle) {
-        const icon = themeToggle.querySelector("i");
-
         function syncThemeControl() {
             const isDark = document.documentElement.dataset.bsTheme === "dark";
             const label = isDark ? "切换为浅色主题" : "切换为深色主题";
-            if (icon) {
-                icon.className = isDark ? "bi bi-sun-fill" : "bi bi-moon-stars-fill";
-            }
+            themeToggle.replaceChildren(window.appIcon(isDark ? 'sun' : 'moon'));
             themeToggle.setAttribute("aria-label", label);
             themeToggle.setAttribute("title", label);
         }
@@ -71,7 +73,7 @@
         });
     });
 
-    // Global bottom-center notifications. Flask flash messages and client-side
+    // Global top-right notifications. Flask flash messages and client-side
     // actions share the same queue so notifications never overlap.
     const appToastQueue = [];
     let appToastActive = false;
@@ -88,7 +90,10 @@
             return;
         }
         const isError = ["danger", "error"].includes(notification.category);
-        toast.replaceChildren(document.createTextNode(notification.message));
+        const icon = window.appIcon(isError ? 'circle-alert' : notification.category === 'warning' ? 'triangle-alert' : notification.category === 'success' ? 'circle-check' : 'info');
+        const message = document.createElement("span");
+        message.textContent = notification.message;
+        toast.replaceChildren(icon, message);
         toast.setAttribute("role", isError ? "alert" : "status");
         toast.setAttribute("aria-live", isError ? "assertive" : "polite");
         toast.classList.toggle("save-toast--error", isError);
@@ -101,7 +106,7 @@
         if (!message) {
             return;
         }
-        appToastQueue.push({ message, category });
+        if (!appToastQueue.some(item => item.message === message && item.category === category)) appToastQueue.push({ message, category });
         if (!appToastActive) {
             showNextAppToast();
         }

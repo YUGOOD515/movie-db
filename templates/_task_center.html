@@ -1,0 +1,16 @@
+{% from "_ui.html" import icon %}
+<section class="sidebar-tasks" data-task-center
+         data-status-url="{{ url_for('background_tasks') }}"
+         data-jobs-url="{{ url_for('association_jobs') }}"
+         data-scan-url="{{ url_for('discover_import_media') }}"
+         data-rating-url="{{ url_for('refresh_manager_ratings') }}">
+    <button type="button" class="sidebar-task-toggle" data-bs-toggle="collapse" data-bs-target="#sidebar-task-content" aria-expanded="false" aria-controls="sidebar-task-content">
+        {{ icon('list-todo') }}<span>后台任务</span><span class="task-count ms-auto" data-task-summary></span>{{ icon('chevron-down', 'task-chevron') }}
+    </button>
+    <div class="collapse" id="sidebar-task-content">
+        <div class="task-services" data-task-services></div>
+        <div class="task-list" data-task-list aria-label="后台任务列表"></div>
+        <p class="small text-body-secondary text-center py-3 mb-0" data-task-empty>暂无任务</p>
+        <div class="task-cleanup"><button class="btn btn-sm task-clear" type="button" data-task-clear hidden>清除已完成</button></div>
+    </div>
+</section>

@@ -448,6 +448,17 @@ def scan_status(database, *, prune=True):
     return state
 
 
+def scan_summary(database):
+    """Observe live counters without loading/pruning the complete discovery list."""
+    with _lock:
+        state = _scans.get(str(database))
+        if not state:
+            return {"status": "idle"}
+        summary = {key: state.get(key) for key in ("status", "done", "total", "recognized", "to_recognize", "ai_pending", "verifying", "error")}
+        summary["warnings"] = list(state.get("warnings") or [])[:5]
+        return summary
+
+
 def set_ignored(database, path, name, ignored):
     canonical_path(path)
     store.set_ignored(database, path, name, ignored)

@@ -64,7 +64,7 @@ def enabled() -> bool:
 
 
 def _blocked(reason: str):
-    throttle.limiter("douban").pause(BLOCK_PAUSE)
+    throttle.limiter("douban").pause(BLOCK_PAUSE, reason="blocked")
     logger.warning("豆瓣拒绝访问（%s），暂停约 30 分钟", reason)
     raise DoubanBlocked(reason)
 

@@ -1,4 +1,5 @@
 import importlib
+import hashlib
 import json
 import logging
 import os
@@ -720,6 +721,16 @@ def import_title_metadata():
         return jsonify(error="TMDB 尚未配置。"), 503
 
 
+@app.get("/manager/tasks")
+def background_tasks():
+    from services.task_status import snapshot
+    response = jsonify(snapshot(app.config["DATABASE"]))
+    response.set_etag(hashlib.sha256(response.get_data()).hexdigest())
+    response.cache_control.private = True
+    response.cache_control.no_cache = True
+    return response.make_conditional(request)
+
+
 @app.route("/manager/association/jobs", methods=["GET", "POST"])
 def association_jobs():
     from services import import_jobs
@@ -733,6 +744,11 @@ def association_jobs():
                 raise ValueError("请求数据必须是 JSON 对象。")
             if payload.get("action") == "cancel":
                 result = import_jobs.cancel(app.config["DATABASE"], payload.get("ids"))
+            elif payload.get("action") == "retry":
+                from models import import_store
+                with import_jobs.runtime.write_lock:
+                    result = import_store.retry(app.config["DATABASE"], payload.get("ids"))
+                import_jobs.start(app.config["DATABASE"], wake=True)
             else:
                 result = import_jobs.submit(app.config["DATABASE"], app.config["IMAGE_ROOT"], payload.get("selections"))
         else:

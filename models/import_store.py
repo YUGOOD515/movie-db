@@ -100,6 +100,8 @@ def enqueue(database, image_root, groups, scan):
     library = str(Path(database).resolve())
     image_root = str(Path(image_root).resolve())
     ids, now = [], time.time()
+    names = {(title or {}).get("title_id"): (title or {}).get("name") for record in scan["records"]
+             for title in [(record.get("recognition") or {}).get("title")]}
     with closing(_connect(database)) as db, db:
         db.execute("BEGIN IMMEDIATE")
         snapshot = {key: scan[key] for key in ("roots", "root", "records", "ignored", "warnings")}
@@ -121,6 +123,9 @@ def enqueue(database, image_root, groups, scan):
                            "sources": sorted(set(group["sources"])),
                            "versions": {item["path"]: group["versions"][item["path"]] for item in chunk}}
                 key = hashlib.sha256(json.dumps([library, image_root, payload], sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+                # Presentation metadata is excluded from the idempotency key.
+                payload["name"] = names.get(title_id)
+                payload["batch"] = str(now)
                 existing = db.execute("SELECT * FROM import_job WHERE request_key = ?", (key,)).fetchone()
                 if existing:
                     ids.append(existing["job_id"])
@@ -155,6 +160,26 @@ def cancel(database, ids):
     with closing(_connect(database)) as db, db:
         db.execute(f"UPDATE import_job SET state = 'cancelled', owner = '', error = '关联任务已停止。' WHERE library_path = ? AND job_id IN ({','.join('?' for _ in ids)}) AND state IN ('queued', 'running')", (str(Path(database).resolve()), *ids))
         db.execute("DELETE FROM import_reservation WHERE job_id IN (SELECT job_id FROM import_job WHERE state = 'cancelled')")
+    return status(database, ids)
+
+
+def retry(database, ids):
+    if not isinstance(ids, list) or not ids or len(ids) > 1000 or any(not isinstance(item, str) or not re.fullmatch(r"[a-f0-9]{32}", item) for item in ids):
+        raise ValueError("任务 ID 无效。")
+    library = str(Path(database).resolve())
+    with closing(_connect(database)) as db, db:
+        db.execute("BEGIN IMMEDIATE")
+        rows = db.execute(f"SELECT * FROM import_job WHERE library_path = ? AND job_id IN ({','.join('?' for _ in ids)})", (library, *ids)).fetchall()
+        for row in rows:
+            warning = json.loads(row["result"] or "{}").get("warning")
+            if row["state"] not in ("failed", "cancelled") and not (row["state"] == "complete" and warning):
+                continue
+            for item in json.loads(row["payload"])["items"]:
+                reserved = db.execute("SELECT job_id FROM import_reservation WHERE library_path = ? AND path = ?", (library, item["path"])).fetchone()
+                if reserved and reserved[0] != row["job_id"]:
+                    raise ValueError("文件已有其他关联任务，请等待完成。")
+                db.execute("INSERT OR REPLACE INTO import_reservation VALUES (?, ?, ?)", (library, item["path"], row["job_id"]))
+            db.execute("UPDATE import_job SET state = 'queued', attempts = 0, error = '', result = NULL, next_at = 0, updated_at = ? WHERE job_id = ?", (time.time(), row["job_id"]))
     return status(database, ids)
 
 

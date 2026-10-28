@@ -256,6 +256,60 @@ class LibraryIntegrationTest(unittest.TestCase):
         for title_id in ("tt0816692", "tt6226232", "tt0000000"):
             self.assertEqual(self.client.get(f"/title/{title_id}/episode-panel").status_code, 404)
 
+    def test_movie_and_lazy_episode_views_compare_all_sources(self):
+        with closing(self.connect()) as database, database:
+            for title_id in ("tt0816692", "tt11555014"):
+                database.execute(
+                    """INSERT INTO media_file (title_id, alist_path, duration_ms, video_codec,
+                                               video_width, video_height, video_frame_rate,
+                                               audio_codec, audio_channel_layout)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (title_id, f'/Versions/{title_id}-<cut>.mkv', 2_713_000, "h264",
+                     1280, 720, 24, "ac3", "5.1"),
+                )
+        for path in ("/title/tt0816692", "/title/tt6226232?season=3&episode=12", "/title/tt11555014/episode-panel"):
+            with self.subTest(path=path):
+                response = self.client.get(path)
+                self.assertEqual(response.status_code, 200)
+                html = response.get_data(as_text=True)
+                for value in ("version-comparison", "version-parameters", 'dir="rtl"', "45:13", "720P", "H.264", "24 fps", "AC-3", "5.1"):
+                    self.assertIn(value, html)
+                self.assertIn("&lt;cut&gt;", html)
+                self.assertNotIn("<cut>", html)
+                self.assertIn('data-media-versions', html)
+                self.assertIn('720P · 1280 × 720', html)
+                self.assertIn('data-version-field="probed_at"', html)
+                self.assertIn('data-version-field="pixel_format"', html)
+                self.assertEqual(html.count('data-version-field="'), 14)
+                self.assertNotIn('展开完整参数', html)
+                self.assertNotIn('data-version-details', html)
+                self.assertIn('data-version-play', html)
+                self.assertIn('media-version-play-cue', html)
+                self.assertNotIn('播放此版本', html)
+                self.assertNotIn('当前播放文件', html)
+
+    def test_full_versions_are_visible_in_readonly_and_episode_views(self):
+        self.previous_read_only = movie_app.app.config['READ_ONLY']
+        self.addCleanup(movie_app.app.config.update, READ_ONLY=self.previous_read_only)
+        movie_app.app.config['READ_ONLY'] = True
+        before = self.database_path.read_bytes()
+        movie = self.client.get('/title/tt0816692').get_data(as_text=True)
+        versions = movie.split('data-media-versions', 1)[1].split('detail-external-links', 1)[0]
+        self.assertIn('默认播放', versions)
+        self.assertNotIn('<form', versions)
+        self.assertNotIn('data-version-play', versions)
+        self.assertNotIn('data-bs-toggle="collapse"', versions)
+        self.assertEqual(versions.count('data-version-field="'), 14)
+        for title_id in ('tt11555014', 'tt11591954'):
+            fragment = self.client.get(f'/title/{title_id}/episode-panel')
+            self.assertEqual(fragment.status_code, 200)
+            html = fragment.get_data(as_text=True)
+            self.assertEqual(html.count('data-version-field="'), 14)
+            self.assertNotIn('data-version-details', html)
+            self.assertIn('最近播放', html)
+            self.assertNotIn('播放此版本', html)
+        self.assertEqual(before, self.database_path.read_bytes())
+
     def test_schema_data_and_integrity(self):
         with closing(self.connect()) as database:
             tables = {

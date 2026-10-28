@@ -1,7 +1,7 @@
-// 资源管理统一状态栏：固定在视口底部居中，按需调用。
+// 当前操作留在底部；后台任务和结果交给全站侧栏 task-center.js。
 //
 // 两层：
-//   task —— 后台任务（扫描、刷新评分、批量关联的结果），可同时存在多条，叠在上方；
+//   task —— 后台任务（扫描、刷新评分、批量关联的结果）；无任务面板的页面沿用状态栏。
 //   page —— 当前视图的操作（选择、校验、提交进度），同一时间通常只有一条。
 // 预设：
 //   StatusBar.selection(key, { text, checked, indeterminate, onToggle, toggleLabel, action })
@@ -20,6 +20,7 @@
 // action / link 形如 { label, run, disabled }；同一个 key 重复调用只更新内容，不会闪烁。
 (() => {
     const entries = new Map();
+    const nodes = new Map();
     const timers = new Map();
     let dock = null;
 
@@ -46,11 +47,7 @@
         return dock;
     }
 
-    function icon(name) {
-        const node = el("i", `bi bi-${name}`);
-        node.setAttribute("aria-hidden", "true");
-        return node;
-    }
+    const icon = (name, classes) => window.appIcon(name, classes);
 
     function lead(spec) {
         if (spec.toggle) {
@@ -93,11 +90,12 @@
     function render(key) {
         const spec = entries.get(key);
         const layer = ensureDock().querySelector(spec.layer === "task" ? ".is-task" : ".is-page");
-        let bar = dock.querySelector(`[data-status-key="${CSS.escape(key)}"]`);
+        let bar = nodes.get(key);
         const fresh = !bar;
         if (fresh) {
             bar = el("div", "status-bar is-entering");
             bar.dataset.statusKey = key;
+            nodes.set(key, bar);
             bar.addEventListener("pointerenter", () => pause(key, true));
             bar.addEventListener("pointerleave", () => pause(key, false));
             bar.addEventListener("focusin", () => pause(key, true));
@@ -138,7 +136,7 @@
                 close.type = "button";
                 close.setAttribute("aria-label", "关闭");
                 close.dataset.statusRole = "close";
-                close.append(icon("x-lg"));
+                close.append(icon("x"));
                 close.addEventListener("click", () => clear(key));
                 group.append(close);
             }
@@ -186,24 +184,25 @@
     }
 
     function clear(key) {
+        if (window.TaskCenter?.has(key)) window.TaskCenter.clear(key);
         if (!entries.has(key)) return;
         entries.delete(key);
         clearTimeout(timers.get(key)?.id);
         timers.delete(key);
-        const bar = dock?.querySelector(`[data-status-key="${CSS.escape(key)}"]`);
+        const bar = nodes.get(key);
         if (!bar) return;
         bar.classList.add("is-leaving");
-        const done = () => { if (!entries.has(key)) bar.remove(); };
+        const done = () => { if (!entries.has(key)) { bar.remove(); nodes.delete(key); } };
         if (matchMedia("(prefers-reduced-motion: reduce)").matches) done();
         else setTimeout(done, 200);
     }
 
-    const toneIcon = { success: "check2-circle", warning: "exclamation-triangle-fill", danger: "x-octagon-fill", info: "info-circle" };
+    const toneIcon = { success: "circle-check", warning: "triangle-alert", danger: "circle-alert", info: "info" };
 
     window.StatusBar = {
         set,
         clear,
-        has: key => entries.has(key),
+        has: key => entries.has(key) || window.TaskCenter?.has(key),
 
         selection(key, { text, checked, indeterminate, onToggle, toggleLabel, action, secondary } = {}) {
             return set(key, {
@@ -214,11 +213,12 @@
         },
 
         check(key, { state = "idle", text, link, action } = {}) {
-            const icons = { ok: "check2-circle", warning: "exclamation-triangle-fill", loading: "spinner", idle: null };
+            const icons = { ok: "circle-check", warning: "triangle-alert", loading: "spinner", idle: null };
             return set(key, { icon: icons[state], tone: state === "ok" ? "success" : state === "warning" ? "warning" : "", text, link, actions: [action] });
         },
 
         progress(key, { text, detail, done, total, layer = "page", action } = {}) {
+            if (layer === 'task' && window.TaskCenter) return window.TaskCenter.progress(key,{text,detail,done,total,action});
             const known = Number(total) > 0;
             return set(key, {
                 layer,
@@ -231,6 +231,7 @@
         },
 
         result(key, { tone = "success", text, detail, action, duration = 5000, layer = "task" } = {}) {
+            if (window.TaskCenter && layer === 'task') return window.TaskCenter.result(key,{tone,text,detail,action});
             return set(key, { layer, tone, icon: toneIcon[tone] || toneIcon.info, text, detail, actions: [action && { ...action, variant: "secondary" }], duration, dismissible: true });
         },
 

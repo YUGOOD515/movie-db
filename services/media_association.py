@@ -5,7 +5,7 @@ from contextlib import closing
 from pathlib import PurePosixPath
 from urllib.parse import quote
 
-from connectors import alist
+from connectors import alist, events
 from connectors import tmdb
 from models.database import connect_database
 from queries.association import get_associated_paths
@@ -59,7 +59,7 @@ def check_association(library_database, payload, *, allow_existing=False):
         season = _position(item.get("season_number"), 0)
         episode = _position(item.get("episode_number"), 1)
         position = (season, episode)
-        if path not in discovered or PurePosixPath(path).suffix.lower() not in alist.VIDEO_EXTENSIONS:
+        if (path not in discovered and not (allow_existing and path in associated)) or PurePosixPath(path).suffix.lower() not in alist.VIDEO_EXTENSIONS:
             error = "文件不在本次发现结果中，请刷新待关联列表。"
         elif path in associated and not allow_existing:
             error = "该文件已完成关联，请刷新待关联列表。"
@@ -105,7 +105,9 @@ def complete_association(*, library_database, image_root, payload, on_progress=N
                          commit_guard=None, allow_existing=False, expected_files=None):
     """校验后整批导入。on_progress(phase, done, total)：link 取直链、probe 读取媒体信息、write 写入。"""
     report = on_progress or (lambda *_: None)
-    checked = check_association(library_database, payload, allow_existing=allow_existing)
+    with events.activity("metadata", "check", "核对资料"):
+        checked = check_association(library_database, payload, allow_existing=allow_existing)
+        events.emit("title", name=checked["title"].get("name") or payload["title_id"])
     if not checked["valid"]:
         return checked
     token = alist.configured_token()

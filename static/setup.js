@@ -24,7 +24,7 @@
         if (text != null) node.textContent = text;
         return node;
     };
-    const icon = name => { const node = el("i", `bi bi-${name}`); node.setAttribute("aria-hidden", "true"); return node; };
+    const icon = name => window.appIcon(name);
 
     function payload(extra = {}) {
         const data = {};
@@ -102,7 +102,7 @@
         const warn = result.ok && result.warnings && result.warnings.length;
         box.classList.add(result.ok ? (warn ? "is-warn" : "is-ok") : "is-fail");
         const head = el("p", "onboard-result-head");
-        head.append(icon(result.ok ? (warn ? "exclamation-circle" : "check-circle-fill") : "x-circle-fill"),
+        head.append(icon(result.ok ? (warn ? "circle-alert" : "circle-check") : "circle-x"),
             el("strong", null, result.message || (result.ok ? "已连接" : "失败")));
         if (result.ok && result.details && result.details.length) head.append(el("span", "onboard-result-details", result.details.join(" · ")));
         box.append(head);
@@ -295,7 +295,9 @@
     root.querySelectorAll("[data-reveal]").forEach(button => button.addEventListener("click", () => {
         const input = button.previousElementSibling, shown = input.type === "text";
         input.type = shown ? "password" : "text";
-        button.querySelector("i").className = shown ? "bi bi-eye" : "bi bi-eye-slash";
+        button.replaceChildren(icon(shown ? 'eye' : 'eye-off'));
+        button.setAttribute("aria-pressed", String(!shown));
+        button.setAttribute("aria-label", button.getAttribute("aria-label").replace(/^(显示|隐藏)/, shown ? "显示" : "隐藏"));
         button.title = shown ? "显示" : "隐藏";
     }));
     root.querySelectorAll("[data-go]").forEach(button => button.addEventListener("click", () => {

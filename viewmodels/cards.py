@@ -3,6 +3,7 @@ from __future__ import annotations
 from flask import url_for
 
 from services.playback import is_effectively_completed
+from viewmodels.media_labels import resolution_label, chip, codec, dynamic_range as range_label
 
 
 TITLE_TYPE_LABELS = {
@@ -113,55 +114,28 @@ def format_frame_rate(value) -> str:
         return str(value)
 
 
-def resolution_label(width: int | None, height: int | None) -> str:
-    width = int(width or 0)
-    height = int(height or 0)
-    if width >= 3840 or height >= 2160:
-        return "4K"
-    if width >= 2560 or height >= 1440:
-        return "2K"
-    if width >= 1920 or height >= 1080:
-        return "1080P"
-    if width >= 1280 or height >= 720:
-        return "720P"
-    if width or height:
-        return f"{width}×{height}"
-    return ""
-
-
 def build_media_badges(source: dict | None) -> list[dict]:
     if not source:
         return []
     dynamic_range = str(source.get("video_dynamic_range") or "").strip()
-    dynamic_kind = (
-        "dolby_vision"
-        if any(
-            token in dynamic_range.casefold()
-            for token in ("dolby vision", "dolby", "dv")
-        )
-        else "text"
-    )
     candidates = [
-        (
-            "text",
-            resolution_label(
-                source.get("video_width"), source.get("video_height")
-            ),
-        ),
+        ("text", resolution_label(source.get("video_width"), source.get("video_height"))),
         ("text", str(source.get("video_codec") or "").upper()),
         ("text", format_frame_rate(source.get("video_frame_rate"))),
         ("text", format_file_size(source.get("file_size_bytes"))),
-        (dynamic_kind, dynamic_range),
+        ("dynamic_range", dynamic_range),
         ("text", source.get("audio_channel_layout") or ""),
     ]
-    badges = []
-    labels = set()
+    badges, labels = [], set()
     for kind, candidate in candidates:
         label = str(candidate).strip()
-        normalized = label.casefold()
-        if label and normalized not in labels:
-            badges.append({"kind": kind, "label": label})
-            labels.add(normalized)
+        if label and label.casefold() not in labels:
+            visual = chip("dynamic_range", "动态范围", range_label(label)) if kind == "dynamic_range" else {}
+            badges.append({**visual, "kind": kind, "label": label})
+            labels.add(label.casefold())
+    audio = chip("audio_codec", "音频格式", codec(source.get("audio_codec")))
+    if audio["asset"]:
+        badges.append({**audio, "kind": "brand", "label": audio["value"]})
     return badges
 
 

@@ -848,10 +848,13 @@ def download_metadata_images(
     def download(job) -> None:
         row, target_path = job
         try:
-            _download_image(current_session(), _download_url(row), target_path)
-            outcome = "downloaded"
-            if on_download:
-                on_download(row, target_path)
+            from connectors import events
+            label = {"poster": "海报", "still": "剧照", "backdrop": "背景", "logo": "标志"}.get(row.get("artwork_type"), "图片")
+            with events.activity("image", row["local_path"], label):
+                _download_image(current_session(), _download_url(row), target_path)
+                outcome = "downloaded"
+                if on_download:
+                    on_download(row, target_path)
         except (requests.RequestException, ValueError) as error:
             logger.warning("下载失败 %s: %s", row["local_path"], error)
             outcome = "failed"

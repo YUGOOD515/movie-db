@@ -83,14 +83,32 @@ _progress = job_store._progress
 _checkpoint = job_store._checkpoint
 
 
-def _guard(database, job_id, owner, versions=None):
+def _same_target(linked, title_id, item):
+    return linked and (linked["title_id"] == title_id or
+        (linked["series_id"] == title_id and str(linked["season_number"]) == str(item["season_number"]) and str(linked["episode_number"]) == str(item["episode_number"])))
+
+
+def _guard(database, job_id, owner, versions=None, title_id=None, items=()):
     if not job_store.owns(database, job_id, owner):
         raise ValueError("关联任务已取消或由其他执行器接管。")
     if versions:
         from services.media_discovery import scan_status
         current = {item["path"]: item for record in scan_status(database, prune=False)["records"] for item in record["files"]}
-        if any(path not in current or _signature(current[path]) != version for path, version in versions.items()):
-            raise ValueError("源文件已变化，请刷新待关联列表后重新确认。")
+        missing = [path for path in versions if path not in current]
+        existing = {}
+        if missing and title_id:
+            with closing(connect_database(database)) as db:
+                existing = get_file_targets(db, missing)
+        positions = {item["path"]: item for item in items}
+        for path, version in versions.items():
+            # A new scan legitimately omits committed files. Their actual source
+            # signature is still checked when resolving the link, even for cached probes.
+            if path in current:
+                valid = _signature(current[path]) == version
+            else:
+                valid = path in positions and _same_target(existing.get(path), title_id, positions[path])
+            if not valid:
+                raise ValueError("源文件已变化，请刷新待关联列表后重新确认。")
 
 
 def cancel_title(database, title_id):
@@ -99,6 +117,12 @@ def cancel_title(database, title_id):
 
 
 def _execute(database, row):
+    from services.task_progress import Reporter
+    with Reporter(database, row) as reporter:
+        _execute_observed(database, row, reporter)
+
+
+def _execute_observed(database, row, reporter):
     from services.media_association import complete_association, _learn_alias
     from services.media_discovery import scan_status
 
@@ -106,27 +130,32 @@ def _execute(database, row):
     try:
         _guard(database, job_id, row["owner"])
         current = {item["path"]: item for record in scan_status(database, prune=False)["records"] for item in record["files"]}
-        if any(path not in current or _signature(current[path]) != version for path, version in payload["versions"].items()):
-            raise ValueError("源文件已变化，请刷新待关联列表后重新确认。")
         # Reconcile a crash after library commit but before recording job success.
         with closing(connect_database(database)) as db:
             existing = get_file_targets(db, (item["path"] for item in payload["items"]))
         for item in payload["items"]:
             linked = existing.get(item["path"])
-            same = linked and (linked["title_id"] == payload["title_id"] or
-                               (linked["series_id"] == payload["title_id"] and str(linked["season_number"]) == str(item["season_number"]) and str(linked["episode_number"]) == str(item["episode_number"])))
+            same = _same_target(linked, payload["title_id"], item)
             if linked and not same:
                 raise ValueError("该文件已关联其他影视条目，请核对后重新确认。")
+            if item["path"] in current:
+                valid = _signature(current[item["path"]]) == payload["versions"][item["path"]]
+            else:
+                valid = same
+            if not valid:
+                raise ValueError("源文件已变化，请刷新待关联列表后重新确认。")
         result = complete_association(library_database=database, image_root=row["image_root"],
             payload={"title_id": payload["title_id"], "items": payload["items"]},
-            on_progress=lambda *args: _progress(database, job_id, row["owner"], *args),
+            on_progress=reporter.progress,
             probe_cache=json.loads(row["probes"]),
             on_probe=lambda path, probe: _checkpoint(database, job_id, row["owner"], path, probe),
             defer_enrichment=True, allow_existing=True,
-            commit_guard=lambda: _guard(database, job_id, row["owner"], payload["versions"]),
+            commit_guard=lambda: _guard(database, job_id, row["owner"], payload["versions"], payload["title_id"], payload["items"]),
             expected_files=payload["versions"])
         if result["valid"]:
             result["imported"] = len(payload["items"])
+            if any(value.get("failed") for key, value in reporter.snapshot().get("stages", {}).items() if key in ("image", "rating", "derive")):
+                result["enrichment_warning"] = True
             for source in payload["sources"]:
                 if result.get("title"):
                     _learn_alias(database, source, result["title"])
@@ -138,10 +167,13 @@ def _execute(database, row):
         if result["valid"] and result.get("enrichment_warning") and not retry:
             public_result["warning"] = "视频已关联，部分图片或评分暂未补齐。"
     except ValueError as failure:
-        state, error, public_result, retry = "failed", str(failure), None, 0
+        from connectors import events
+        reporter.event("issue", **events.error_info(failure))
+        state, error, public_result, retry = "failed", events.safe_text(failure), None, 0
     except Exception:
         logger.exception("Association job %s failed", job_id)
         state, error, public_result, retry = "failed", "关联服务暂时不可用，请稍后重试。", None, 0
+    reporter.finish()
     job_store.finish(database, row, state, public_result, error, retry)
 
 

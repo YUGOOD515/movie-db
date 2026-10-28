@@ -1,3 +1,4 @@
+{% from "_ui.html" import icon as ui_icon %}
 <section id="media-association" class="mb-4"
          data-discovery-url="{{ url_for('discover_import_media') }}"
          data-metadata-url="{{ url_for('import_title_metadata') }}"
@@ -14,30 +15,30 @@
             </div>
             <div class="d-flex align-items-center gap-2">
                 <label class="discovery-search">
-                    <i class="bi bi-search" aria-hidden="true"></i>
+                    {{ ui_icon('search', '') }}
                     <input class="form-control form-control-sm" type="search" placeholder="筛选" aria-label="筛选待关联内容" data-discovery-filter>
                 </label>
-                <button type="button" class="btn icon-btn discovery-icon-btn" data-discovery-refresh aria-label="重新扫描" title="重新扫描"><i class="bi bi-arrow-clockwise" aria-hidden="true"></i></button>
+                <button type="button" class="btn icon-btn discovery-icon-btn" data-discovery-refresh aria-label="重新扫描" title="重新扫描">{{ ui_icon('rotate-cw', '') }}</button>
                 <div class="dropdown">
-                    <button type="button" class="btn icon-btn discovery-icon-btn" data-bs-toggle="dropdown" aria-expanded="false" aria-label="更多" title="更多"><i class="bi bi-three-dots" aria-hidden="true"></i></button>
+                    <button type="button" class="btn icon-btn discovery-icon-btn" data-bs-toggle="dropdown" aria-expanded="false" aria-label="更多" title="更多">{{ ui_icon('ellipsis', '') }}</button>
                     <ul class="dropdown-menu dropdown-menu-end media-menu">
-                        <li><button type="button" class="dropdown-item d-flex align-items-center gap-2" data-manual-open><i class="bi bi-pencil-square" aria-hidden="true"></i>手动录入</button></li>
-                        <li><button type="button" class="dropdown-item d-flex align-items-center gap-2" data-manual-upload><i class="bi bi-upload" aria-hidden="true"></i>上传 JSON</button></li>
-                        <li><a class="dropdown-item d-flex align-items-center gap-2" href="{{ url_for('static', filename='templates/media_import_template.json') }}" download><i class="bi bi-download" aria-hidden="true"></i>JSON 模板</a></li>
+                        <li><button type="button" class="dropdown-item d-flex align-items-center gap-2" data-manual-open>{{ ui_icon('square-pen', '') }}手动录入</button></li>
+                        <li><button type="button" class="dropdown-item d-flex align-items-center gap-2" data-manual-upload>{{ ui_icon('upload', '') }}上传 JSON</button></li>
+                        <li><a class="dropdown-item d-flex align-items-center gap-2" href="{{ url_for('static', filename='templates/media_import_template.json') }}" download>{{ ui_icon('download', '') }}JSON 模板</a></li>
                     </ul>
                 </div>
             </div>
         </div>
         <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-4">
             <div class="d-flex flex-wrap align-items-center gap-2" data-discovery-roots aria-label="扫描目录">
-                <button type="button" class="btn btn-sm chip-btn root-add" data-root-add title="添加扫描目录"><i class="bi bi-plus-lg" aria-hidden="true"></i><span>添加目录</span></button>
+                <button type="button" class="btn btn-sm chip-btn root-add" data-root-add title="添加扫描目录">{{ ui_icon('plus', '') }}<span>添加目录</span></button>
             </div>
-            <a class="discovery-missing d-none" href="{{ url_for('media', tab='overview', health='missing') }}" data-discovery-missing><i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i><span></span><i class="bi bi-chevron-right" aria-hidden="true"></i></a>
+            <a class="discovery-missing d-none" href="{{ url_for('media', tab='overview', health='missing') }}" data-discovery-missing>{{ ui_icon('triangle-alert', '') }}<span></span>{{ ui_icon('chevron-right', '') }}</a>
         </div>
         <div class="discovery-tabs d-flex flex-wrap gap-2 mb-3" role="tablist" aria-label="待关联分组" data-discovery-tabs></div>
         <div role="tabpanel" data-discovery-list></div>
-        <div class="discovery-empty text-center text-body-secondary d-none" data-discovery-empty>
-            <i class="bi bi-check2-circle d-block mb-2" aria-hidden="true"></i><span></span>
+        <div class="discovery-empty text-body-secondary d-none" data-discovery-empty role="status">
+            <span data-discovery-empty-icon>{{ ui_icon('circle-check', '') }}</span><span></span>
         </div>
     </div>
 
@@ -63,20 +64,20 @@
 
     <section class="d-none" data-association-editor aria-labelledby="association-task-heading">
         <nav class="association-crumbs mb-3" aria-label="位置">
-            <button type="button" class="btn btn-link association-crumb" data-task-close><i class="bi bi-chevron-left" aria-hidden="true"></i>待关联</button>
+            <button type="button" class="btn btn-link association-crumb" data-task-close>{{ ui_icon('chevron-left', '') }}待关联</button>
             <span class="association-crumb-sep" aria-hidden="true">/</span>
             <span class="text-truncate" data-task-name></span>
         </nav>
         <div class="match-card squircle-card mb-4">
-            <span class="match-poster" data-task-poster><i class="bi bi-film" aria-hidden="true"></i></span>
+            <span class="match-poster" data-task-poster>{{ ui_icon('film', '') }}</span>
             <div class="match-body min-w-0">
-                <h2 class="h5 mb-1 d-flex align-items-center gap-2" id="association-task-heading"><span class="text-truncate" data-task-title>选择电影或剧集</span><span class="discovery-tag d-none" data-task-ai><i class="bi bi-stars" aria-hidden="true"></i>AI</span></h2>
+                <h2 class="h5 mb-1 d-flex align-items-center gap-2" id="association-task-heading"><span class="text-truncate" data-task-title>选择电影或剧集</span><span class="discovery-tag d-none" data-task-ai>{{ ui_icon('sparkles', '') }}AI</span></h2>
                 <p class="small text-body-secondary mb-0" data-task-title-meta></p>
                 <p class="small text-body-secondary mb-0 mt-2 text-truncate" data-task-path></p>
             </div>
             <div class="match-actions">
-                <a class="btn btn-sm chip-btn d-none" target="_blank" rel="noopener" data-task-tmdb>TMDb<i class="bi bi-box-arrow-up-right" aria-hidden="true"></i></a>
-                <button type="button" class="btn btn-sm chip-btn" data-task-pick><i class="bi bi-arrow-left-right" aria-hidden="true"></i>更换</button>
+                <a class="btn btn-sm chip-btn d-none" target="_blank" rel="noopener" data-task-tmdb>TMDb{{ ui_icon('external-link', '') }}</a>
+                <button type="button" class="btn btn-sm chip-btn" data-task-pick>{{ ui_icon('arrow-left-right', '') }}更换</button>
             </div>
         </div>
         <div class="files-toolbar d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
@@ -85,9 +86,9 @@
                 <span class="files-summary small text-body-secondary text-truncate" data-rule-summary></span>
             </div>
             <div class="d-flex flex-wrap align-items-center gap-2">
-                <button type="button" class="btn btn-sm chip-btn d-none" data-rule-reset><i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i>撤销修改</button>
+                <button type="button" class="btn btn-sm chip-btn d-none" data-rule-reset>{{ ui_icon('undo-2', '') }}撤销修改</button>
                 <button type="button" class="btn btn-sm chip-btn d-none" aria-pressed="false" data-files-errors></button>
-                <button type="button" class="btn btn-sm chip-btn d-none" aria-expanded="false" aria-controls="rule-editor" data-rule-panel data-rule-toggle><i class="bi bi-sliders" aria-hidden="true"></i>识别规则<i class="bi bi-chevron-down" aria-hidden="true"></i></button>
+                <button type="button" class="btn btn-sm chip-btn d-none" aria-expanded="false" aria-controls="rule-editor" data-rule-panel data-rule-toggle>{{ ui_icon('sliders-horizontal', '') }}识别规则{{ ui_icon('chevron-down', '') }}</button>
             </div>
         </div>
         <div class="rule-editor squircle-card mb-3 d-none" id="rule-editor" data-rule-editor>
@@ -96,9 +97,9 @@
                 <div class="rule-row-head">
                     <span class="rule-label" id="rule-sample-label">样例</span>
                     <div class="rule-sample-nav">
-                        <button type="button" class="btn icon-btn rule-nav-btn" aria-label="上一个样例" data-sample-step="-1"><i class="bi bi-chevron-left" aria-hidden="true"></i></button>
+                        <button type="button" class="btn icon-btn rule-nav-btn" aria-label="上一个样例" data-sample-step="-1">{{ ui_icon('chevron-left', '') }}</button>
                         <span class="rule-sample-index" data-sample-index></span>
-                        <button type="button" class="btn icon-btn rule-nav-btn" aria-label="下一个样例" data-sample-step="1"><i class="bi bi-chevron-right" aria-hidden="true"></i></button>
+                        <button type="button" class="btn icon-btn rule-nav-btn" aria-label="下一个样例" data-sample-step="1">{{ ui_icon('chevron-right', '') }}</button>
                     </div>
                     <span class="rule-hint" data-sample-hint></span>
                 </div>

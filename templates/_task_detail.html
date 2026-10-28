@@ -1,0 +1,19 @@
+<div class="modal fade" id="task-detail-modal" tabindex="-1" aria-labelledby="task-detail-title" data-task-dialog>
+    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header align-items-start">
+                <h2 class="modal-title fs-5 text-break" id="task-detail-title" data-task-dialog-title>任务详情</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭任务详情"></button>
+            </div>
+            <div class="modal-body">
+                <p class="mb-2" data-task-dialog-status></p>
+                <div class="mb-3" data-task-dialog-progress></div>
+                <div class="small" data-task-dialog-body></div>
+                <p class="small text-danger mt-3 mb-0" role="alert" data-task-dialog-error hidden></p>
+            </div>
+            <div class="modal-footer" data-task-dialog-actions hidden>
+                <button type="button" class="btn btn-sm chip-btn" data-task-dialog-action></button>
+            </div>
+        </div>
+    </div>
+</div>

@@ -12,21 +12,29 @@ from viewmodels.cards import (
 
 
 GENRE_ICONS = {
-    "Action": "lightning-charge",
+    "Action": "zap",
     "Adventure": "compass",
     "Animation": "palette",
-    "Comedy": "emoji-laughing",
+    "Comedy": "laugh",
     "Crime": "fingerprint",
-    "Drama": "masks-theater",
-    "Family": "people",
-    "Fantasy": "stars",
+    "Drama": "drama",
+    "Family": "users",
+    "Fantasy": "sparkles",
     "Horror": "eye",
-    "Music": "music-note-beamed",
-    "Musical": "music-note-beamed",
-    "Mystery": "question-diamond",
+    "Music": "music",
+    "Musical": "music",
+    "Mystery": "circle-help",
     "Romance": "heart",
-    "Sci-Fi": "rocket-takeoff",
+    "Sci-Fi": "rocket",
     "Thriller": "activity",
+}
+
+# Existing databases retain their original Bootstrap icon names.
+COLLECTION_ICONS = {
+    "collection": "library", "collection-play": "library",
+    "heart": "heart", "heart-fill": "heart", "bookmark-heart": "heart",
+    "bookmark": "bookmark", "bookmark-fill": "bookmark", "bookmark-star": "bookmark",
+    "star": "star", "star-fill": "star", "film": "film", "tv": "tv",
 }
 
 
@@ -70,6 +78,7 @@ def build_collection_cards(rows: list[dict]) -> list[dict]:
     return [
         {
             **row,
+            "icon": COLLECTION_ICONS.get(row.get("icon_name"), "library"),
             "detail_url": url_for(
                 "collection_detail", collection_id=row["collection_id"]
             ),

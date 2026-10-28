@@ -1,3 +1,4 @@
+{% from "_ui.html" import icon as ui_icon %}
 {% extends "layout.html" %}
 {% from "_media_cards.html" import overview_card %}
 {% from "_ui.html" import empty_state %}
@@ -56,7 +57,7 @@
             </div>
         </div>
         <button class="btn btn-sm icon-btn batch-remove-btn flex-shrink-0" type="button" data-batch-remove aria-label="删除此条录入数据" title="删除此条">
-            <i class="bi bi-trash3" aria-hidden="true"></i>
+            {{ ui_icon('trash-2', '') }}
         </button>
     </div>
 {% endmacro %}
@@ -80,6 +81,7 @@
                 </div>
             </div>
 
+            <div class="d-flex flex-wrap align-items-center gap-2 ms-auto">
             {% if active_tab != 'associate' %}
             <form class="d-flex flex-wrap align-items-center gap-2 mb-0" action="{{ url_for('media') }}" method="get" id="overview-search-form" role="search" data-auto-submit>
                 <input type="hidden" name="tab" value="overview">
@@ -107,6 +109,7 @@
                 </div>
             </form>
             {% endif %}
+            </div>
         </header>
 
         {% if active_tab != 'associate' %}
@@ -119,7 +122,7 @@
                     <div class="d-flex align-items-center gap-3">
                         {% if missing_total %}
                         <a class="btn btn-sm chip-btn health-chip{{ ' active' if health }}" href="{{ url_for('media', tab='overview', health=None if health else 'missing', q=overview.query or None, type=None if overview.media_type == 'all' else overview.media_type) }}"{% if health %} aria-pressed="true"{% endif %}>
-                            <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>失效 {{ missing_total }}{% if health %}<i class="bi bi-x" aria-hidden="true"></i>{% endif %}
+                            {{ ui_icon('triangle-alert', '') }}失效 {{ missing_total }}{% if health %}{{ ui_icon('x', '') }}{% endif %}
                         </a>
                         {% endif %}
                         <span class="small text-body-secondary" id="overview-count-label">共 {{ overview.media_items|length }} 部作品</span>
@@ -130,7 +133,7 @@
                             data-start-url="{{ url_for('refresh_manager_ratings') }}"
                             data-status-url="{{ url_for('manager_rating_refresh_status') }}"
                         >
-                            <i class="bi bi-arrow-repeat" aria-hidden="true"></i>刷新评分
+                            {{ ui_icon('refresh-cw', '') }}刷新评分
                         </button>
                     </div>
                 </div>
@@ -151,25 +154,25 @@
         {% else %}
             <!-- ================= 关联板块 (Association) ================= -->
             {% if read_only %}
-            {{ empty_state("本地 MovieDB 未连接，关联与录入暂不可用。", "cloud-slash", "电脑上的 MovieDB 与 Tunnel 在线后，刷新页面即可恢复完整功能。") }}
+            {{ empty_state("本地 MovieDB 未连接，关联与录入暂不可用。", "cloud-off", "电脑上的 MovieDB 与 Tunnel 在线后，刷新页面即可恢复完整功能。") }}
             {% else %}
             {% include "_association_flow.html" %}
             <section class="association-section d-none" data-manual-panel aria-labelledby="associate-heading">
                 <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
                     <nav class="association-crumbs mb-0" aria-label="位置">
-                        <button type="button" class="btn btn-link association-crumb" data-manual-close><i class="bi bi-chevron-left" aria-hidden="true"></i>待关联</button>
+                        <button type="button" class="btn btn-link association-crumb" data-manual-close>{{ ui_icon('chevron-left', '') }}待关联</button>
                         <span class="association-crumb-sep" aria-hidden="true">/</span>
                         <h2 class="h6 mb-0" id="associate-heading">手动录入</h2>
                     </nav>
                     <div class="d-flex flex-wrap align-items-center gap-2">
                         <button class="btn btn-sm chip-btn" type="button" data-bs-toggle="modal" data-bs-target="#title-picker">
-                            <i class="bi bi-search" aria-hidden="true"></i>通过 TMDB 搜索添加
+                            {{ ui_icon('search', '') }}通过 TMDB 搜索添加
                         </button>
                         <label class="btn btn-sm chip-btn mb-0" for="batch-json-file">
-                            <i class="bi bi-upload" aria-hidden="true"></i>上传 JSON
+                            {{ ui_icon('upload', '') }}上传 JSON
                         </label>
                         <a class="btn btn-sm chip-btn" href="{{ url_for('static', filename='templates/media_import_template.json') }}" download>
-                            <i class="bi bi-download" aria-hidden="true"></i>JSON 模板
+                            {{ ui_icon('download', '') }}JSON 模板
                         </a>
                     </div>
                 </div>
@@ -183,7 +186,7 @@
 
                     <div class="d-flex align-items-center gap-2 mt-3">
                         <button class="btn icon-btn batch-add-btn flex-shrink-0" type="button" data-batch-add aria-label="新增一条" title="新增一条">
-                            <i class="bi bi-plus-lg" aria-hidden="true"></i>
+                            {{ ui_icon('plus', '') }}
                         </button>
                         <span class="small text-body-secondary" data-batch-count>共 1 条</span>
                     </div>
@@ -220,7 +223,7 @@
                                             <input class="btn-check" type="radio" name="search_type" id="search-type-tv" value="tv">
                                             <label class="btn btn-sm" for="search-type-tv">剧集</label>
                                         </div>
-                                        <button class="btn btn-sm chip-btn" type="submit"><i class="bi bi-search" aria-hidden="true"></i>搜索</button>
+                                        <button class="btn btn-sm chip-btn" type="submit">{{ ui_icon('search', '') }}搜索</button>
                                     </form>
                                 <p class="small text-body-secondary" role="status" aria-live="polite" data-title-search-status>输入名称后按回车搜索。</p>
                                 <div class="d-flex flex-column gap-2" data-title-search-results></div>
@@ -232,12 +235,12 @@
                                             <h3 class="h6 mb-1" data-title-record-name></h3>
                                             <p class="small text-body-secondary mb-0" data-title-record-id></p>
                                         </div>
-                                        <button class="btn btn-sm chip-btn text-nowrap" type="button" data-title-back><i class="bi bi-arrow-left" aria-hidden="true"></i>重新选择</button>
+                                        <button class="btn btn-sm chip-btn text-nowrap" type="button" data-title-back>{{ ui_icon('arrow-left', '') }}重新选择</button>
                                     </div>
                                     <div class="d-none mb-3" data-title-episode-fields>
                                         <div class="d-flex flex-column gap-2" data-title-episode-rows></div>
                                         <div class="d-flex align-items-center gap-2 mt-3">
-                                            <button class="btn btn-sm chip-btn" type="button" data-title-episode-add><i class="bi bi-plus-lg" aria-hidden="true"></i>添加单集</button>
+                                            <button class="btn btn-sm chip-btn" type="button" data-title-episode-add>{{ ui_icon('plus', '') }}添加单集</button>
                                             <span class="small text-body-secondary" data-title-episode-count></span>
                                         </div>
                                     </div>
@@ -257,7 +260,7 @@
                                                 </div>
                                             </div>
                                             <button class="btn btn-sm icon-btn batch-remove-btn flex-shrink-0" type="button" aria-label="删除此单集" data-title-episode-remove>
-                                                <i class="bi bi-trash3" aria-hidden="true"></i>
+                                                {{ ui_icon('trash-2', '') }}
                                             </button>
                                         </div>
                                     </template>
@@ -280,7 +283,6 @@
 {% endblock %}
 
 {% block scripts %}
-    <script src="{{ url_for('static', filename='status-bar.js') }}"></script>
     <script src="{{ url_for('static', filename='manager.js') }}"></script>
     {% if active_tab == 'associate' and not read_only %}
     <script src="{{ url_for('static', filename='title-search.js') }}" defer></script>

@@ -1,3 +1,4 @@
+{% from "_ui.html" import icon as ui_icon %}
 {% extends "layout.html" %}
 {% from "_media_cards.html" import poster_card %}
 {% from "_ui.html" import empty_state, page_header %}
@@ -8,7 +9,7 @@
 {% macro filter_menu(key, label, current, values, active, all_label=none, suffix="", labels={}, icon=none) %}
     <div class="dropdown">
         <button class="btn btn-sm chip-btn dropdown-toggle{% if active %} active{% endif %}" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-            {% if icon %}<i class="bi bi-{{ icon }} opacity-75" aria-hidden="true"></i>{% endif %}
+            {% if icon %}{{ ui_icon(icon, 'opacity-75') }}{% endif %}
             <span>{{ label }}</span>
         </button>
         <div class="dropdown-menu dropdown-menu-end media-menu filter-menu">
@@ -31,7 +32,7 @@
     <section class="container-xl" aria-labelledby="genre-page-heading">
         {% call page_header("类别", "筛选结果：共 " ~ page["items"]|length ~ " 部作品", "genre-page-heading") %}
             {% if is_filtered %}
-                <a class="link-secondary link-underline-opacity-0 link-underline-opacity-75-hover" href="{{ url_for('catalog') }}" title="清除所有筛选"><i class="bi bi-x-circle me-1" aria-hidden="true"></i>重置</a>
+                <a class="link-secondary link-underline-opacity-0 link-underline-opacity-75-hover" href="{{ url_for('catalog') }}" title="清除所有筛选">{{ ui_icon('circle-x', 'me-1') }}重置</a>
             {% endif %}
         {% endcall %}
 
@@ -53,7 +54,7 @@
                     {{ filter_menu("year", (filters.year ~ "年") if filters.year else "年份", filters.year, page.options.years, filters.year, "全部年份", "年") }}
                     {{ filter_menu("rating", (filters.rating|int ~ "分及以上") if filters.rating else "评分", filters.rating, [9, 8, 7, 6], filters.rating, "全部分数", "分及以上") }}
                     {{ filter_menu("language", filters.language or "语言", filters.language, page.options.languages, filters.language, "全部语言") }}
-                    {{ filter_menu("sort", sort_labels[filters.sort], filters.sort, sort_labels.keys()|list, filters.sort != "added", labels=sort_labels, icon="sort-down") }}
+                    {{ filter_menu("sort", sort_labels[filters.sort], filters.sort, sort_labels.keys()|list, filters.sort != "added", labels=sort_labels, icon="arrow-down-wide-narrow") }}
                 </div>
             </div>
 

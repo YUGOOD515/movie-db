@@ -19,7 +19,7 @@
         if (text != null) node.textContent = text;
         return node;
     };
-    const icon = name => { const node = el("i", `bi bi-${name}`); node.setAttribute("aria-hidden", "true"); return node; };
+    const icon = name => window.appIcon(name);
     const valueOf = input => input.type === "checkbox" ? input.checked : input.value.trim();
     const groupOf = input => input.closest("[data-group]")?.dataset.group;
 
@@ -87,7 +87,7 @@
         const warn = result.ok && result.warnings && result.warnings.length;
         box.classList.add(result.ok ? (warn ? "is-warn" : "is-ok") : "is-fail");
         const head = el("p", "settings-result-head");
-        head.append(icon(result.ok ? (warn ? "exclamation-circle" : "check-circle-fill") : "x-circle-fill"),
+        head.append(icon(result.ok ? (warn ? "circle-alert" : "circle-check") : "circle-x"),
             el("strong", null, result.message || (result.ok ? "正常" : "失败")));
         if (result.ok && result.details && result.details.length) head.append(el("span", null, result.details.join(" · ")));
         box.append(head);
@@ -346,7 +346,7 @@
         if (!text) return;
         resetResult.classList.add(ok ? "is-ok" : "is-fail");
         const head = el("p", "settings-result-head");
-        head.append(icon(ok ? "check-circle-fill" : "x-circle-fill"), el("strong", null, text));
+        head.append(icon(ok ? "circle-check" : "circle-x"), el("strong", null, text));
         resetResult.append(head);
     }
 
@@ -385,7 +385,7 @@
         if (!window.StatusBar) return;
         if (!pending || !pending.length) { StatusBar.clear("settings-restart"); return; }
         StatusBar.notice("settings-restart", {
-            icon: "arrow-repeat",
+            icon: "refresh-cw",
             text: "端口修改需要重启 MovieDB 后生效",
             action: supported ? { label: "立即重启", run: restart } : null,
             detail: supported ? "" : "请手动重启",
@@ -416,7 +416,7 @@
         StatusBar.progress("settings-restart", { text: "正在重启 MovieDB…" });
         const result = await request("/settings/restart", {}).catch(() => ({ ok: false, message: "MovieDB 没有响应。" }));
         if (!result.ok) {
-            StatusBar.notice("settings-restart", { icon: "arrow-repeat", text: result.message || "重启失败" });
+            StatusBar.notice("settings-restart", { icon: "refresh-cw", text: result.message || "重启失败" });
             return;
         }
         const target = new URL(result.url);
@@ -424,7 +424,7 @@
         if (await waitFor(target.origin, sameOrigin)) {
             location.assign(`${target.origin}/settings${location.hash}`);
         } else {
-            StatusBar.notice("settings-restart", { icon: "exclamation-triangle-fill", text: "MovieDB 没有按时启动，请从开始菜单重新打开。" });
+            StatusBar.notice("settings-restart", { icon: "triangle-alert", text: "MovieDB 没有按时启动，请从开始菜单重新打开。" });
         }
     }
 
@@ -442,7 +442,9 @@
             const input = button.parentElement.querySelector("input");
             const shown = input.type === "text";
             input.type = shown ? "password" : "text";
-            button.querySelector("i").className = shown ? "bi bi-eye" : "bi bi-eye-slash";
+            button.replaceChildren(icon(shown ? 'eye' : 'eye-off'));
+            button.setAttribute("aria-pressed", String(!shown));
+            button.setAttribute("aria-label", button.getAttribute("aria-label").replace(/^(显示|隐藏)/, shown ? "显示" : "隐藏"));
             button.title = shown ? "显示" : "隐藏";
         });
     }

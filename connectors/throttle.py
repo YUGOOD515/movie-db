@@ -35,6 +35,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 
 import requests
+from connectors import events
 
 
 logger = logging.getLogger(__name__)
@@ -45,13 +46,15 @@ RETRY_STATUS = frozenset({429, 503})
 class RateLimitError(requests.RequestException):
     """服务限流且短时间内不会恢复（如每日额度用尽）。"""
 
-    def __init__(self, service: str, retry_after: float | None = None):
+    def __init__(self, service: str, retry_after: float | None = None, reason="rate_limit"):
         self.service = service
         self.retry_after = retry_after
+        self.reason = reason
         wait = f"，约 {_human(retry_after)}后恢复" if retry_after else ""
         label = LABELS.get(service, service)
         gap = " " if label[-1].isascii() else ""
-        super().__init__(f"{label}{gap}请求过于频繁或额度已用尽{wait}。")
+        description = {"busy": "服务繁忙", "blocked": "访问被拒绝", "quota": "额度已用尽", "capacity": "并发队列等待超时"}.get(reason, "请求过于频繁或额度已用尽")
+        super().__init__(f"{label}{gap}{description}{wait}。")
 
 
 LABELS = {"tmdb": "TMDB", "tmdb-image": "TMDB 图片", "alist": "AList", "llm": "AI 接口", "mdblist": "MDBList",
@@ -121,6 +124,7 @@ class Limiter:
         self._tokens = policy.burst
         self._updated = time.monotonic()
         self._paused_until = 0.0
+        self._diagnosis = {}
         self._ceiling = max(1, policy.concurrency)
         self._limit = self._ceiling      # 当前并发上限，限流时减半、成功后缓慢恢复
         self._active = 0
@@ -154,11 +158,20 @@ class Limiter:
             self._active -= 1
             self._free.notify()
 
-    def pause(self, seconds: float) -> None:
+    def pause(self, seconds: float, *, reason="cooldown") -> None:
         """整个服务暂停 seconds 秒（所有线程共享）。"""
         with self._free:
-            self._paused_until = max(self._paused_until, time.monotonic() + seconds)
+            until = time.monotonic() + seconds
+            if until >= self._paused_until:
+                self._paused_until = until
+                self._diagnosis = {"service": self.name, "code": reason,
+                    "reason": {"rate_limit": "限流", "busy": "服务繁忙", "blocked": "访问被拒绝", "quota": "额度用尽"}.get(reason, "等待恢复"),
+                    "until": time.time() + seconds}
             self._free.notify_all()
+
+    def diagnosis(self):
+        with self._free:
+            return {**self._diagnosis, "name": LABELS.get(self.name, self.name)} if self.blocked_for() else None
 
     def blocked_for(self) -> float:
         with self._lock:
@@ -182,12 +195,16 @@ class Limiter:
         # Reserve rate and concurrency together: rate waiters consume no in-flight
         # slot, and every wake-up rechecks a circuit opened by another request.
         deadline = time.monotonic() + self.policy.max_wait
+        diagnosis = self.diagnosis()
+        if diagnosis:
+            events.emit("wait", **{key: diagnosis[key] for key in ("service", "until", "code", "reason")})
         with self._free:
             while True:
                 now = time.monotonic()
                 blocked = self.blocked_for()
                 if blocked > self.policy.max_wait or now >= deadline:
-                    raise RateLimitError(self.name, blocked or None)
+                    reason = self._diagnosis.get("code", "cooldown") if blocked else "capacity"
+                    raise RateLimitError(self.name, blocked or None, reason)
                 delay = blocked
                 if self._active < self._limit and not blocked:
                     delay = self._take()
@@ -216,6 +233,12 @@ def reset() -> None:
     """清空全部限速状态（测试或修改环境变量后使用）。"""
     with _limiters_lock:
         _limiters.clear()
+
+
+def diagnostics():
+    with _limiters_lock:
+        gates = list(_limiters.values())
+    return [state for gate in gates if (state := gate.diagnosis())]
 
 
 def configure() -> None:
@@ -301,26 +324,35 @@ def call(service: str, send, *, throttled=None, consume=None):
                             result = consume(response)
                         if response.status_code < 400:
                             gate.succeeded()
+                            events.emit("service_ok", service=service)
                         return result
                     if response.status_code < 400:
                         gate.succeeded()
+                        events.emit("service_ok", service=service)
                     return response
                 gate.limited()
                 delay = retry_after(response)
                 wait = delay if delay is not None else _backoff(attempt)
                 response.close()
-                gate.pause(wait)
+                gate.pause(wait, reason="busy" if response.status_code == 503 else "rate_limit")
+                diagnosis = gate.diagnosis()
+                if diagnosis:
+                    events.emit("wait", **{key: diagnosis[key] for key in ("service", "until", "code", "reason")})
             except requests.ConnectionError:
                 if last:
+                    events.emit("issue", service=service, code="connection", reason="连接失败")
                     raise
                 response = None
+            except requests.Timeout:
+                events.emit("issue", service=service, code="timeout", reason="请求超时")
+                raise
         if response is None:
             time.sleep(_backoff(attempt))
             continue
         if wait > policy.max_wait or last:
             # 每日额度用尽或持续限流：服务暂停到恢复时间，期间请求直接降级而不是排队等待。
             logger.warning("%s 限流，暂停约 %s", service, _human(wait))
-            raise RateLimitError(service, wait)
+            raise RateLimitError(service, wait, "busy" if response.status_code == 503 else "rate_limit")
         logger.info("%s 限流，%.1f 秒后重试（第 %d 次）", service, wait, attempt + 1)
     raise RateLimitError(service)  # pragma: no cover - 循环必然返回或抛出
 

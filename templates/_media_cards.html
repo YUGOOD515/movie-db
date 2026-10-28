@@ -1,3 +1,4 @@
+{% from "_ui.html" import icon as ui_icon %}
 {% from "_ui.html" import image_fallback, tone_attrs %}
 
 {% macro progress_bar(progress, compact=false) %}
@@ -24,7 +25,7 @@
                     <span>{{ item.type_label }}</span>
                     {% if item.year %}<span>{{ item.year }}</span>{% endif %}
                     {% if item.rating is not none %}
-                        <span class="text-warning"><i class="bi bi-star-fill me-1" aria-hidden="true"></i>{{ "%.1f"|format(item.rating) }}</span>
+                        <span class="text-warning">{{ ui_icon('star', 'me-1 icon-filled') }}{{ "%.1f"|format(item.rating) }}</span>
                     {% endif %}
                 </span>
             </span>
@@ -49,7 +50,7 @@
                     {% endif %}
                     <div class="ranked-feature-meta d-flex align-items-center gap-2 ms-auto flex-shrink-0 small fw-semibold">
                         {% if item.year %}<span>{{ item.year }}</span>{% endif %}
-                        {% if item.rating is not none %}<span class="text-warning"><i class="bi bi-star-fill me-1" aria-hidden="true"></i>{{ "%.1f"|format(item.rating) }}</span>{% endif %}
+                        {% if item.rating is not none %}<span class="text-warning">{{ ui_icon('star', 'me-1 icon-filled') }}{{ "%.1f"|format(item.rating) }}</span>{% endif %}
                     </div>
                 </div>
                 <a class="continue-detail-link position-absolute top-0 start-0 w-100 h-100" href="{{ item.detail_url }}" aria-label="查看{{ item.title }}详情"></a>
@@ -70,7 +71,7 @@
             {% endif %}
             {% if item.play_url %}
                 <form class="position-absolute top-50 start-50 translate-middle" action="{{ item.play_url }}" method="post">
-                    <button class="play-button btn media-primary-action d-flex align-items-center justify-content-center p-0" type="submit" aria-label="播放{{ item.title }}"><i class="bi bi-play-fill fs-4" aria-hidden="true"></i></button>
+                    <button class="play-button btn media-primary-action d-flex align-items-center justify-content-center p-0" type="submit" aria-label="播放{{ item.title }}">{{ ui_icon('play', 'fs-4') }}</button>
                 </form>
             {% endif %}
             {% if item.progress %}{{ progress_bar(item.progress, true) }}{% endif %}
@@ -89,13 +90,13 @@
         {% if item.backdrop %}<img class="media-cover" src="{{ url_for('static', filename=item.backdrop|card_image) }}" alt="{{ item.representative_title }}背景图" width="960" height="420" loading="lazy" data-media-image>{% endif %}
         {{ image_fallback(item.backdrop) }}
         <span class="genre-overlay position-absolute top-0 start-0 w-100 h-100"></span>
-        <span class="genre-name position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center text-center text-white h3 fw-bold mb-0"><span><i class="bi bi-{{ item.icon }} me-2" aria-hidden="true"></i>{{ item.name }}</span></span>
+        <span class="genre-name position-absolute top-0 start-0 w-100 h-100 d-flex align-items-center justify-content-center text-center text-white h3 fw-bold mb-0"><span>{{ ui_icon(item.icon, 'me-2') }}{{ item.name }}</span></span>
     </a>
 {% endmacro %}
 
 {% macro collection_card(item) %}
     <a class="collection-card squircle-card border bg-body-tertiary d-flex flex-column flex-lg-row align-items-start align-items-lg-center justify-content-between gap-1 gap-lg-3 p-3 p-lg-4 text-body text-decoration-none h-100" href="{{ item.detail_url }}">
-        <span class="text-truncate mw-100"><i class="bi bi-{{ item.icon_name or 'collection' }} me-2" aria-hidden="true"></i>{{ item.name }}</span>
+        <span class="text-truncate mw-100">{{ ui_icon(item.icon, 'me-2') }}{{ item.name }}</span>
         <span class="small text-body-secondary text-nowrap">{{ item.item_count }} 部</span>
     </a>
 {% endmacro %}
@@ -105,7 +106,7 @@
     <div class="dropdown">
         <button class="btn btn-sm artwork-menu-btn d-inline-flex align-items-center gap-1 text-nowrap" type="button" data-bs-toggle="dropdown" aria-expanded="false"{% if candidates|length < 2 %} disabled{% endif %}>
             <span>{{ label if candidates else ("无" ~ ("背景图" if image_type == "backdrops" else ("Logo" if image_type == "logos" else "海报"))) }}</span>
-            {% if candidates|length > 1 %}<i class="bi bi-chevron-down opacity-75 artwork-menu-caret" aria-hidden="true"></i>{% endif %}
+            {% if candidates|length > 1 %}{{ ui_icon('chevron-down', 'opacity-75 artwork-menu-caret') }}{% endif %}
         </button>
         {% if candidates|length > 1 %}
             <div class="dropdown-menu media-menu {{ menu_class }} artwork-menu artwork-menu--{{ image_type }}">
@@ -115,7 +116,7 @@
                             <button class="artwork-poster-card text-decoration-none bg-transparent text-start d-flex flex-column{% if image.is_current %} active{% endif %}" type="button" data-artwork-option data-type="{{ image_type }}" data-position="{{ image.image_position }}" data-src="{{ url_for('static', filename=image.local_path|card_image) }}">
                                 <span class="artwork-poster-thumb d-block overflow-hidden bg-body-tertiary position-relative">
                                     <img class="w-100 h-100 object-fit-cover position-absolute top-0 start-0" src="{{ url_for('static', filename=image.local_path|card_image) }}" alt="" loading="lazy">
-                                    <span class="artwork-poster-check position-absolute top-0 end-0 m-1 badge rounded-pill bg-dark bg-opacity-75 text-white border border-light border-opacity-25{% if not image.is_current %} d-none{% endif %}"><i class="bi bi-check-lg"></i></span>
+                                    <span class="artwork-poster-check position-absolute top-0 end-0 m-1 badge rounded-pill bg-dark bg-opacity-75 text-white border border-light border-opacity-25{% if not image.is_current %} d-none{% endif %}">{{ ui_icon('check', '') }}</span>
                                 </span>
                                 <span class="d-flex align-items-center justify-content-between gap-1 pt-1 px-1">
                                     <span class="fw-semibold small">海报 {{ loop.index }}</span>
@@ -155,15 +156,15 @@
             <header class="overview-card-header">
                 <div class="overview-card-info">
                     <h2 class="overview-card-title h6 mb-0">
-                        <a class="overview-card-link" href="{{ item.detail_url }}" title="查看《{{ item.name }}》详情"><span class="text-truncate">{{ item.name }}</span><i class="bi bi-chevron-right" aria-hidden="true"></i></a>
+                        <a class="overview-card-link" href="{{ item.detail_url }}" title="查看《{{ item.name }}》详情"><span class="text-truncate">{{ item.name }}</span>{{ ui_icon('chevron-right', '') }}</a>
                     </h2>
                     <div class="overview-card-meta text-truncate text-body-secondary">
                         <span>{{ item.type_label }}{% if item.year %} · {{ item.year }}{% endif %}</span> · <span class="overview-card-ids">{{ item.title_id }}</span>{% if item.tmdb_id %} · <span class="overview-card-ids">TMDB {{ item.tmdb_id }}</span>{% endif %}
                     </div>
                 </div>
                 <div class="flex-shrink-0 d-flex align-items-center gap-2">
-                    {% if item.missing %}<span class="health-badge" title="{{ item.missing }} 个源文件已失效"><i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i><span class="visually-hidden">个源文件已失效：</span>{{ item.missing }}</span>{% endif %}
-                    <span class="artwork-pending-badge" data-artwork-pending><i class="bi bi-pencil" aria-hidden="true"></i>未保存</span>
+                    {% if item.missing %}<span class="health-badge" title="{{ item.missing }} 个源文件已失效">{{ ui_icon('triangle-alert', '') }}<span class="visually-hidden">个源文件已失效：</span>{{ item.missing }}</span>{% endif %}
+                    <span class="artwork-pending-badge" data-artwork-pending>{{ ui_icon('pencil', '') }}未保存</span>
                 </div>
             </header>
 

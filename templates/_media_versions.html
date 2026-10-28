@@ -1,0 +1,76 @@
+{% from "_ui.html" import icon %}
+
+{% macro version_value(field) -%}
+    {% if field.asset %}
+        <img class="nard-badge" data-brand="{{ field.brand }}" src="{{ url_for('static', filename=field.asset) }}" alt="{{ field.value }}" title="{{ field.value }}" height="15" decoding="async">
+    {% else %}
+        <span{% if field.value == '未知' %} class="text-body-secondary"{% endif %}>{{ field.value }}</span>
+    {% endif %}
+{%- endmacro %}
+
+{% macro version_header(version) %}
+    <div class="media-version-header d-flex flex-column align-items-start gap-2">
+        {% if not read_only %}
+            <form action="{{ version.play_url }}" method="post" class="mw-100">
+                <button class="btn p-0 border-0 media-version-play d-inline-flex align-items-center gap-2 text-start" type="submit" aria-label="播放：{{ version.name }}" title="播放：{{ version.path }}" data-version-play>
+                    <span class="media-version-name fw-medium">{{ version.name }}</span>{{ icon('circle-play', 'media-version-play-cue') }}
+                </button>
+            </form>
+        {% else %}
+            <span class="media-version-name fw-medium" title="{{ version.path }}">{{ version.name }}</span>
+        {% endif %}
+        {% if version.status %}<span class="small text-body-secondary">{{ version.status }}</span>{% endif %}
+    </div>
+{% endmacro %}
+
+{% macro version_table(versions) %}
+    <div class="table-responsive media-version-scroll d-none d-md-block" tabindex="0" role="region" aria-label="版本参数对照，可横向滚动">
+        <table class="table table-borderless align-middle media-version-table mb-0" style="--media-version-count: {{ versions|length }}">
+            <caption class="visually-hidden">媒体版本完整参数对照</caption>
+            <colgroup><col class="media-version-label-col">{% for version in versions %}<col>{% endfor %}</colgroup>
+            <thead><tr>
+                <td aria-hidden="true"></td>
+                {% for version in versions %}<th scope="col" class="fw-normal">{{ version_header(version) }}</th>{% endfor %}
+            </tr></thead>
+            <tbody>
+                {% for field in versions[0].fields %}
+                    {% set row = loop.index0 %}
+                    <tr data-version-field="{{ field.key }}">
+                        <th scope="row" class="media-version-field text-body-secondary fw-normal">{{ icon(field.icon, 'me-2') }}{{ field.label }}</th>
+                        {% for version in versions %}<td data-version-file="{{ version.file_id }}">{{ version_value(version.fields[row]) }}</td>{% endfor %}
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% endmacro %}
+
+{% macro version_cards(versions) %}
+    <div class="d-md-none">
+        {% for version in versions %}
+            <article class="media-version-card py-4" aria-label="{{ version.name }}" data-version-card="{{ version.file_id }}">
+                {{ version_header(version) }}
+                <dl class="media-version-facts mt-3 mb-0">
+                    {% for field in version.fields %}
+                        <div class="d-flex gap-3 py-2">
+                            <dt class="text-body-secondary fw-normal">{{ icon(field.icon, 'me-2') }}{{ field.label }}</dt>
+                            <dd class="mb-0 flex-grow-1 min-w-0">{{ version_value(field) }}</dd>
+                        </div>
+                    {% endfor %}
+                </dl>
+            </article>
+        {% endfor %}
+    </div>
+{% endmacro %}
+
+{% macro media_versions(versions, context_label='') %}
+    {% if versions %}
+        <div data-media-versions>
+            <p class="small text-body-secondary mb-3">{% if context_label %}{{ context_label }} · {% endif %}{{ versions|length }} 个版本</p>
+            {{ version_table(versions) }}
+            {{ version_cards(versions) }}
+        </div>
+    {% else %}
+        <p class="small text-body-secondary mb-0">暂无本地媒体文件。</p>
+    {% endif %}
+{% endmacro %}

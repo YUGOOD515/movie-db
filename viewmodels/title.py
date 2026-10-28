@@ -9,6 +9,7 @@ from viewmodels.cards import (
     format_duration_ms,
     format_year,
 )
+from viewmodels.source_comparison import build_media_versions, build_source_options
 
 
 SOURCE_FIELDS = (
@@ -252,52 +253,12 @@ def _favorite_state(
     }
 
 
-def _media_facts(source: dict | None) -> list[dict]:
-    if not source:
-        return []
-    values = [
-        ("文件路径", source.get("alist_path")),
-        ("容器格式", source.get("container_format")),
-        ("分辨率", source.get("resolution_label")),
-        ("视频编码", str(source.get("video_codec") or "").upper()),
-        ("像素格式", source.get("video_pixel_format")),
-        ("帧率", source.get("frame_rate_label")),
-        ("动态范围", source.get("video_dynamic_range")),
-        ("音频编码", str(source.get("audio_codec") or "").upper()),
-        ("声道", source.get("audio_channel_layout")),
-        ("文件大小", source.get("file_size_label")),
-        ("码率", source.get("bit_rate_label")),
-    ]
-    return [
-        {"label": label, "value": value}
-        for label, value in values
-        if value not in (None, "")
-    ]
-
-
-def _build_source_viewmodel(source: dict, index: int) -> dict:
-    labels = [
-        source.get("resolution_label"),
-        str(source.get("video_codec") or "").upper(),
-        str(source.get("container_format") or "").upper(),
-    ]
-    return {
-        **source,
-        "source_id": source["file_id"],
-        "source_label": " · ".join(label for label in labels if label)
-        or f"版本 {index}",
-    }
-
-
 def _build_episode_viewmodel(
     episode: dict,
     backdrop_path: str | None,
     selected_episode_id: str | None,
 ) -> dict:
-    sources = [
-        _build_source_viewmodel(source, index)
-        for index, source in enumerate(episode["sources"], start=1)
-    ]
+    sources = build_source_options(episode["sources"])
     selected_file_id = (
         episode["featured_source"]["file_id"]
         if episode.get("featured_source")
@@ -334,7 +295,7 @@ def _build_episode_viewmodel(
         "position_label": progress.get("position_label") if has_progress else None,
         "is_completed": bool(progress.get("completed")),
         "badges": featured_source.get("badges", []) if featured_source else [],
-        "media_facts": _media_facts(featured_source),
+        "versions": build_media_versions(sources, featured_source),
         "active": episode["title_id"] == selected_episode_id,
     }
 
@@ -495,10 +456,7 @@ def _build_source_state(
     sources: list[dict],
     featured_source: dict | None,
 ) -> dict:
-    source_views = [
-        _build_source_viewmodel(source, index)
-        for index, source in enumerate(sources, start=1)
-    ]
+    source_views = build_source_options(sources)
     selected_file_id = featured_source["file_id"] if featured_source else None
     featured_view = next(
         (
@@ -650,7 +608,7 @@ def build_title_viewmodel(
             if featured_source_view
             else []
         ),
-        "media_facts": _media_facts(featured_source_view),
+        "versions": build_media_versions(source_state["sources"], featured_source_view),
         "seasons": episode_state["seasons"],
         "current_season": episode_state["current_season"],
         "selected_episode": episode_state["selected"],

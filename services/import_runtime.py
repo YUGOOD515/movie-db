@@ -11,6 +11,7 @@ import os
 import threading
 from collections import OrderedDict, deque
 from concurrent.futures import Future, wait
+from contextvars import copy_context
 
 from connectors import throttle
 
@@ -42,6 +43,9 @@ class FairPool:
 
     def submit(self, key, function, *args, _resource=None, **kwargs):
         future = Future()
+        context = copy_context()
+        original = function
+        function = lambda *args, **kwargs: context.run(original, *args, **kwargs)
         with self.condition:
             self.condition.wait_for(lambda: self.closed or self.count < self.capacity)
             if self.closed:

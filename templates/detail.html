@@ -1,7 +1,9 @@
+{% from "_ui.html" import icon as ui_icon %}
 {% extends "layout.html" %}
 
 {% from "_detail_panels.html" import play_control, media_badges, overview_block, episode_panel, episode_control, episode_facts with context %}
 {% from "_ui.html" import empty_state, image_fallback, rating_items %}
+{% from "_media_versions.html" import media_versions with context %}
 
 {% block title %} - {{ media.name }}{% endblock %}
 
@@ -18,7 +20,7 @@
                         <img class="detail-backdrop detail-backdrop--active" src="{{ url_for('static', filename=media.hero_image) }}" alt="" width="1920" height="1080" data-media-image data-detail-backdrop>
                     {% endif %}
                 </div>
-                <span class="image-fallback detail-backdrop-fallback align-items-center justify-content-center display-1 text-body-secondary{% if media.hero_image %} d-none{% endif %}" aria-hidden="true"><i class="bi bi-film"></i></span>
+                <span class="image-fallback detail-backdrop-fallback align-items-center justify-content-center display-1 text-body-secondary{% if media.hero_image %} d-none{% endif %}" aria-hidden="true">{{ ui_icon('film', '') }}</span>
                 <span class="detail-scrim" aria-hidden="true"></span>
             </div>
 
@@ -47,7 +49,7 @@
                             {% if media.favorite %}<form class="detail-favorite-form" action="{{ media.favorite.action_url }}" method="post">
                                 <input type="hidden" name="return_to" value="{{ media.favorite.return_to }}">
                                 <button class="btn btn-outline-secondary detail-favorite d-inline-flex align-items-center justify-content-center" type="submit" aria-label="{{ '取消收藏' if media.is_favorite else '收藏' }}" aria-pressed="{{ 'true' if media.is_favorite else 'false' }}">
-                                    <i class="bi bi-heart{% if media.is_favorite %}-fill text-danger{% endif %}" aria-hidden="true"></i>
+                                    {{ ui_icon('heart', 'icon-filled text-danger' if media.is_favorite else '') }}
                                     <span class="visually-hidden">{{ "已收藏" if media.is_favorite else "收藏" }}</span>
                                 </button>
                             </form>{% endif %}
@@ -57,8 +59,8 @@
                     <div class="detail-feature flex-grow-1 min-w-0 position-relative"{% if media.media_type == "tv" %} aria-live="polite"{% endif %}>
                         {% if media.media_type == "tv" %}
                             <button type="button" class="detail-info-toggle" data-series-toggle aria-pressed="true" title="查看本集信息">
-                                <i class="bi bi-tv d-none" aria-hidden="true" data-series-toggle-icon-tv></i>
-                                <i class="bi bi-play-btn" aria-hidden="true" data-series-toggle-icon-episode></i>
+                                {{ ui_icon('tv', 'd-none', {'data-series-toggle-icon-tv': ''}) }}
+                                {{ ui_icon('clapperboard', '', {'data-series-toggle-icon-episode': ''}) }}
                                 <span class="visually-hidden">切换本集与全剧信息</span>
                             </button>
                             <div class="hero-info-stack">
@@ -182,7 +184,7 @@
                             <article class="cast-card media-rail-item min-w-0">
                                 <div class="cast-photo ratio ratio-poster squircle-card overflow-hidden bg-body-tertiary shadow-sm">
                                     {% if person.image %}<img class="w-100 h-100 object-fit-cover" src="{{ url_for('static', filename=person.image) }}" alt="" width="342" height="513" loading="lazy" data-media-image>{% endif %}
-                                    {{ image_fallback(person.image, "person") }}
+                                    {{ image_fallback(person.image, "user-round") }}
                                 </div>
                                 <h3 class="cast-name mt-3 mb-1 fw-semibold">{{ person.name }}</h3>
                                 {% if person.character %}<p class="cast-character text-body-secondary mb-0">{{ person.character }}</p>{% endif %}
@@ -218,7 +220,7 @@
                 </section>
 
                 <section aria-labelledby="file-information-heading">
-                    <h2 class="h4 mb-4" id="file-information-heading">当前播放文件</h2>
+                    <h2 class="h4 mb-4" id="file-information-heading">媒体版本</h2>
                     {% if media.media_type == "tv" %}
                         <div class="episode-facts-panels" data-episode-facts-panels>
                             {% if media.selected_episode %}
@@ -229,24 +231,15 @@
                             {% endif %}
                         </div>
                     {% else %}
-                        {% if media.media_facts %}
-                            <dl class="row gy-3 mb-0 detail-facts">
-                                {% for fact in media.media_facts %}
-                                    <dt class="col-sm-3 text-body-secondary fw-normal">{{ fact.label }}</dt>
-                                    <dd class="col-sm-9 mb-0 text-break">{{ fact.value }}</dd>
-                                {% endfor %}
-                            </dl>
-                        {% else %}
-                            <p class="small text-body-secondary mb-0">暂无本地媒体参数。</p>
-                        {% endif %}
+                        {{ media_versions(media.versions) }}
                     {% endif %}
                 </section>
 
                     <nav class="detail-external-links d-flex flex-wrap align-items-center gap-3 pt-4 border-top" aria-label="外部链接">
                         {% for link in media.external_links %}
-                            <a class="small fw-semibold link-secondary link-offset-2 link-underline-opacity-0 link-underline-opacity-100-hover" href="{{ link.url }}" target="_blank" rel="noopener noreferrer">{{ link.label }}<i class="bi bi-arrow-up-right ms-1" aria-hidden="true"></i></a>
+                            <a class="small fw-semibold link-secondary link-offset-2 link-underline-opacity-0 link-underline-opacity-100-hover" href="{{ link.url }}" target="_blank" rel="noopener noreferrer">{{ link.label }}{{ ui_icon('external-link', 'ms-1') }}</a>
                         {% endfor %}
-                        <button type="button" class="btn btn-sm btn-outline-danger ms-auto" data-title-delete-open data-preview-url="{{ url_for('preview_title_removal', title_id=media.media_id) }}" data-delete-url="{{ url_for('remove_title', title_id=media.media_id) }}"><i class="bi bi-trash3 me-1" aria-hidden="true"></i>删除作品</button>
+                        <button type="button" class="btn btn-sm btn-outline-danger ms-auto" data-title-delete-open data-preview-url="{{ url_for('preview_title_removal', title_id=media.media_id) }}" data-delete-url="{{ url_for('remove_title', title_id=media.media_id) }}">{{ ui_icon('trash-2', 'me-1') }}删除作品</button>
                     </nav>
             </div>
         </section>

@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 CONFIRM_WORD = "清除"
 PARTS = (
-    {"id": "library", "label": "媒体库", "icon": "collection-play",
+    {"id": "library", "label": "媒体库", "icon": "library",
      "hint": "作品、已关联的影片、观看进度与收藏"},
     {"id": "discovery", "label": "识别缓存与扫描记录", "icon": "radar",
      "hint": "扫描目录、识别结果、忽略列表与 TMDB 查询缓存"},

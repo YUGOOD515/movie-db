@@ -114,91 +114,19 @@
         updateRows();
     });
 
-    // 评分刷新：服务端单个后台任务，进度显示在统一状态栏（两个标签页都会接续显示）。
-    const ratingStatusUrl = document.querySelector("[data-rating-status-url]")?.dataset.ratingStatusUrl;
+    // Progress belongs to the global sidebar; this page only submits the action.
     const ratingButton = document.querySelector("[data-rating-refresh]");
-    if (ratingStatusUrl && window.StatusBar) {
-        let pollTimer = null;
-        let watching = false;
-
-        function renderRating(status) {
-            // 先刷新 MDBList，再逐部获取豆瓣评分（约 2 秒一部）
-            const douban = status.phase === "douban";
-            const total = Number(douban ? status.douban_total : status.total) || 0;
-            const completed = Number(douban ? status.douban_completed : status.completed) || 0;
-            const label = douban ? "正在获取豆瓣评分" : "正在刷新评分";
-            window.StatusBar.progress("rating", {
-                layer: "task",
-                text: status.current_title_id ? `${label} · ${status.current_title_id}` : label,
-                done: completed,
-                total,
-            });
-        }
-
-        function finishRating(status) {
-            if (ratingButton) ratingButton.disabled = false;
-            if (!watching) return;
-            watching = false;
-            const failed = Number(status.failed) || 0;
-            const parts = [];
-            if (Number(status.total)) parts.push(`成功 ${status.succeeded || 0} 条${failed ? `，失败 ${failed} 条` : ""}`);
-            if (Number(status.douban_total)) parts.push(`豆瓣 ${status.douban_succeeded || 0} 条`);
-            const warn = failed || status.douban_message;
-            window.StatusBar.result("rating", {
-                tone: warn ? "warning" : "success",
-                text: `评分刷新完成${parts.length ? `：${parts.join("；")}` : ""}${status.douban_message ? `。${status.douban_message}` : ""}`,
-                duration: warn ? 0 : 5000,
-            });
-        }
-
-        async function pollRating() {
-            try {
-                const response = await fetch(ratingStatusUrl);
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
-                }
-                const status = await response.json();
-                if (status.running) {
-                    watching = true;
-                    if (ratingButton) ratingButton.disabled = true;
-                    renderRating(status);
-                    pollTimer = window.setTimeout(pollRating, 600);
-                } else {
-                    finishRating(status);
-                }
-            } catch {
-                if (ratingButton) ratingButton.disabled = false;
-                if (watching) {
-                    watching = false;
-                    window.StatusBar.result("rating", { tone: "danger", text: "无法读取评分刷新进度。", duration: 0 });
-                }
-            }
-        }
-
-        ratingButton?.addEventListener("click", async () => {
-            ratingButton.disabled = true;
-            try {
-                const response = await fetch(ratingButton.dataset.startUrl, { method: "POST" });
-                if (!response.ok) {
-                    throw new Error(`HTTP ${response.status}`);
-                }
-                watching = true;
-                renderRating(await response.json());
-                window.clearTimeout(pollTimer);
-                pollTimer = window.setTimeout(pollRating, 300);
-            } catch {
-                ratingButton.disabled = false;
-                window.StatusBar.result("rating", {
-                    tone: "danger",
-                    text: "评分刷新启动失败。",
-                    duration: 0,
-                    action: { label: "重试", run: () => ratingButton.click() },
-                });
-            }
-        });
-
-        pollRating();
-    }
+    window.addEventListener('tasks:update', event => {
+        if (ratingButton) ratingButton.disabled = event.detail.tasks.some(task => task.id === 'rating' && task.state === 'running');
+    });
+    ratingButton?.addEventListener('click', async () => {
+        ratingButton.disabled = true;
+        try {
+            const response = await fetch(ratingButton.dataset.startUrl, {method:'POST'});
+            if (!response.ok) throw new Error('评分刷新启动失败');
+            window.TaskCenter?.refresh();
+        } catch (error) { ratingButton.disabled = false; window.showAppToast?.(error.message,'danger'); }
+    });
 
     // 概览卡片：点选图片即时试用，未保存的修改统一显示在底部状态栏（放弃 / 保存）。
     const dirtyCards = new Set();

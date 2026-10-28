@@ -15,7 +15,7 @@
         node.addEventListener("click", action);
         return node;
     };
-    const icon = (name, classes = "") => { const node = el("i", `bi bi-${name} ${classes}`.trim()); node.setAttribute("aria-hidden", "true"); return node; };
+    const icon = (name, classes = '') => window.appIcon(name, classes);
     const spinner = () => { const node = el("span", "spinner-border spinner-border-sm text-body-secondary"); node.setAttribute("aria-hidden", "true"); return node; };
     // 菜单按视口定位，避免被列表或表格的滚动容器裁切。
     const fixedPopper = { popperConfig: config => ({ ...config, strategy: "fixed" }) };
@@ -25,13 +25,14 @@
     const manual = document.querySelector("[data-manual-panel]");
     const panel = $("[data-discovery-panel]"), editor = $("[data-association-editor]");
 
-    let records = [], ignored = [], roots = [], scan = {}, confirming = null, watching = false, pollTimer = null;
-    let tab = null, listScroll = 0;
+    let records = [], ignored = [], roots = [], scan = {}, confirming = null, pollTimer = null;
+    let tab = null, listScroll = 0, rootsSignature = null;
     const excluded = new Set(), expanded = new Set();
     let files = [], title = null, task = null, blocks = [], waitingForTitle = false;
     let useGuess = false, busy = false, taskVersion = 0, onlyErrors = false, ruleOpen = false, progress = null;
     let blockDragActive = false;
     const importJobs = new Map(), importErrors = new Map();
+    let jobLoading = false;
     let jobTimer = null;
     const pendingPaths = () => new Set([...importJobs.values()].filter(job => ["queued", "running"].includes(job.state)).flatMap(job => job.paths));
     // 识别规则：季号来源、各文件夹的季号与集号偏移、当前样例。
@@ -50,78 +51,53 @@
     const feedback = (text, category = "info") => window.showAppToast?.(text, category);
 
     function updateJobs(jobs, restoring = false) {
-        let imported = 0, failed = 0, incomplete = false;
         for (const job of jobs) {
             const previous = importJobs.get(job.id);
             if (restoring && !["queued", "running"].includes(job.state)) continue;
             importJobs.set(job.id, job);
-            if (["queued", "running"].includes(job.state)) {
-                job.paths.forEach(path => importErrors.delete(path));
-            } else if (!previous || ["queued", "running"].includes(previous.state)) {
+            if (["queued", "running"].includes(job.state)) job.paths.forEach(path => importErrors.delete(path));
+            else if (!previous || ["queued", "running"].includes(previous.state)) {
                 if (job.state === "complete" || (job.state === "cancelled" && job.progress.core >= job.total)) {
                     const done = new Set(job.paths);
                     records = records.flatMap(record => {
                         const remaining = record.files.filter(file => !done.has(file.path));
                         return remaining.length ? [{ ...record, files: remaining }] : [];
                     });
-                    imported += job.result?.imported || job.total;
-                    incomplete ||= !!job.result?.warning || job.state === "cancelled";
-                } else {
-                    failed += job.total;
-                    job.paths.forEach(path => importErrors.set(path, job.error || "关联失败，请核对后重试。"));
-                }
+                } else job.paths.forEach(path => importErrors.set(path, job.error || (job.state === "cancelled" ? "关联已停止，可重新提交。" : "关联失败，请核对后重试。")));
             }
         }
         renderList();
-        const all = [...importJobs.values()], active = all.filter(job => ["queued", "running"].includes(job.state));
-        if (active.length) {
-            const complete = all.reduce((sum, job) => sum + (job.state === "complete" ? job.total : job.progress.core || 0), 0);
-            const total = all.reduce((sum, job) => sum + job.total, 0);
-            const probes = active.reduce((sum, job) => sum + (job.progress.core ? 0 : job.progress.probe || 0), 0);
-            const waiting = active.some(job => job.state === "queued" && job.next_at > Date.now() / 1000);
-            bar.progress("association-work", { layer: "task", text: waiting ? "正在关联 · 部分任务等待重试" : "正在并行关联",
-                done: complete, total, detail: `已关联 ${complete}/${total} 个视频 · 另已读取 ${probes} 个 · ${new Set(active.map(job => job.title_id)).size} 部作品处理中`,
-                action: { label: "停止", run: async () => {
-                    try { updateJobs((await json(root.dataset.jobsUrl, { action: "cancel", ids: active.map(job => job.id) })).jobs); }
-                    catch (error) { feedback(error.message, "danger"); }
-                } } });
-        } else bar.clear("association-work");
-        if (imported || failed) bar.result("association-done", {
-            tone: failed || incomplete ? "warning" : "success", text: `已关联 ${imported} 个视频${failed ? ` · ${failed} 个需核对` : incomplete ? " · 部分资料未补齐" : ""}`,
-            ...(failed ? { duration: 0, action: { label: "查看", run: () => { tab = "review"; showView("list"); renderList(); } } } : {}),
-        });
-        return active;
     }
 
+    // Paths are fetched once; subsequent state changes come from the global summary.
     async function pollJobs(restoring = false) {
+        if (jobLoading) return;
+        jobLoading = true;
         clearTimeout(jobTimer);
-        try {
-            let jobs;
-            if (restoring) jobs = (await json(root.dataset.jobsUrl)).jobs;
-            else {
-                const ids = [...importJobs.values()].filter(job => ["queued", "running"].includes(job.state)).map(job => job.id);
-                if (!ids.length) return;
-                const requests = [];
-                for (let index = 0; index < ids.length; index += 64) requests.push(json(`${root.dataset.jobsUrl}?ids=${ids.slice(index, index + 64).join(",")}`));
-                jobs = (await Promise.all(requests)).flatMap(data => data.jobs);
-            }
-            if (updateJobs(jobs, restoring).length) jobTimer = setTimeout(() => pollJobs(), 1000);
-        } catch {
-            // Jobs persist on the server; losing a browser connection never
-            // submits them again or changes their result to failure.
-            jobTimer = setTimeout(() => pollJobs(restoring), 3000);
-        }
+        try { updateJobs((await json(root.dataset.jobsUrl)).jobs, restoring); }
+        catch { jobTimer = setTimeout(() => pollJobs(restoring), 5000); }
+        finally { jobLoading = false; }
     }
+
+    window.addEventListener('tasks:update', event => {
+        const jobs = event.detail.tasks.flatMap(task => task.jobs || []);
+        const known = jobs.filter(job => {const previous=importJobs.get(job.id);return previous && (previous.state!==job.state || previous.progress.core!==job.core || previous.error!==job.error);}).map(job => {
+            const previous = importJobs.get(job.id);
+            return {...previous, state:job.state, error:job.error, progress:{...previous.progress,core:job.core}, result:{imported:job.core,warning:job.warning}};
+        });
+        if (known.length) updateJobs(known);
+        if (jobs.some(job => !importJobs.has(job.id) && ['running','queued'].includes(job.state))) pollJobs(true);
+    });
+    window.addEventListener('tasks:action', event => { if (event.detail.kind === 'scan') discover(); });
 
     async function enqueue(selections) {
         const data = await json(root.dataset.jobsUrl, { selections });
         updateJobs(data.jobs);
-        clearTimeout(jobTimer);
-        jobTimer = setTimeout(() => pollJobs(), 250);
+        window.TaskCenter?.watchJobs(data.jobs.map(job=>job.id));
     }
 
     function progressSpec(total) {
-        return { text: "正在提交关联", detail: `0/${total}`, done: 0, total };
+        return { text: "正在提交关联", detail: `${total} 个视频` };
     }
 
     const TABS = [["ready", "可确认"], ["review", "待核对"], ["unknown", "未识别"], ["ignored", "已忽略"]];
@@ -156,7 +132,7 @@
     function aiTag() {
         const tag = el("span", "discovery-tag");
         tag.title = "AI 识别";
-        tag.append(icon("stars"), document.createTextNode("AI"));
+        tag.append(icon("sparkles"), document.createTextNode("AI"));
         return tag;
     }
 
@@ -223,7 +199,7 @@
         toggle.type = "button"; toggle.dataset.bsToggle = "dropdown";
         toggle.setAttribute("aria-expanded", "false"); toggle.setAttribute("aria-label", `${item.name} 更多操作`);
         toggle.disabled = !!confirming || !!item.busy;
-        toggle.append(icon("three-dots"));
+        toggle.append(icon("ellipsis"));
         const menu = el("ul", "dropdown-menu dropdown-menu-end media-menu");
         const entry = (label, symbol, action) => {
             const option = button("", action, "dropdown-item d-flex align-items-center gap-2");
@@ -231,9 +207,9 @@
             const line = el("li"); line.append(option); menu.append(line);
         };
         entry(item.recognition?.title ? "更换作品" : "手动关联", "search", () => openTask(item, true));
-        entry("重新识别", "arrow-repeat", () => recognizeAgain(item));
+        entry("重新识别", "refresh-cw", () => recognizeAgain(item));
         const divider = el("li"); divider.append(el("hr", "dropdown-divider")); menu.append(divider);
-        entry("忽略", "eye-slash", () => setIgnored(item, true));
+        entry("忽略", "eye-off", () => setIgnored(item, true));
         dropdown.append(toggle, menu);
         bootstrap.Dropdown.getOrCreateInstance(toggle, fixedPopper);
         return dropdown;
@@ -272,7 +248,7 @@
             renderList();
         }, "discovery-main btn text-start");
         if (multi) main.setAttribute("aria-expanded", String(open));
-        main.append(poster(found, first.kind === "folder" ? "folder2" : "file-earmark-play"));
+        main.append(poster(found, first.kind === "folder" ? "folder" : "file-video"));
         if (multi) {
             const videos = group.records.reduce((sum, item) => sum + item.files.length, 0);
             const tags = state === "ready" ? [] : [...new Set(group.records.flatMap(item => reasons(item, readyTitles)))];
@@ -309,7 +285,7 @@
     function ignoredRow(entry) {
         const row = el("li", "discovery-item");
         const main = el("span", "discovery-main");
-        const tile = el("span", "discovery-poster"); tile.append(icon("eye-slash"));
+        const tile = el("span", "discovery-poster"); tile.append(icon("eye-off"));
         main.append(tile, textBlock(entry.name, "", [], entry.count ? [`${entry.count} 个视频`] : [], ""));
         const side = el("div", "discovery-side");
         side.append(button("恢复", () => setIgnored(entry, false), "btn btn-sm chip-btn discovery-action"));
@@ -319,17 +295,19 @@
 
     function renderTabs(counts) {
         const box = $("[data-discovery-tabs]");
-        box.replaceChildren();
         for (const [key, label] of TABS) {
-            if (key === "ignored" && !counts.ignored && tab !== "ignored") continue;
-            const node = button("", () => { tab = key; renderList(); }, "btn btn-sm chip-btn discovery-tab");
-            node.setAttribute("role", "tab");
+            let node = box.querySelector(`[data-tab="${key}"]`);
+            if (key === "ignored" && !counts.ignored && tab !== "ignored") { node?.remove(); continue; }
+            if (!node) {
+                node = button("", () => { tab = key; renderList(); }, "btn btn-sm chip-btn discovery-tab");
+                node.dataset.tab = key; node.setAttribute("role", "tab");
+                node.append(el("span", "", label), el("span", "discovery-tab-count"));
+                box.append(node);
+            }
             node.setAttribute("aria-selected", String(tab === key));
             node.classList.toggle("active", tab === key);
-            node.append(el("span", "", label), el("span", "discovery-tab-count", String(counts[key])));
-            box.append(node);
+            node.querySelector('.discovery-tab-count').textContent = String(counts[key]);
         }
-        show(box, records.length > 0 || ignored.length > 0);
     }
 
     function renderList() {
@@ -340,10 +318,8 @@
         const counts = {
             ready: grouped(byState.ready).length, review: byState.review.length, unknown: byState.unknown.length, ignored: hidden.length,
         };
-        // 当前分组清空后（例如全部确认完），自动切到下一个有内容的分组。
-        const totals = { ready: 0, review: 0, unknown: 0, ignored: ignored.length };
-        for (const item of availableRecords()) totals[stateOf(item)] = (totals[stateOf(item)] || 0) + 1;
-        if (!tab || !totals[tab]) tab = TABS.map(([key]) => key).find(key => totals[key]) || "ready";
+        // Keep the user's selected group even when it is empty or scanning.
+        if (!tab) tab = TABS.map(([key]) => key).find(key => counts[key]) || "ready";
         renderTabs(counts);
 
         const readyTitles = new Set(byState.ready.map(item => item.recognition.title.title_id));
@@ -360,8 +336,15 @@
 
         $("[data-discovery-count]").textContent = records.length ? String(records.length) : "";
         const empty = $("[data-discovery-empty]");
-        empty.querySelector("span").textContent = search && (records.length || ignored.length) ? "没有匹配的内容"
-            : pendingPaths().size ? "正在关联…" : scanning() && !records.length ? "正在扫描…" : "全部已关联";
+        const loading = scanning() || !scan.status;
+        const message = loading ? (scan.status === 'recognizing' ? '正在识别…' : '正在扫描…')
+            : scan.status === 'error' ? '扫描失败，请重试' : search ? '没有匹配的内容'
+            : pendingPaths().size ? '正在关联…'
+            : {ready:'暂无可确认项', review:'暂无待核对项', unknown:'暂无未识别项', ignored:'暂无已忽略项'}[tab];
+        empty.querySelector("span").textContent = message;
+        const marker = empty.querySelector('[data-discovery-empty-icon]');
+        marker.replaceChildren(loading ? spinner() : icon(scan.status === 'error' ? 'circle-alert' : 'inbox'));
+        container.setAttribute('aria-busy', String(loading));
         show(empty, !list.childElementCount);
         const missing = $("[data-discovery-missing]");
         missing.querySelector("span").textContent = `${scan.missing || 0} 个源文件失效`;
@@ -401,7 +384,7 @@
         } else if (tab === "unknown") {
             const junk = visibleRecords().filter(item => stateOf(item) === "unknown" && item.recognition?.not_media && !item.recognition?.title);
             if (junk.length) {
-                bar.notice("association", { icon: "slash-circle", text: `${junk.length} 项可能不是影视内容`, action: { label: "全部忽略", run: () => ignoreAll(junk) } });
+                bar.notice("association", { icon: "ban", text: `${junk.length} 项可能不是影视内容`, action: { label: "全部忽略", run: () => ignoreAll(junk) } });
                 return;
             }
         }
@@ -416,12 +399,20 @@
     }
 
     function renderRoots() {
+        const signature = JSON.stringify(roots);
+        if (signature === rootsSignature) return;
+        rootsSignature = signature;
         const box = $("[data-discovery-roots]"), add = $("[data-root-add]");
         box.querySelectorAll(".root-chip").forEach(node => node.remove());
         for (const item of roots) {
             const chip = el("span", "root-chip");
             chip.title = item.auto ? `${item.path}（自动）` : item.path;
-            chip.append(icon(item.auto ? "magic" : "folder2"), el("span", "text-truncate", item.path.split("/").filter(Boolean).pop() || "/"));
+            const name = button('', () => {
+                bootstrap.Modal.getOrCreateInstance(browser).show(); browse(item.path);
+            }, 'root-name');
+            name.setAttribute('aria-label', `浏览目录：${item.path}`);
+            name.append(icon(item.auto ? "wand-sparkles" : "folder"), el("span", "text-truncate", item.path.split("/").filter(Boolean).pop() || "/"));
+            chip.append(name);
             if (!item.auto) {
                 const remove = button("", () => updateRoot(item.path, "remove"), "root-remove");
                 remove.setAttribute("aria-label", `移除 ${item.path}`);
@@ -438,48 +429,26 @@
         refresh.disabled = running;
         refresh.classList.toggle("is-scanning", running);
         refresh.setAttribute("aria-busy", String(running));
-        if (scan.status === "running") bar.progress("scan", { layer: "task", text: "正在扫描 AList", done: scan.done, total: scan.total, detail: scan.total ? `${Math.round(scan.done / scan.total * 100)}%` : "" });
-        else if (scan.status === "recognizing") {
-            // 规则、AI、TMDB 核对三段并行：进度条按完成数走，说明里分别列出各段还在处理的条数。
-            const total = scan.to_recognize || 0;
-            const stages = [
-                (scan.rule_done || 0) < total ? `规则 ${scan.rule_done || 0}/${total}` : "",
-                scan.ai_pending ? `${scan.ai?.model || "AI"} ${scan.ai_pending} 项` : "",
-                scan.verifying ? `核对 ${scan.verifying} 项` : "",
-            ].filter(Boolean);
-            bar.progress("scan", { layer: "task", text: "正在识别新内容", done: scan.recognized || 0, total, detail: stages.join(" · ") });
-        }
-        else if (bar.has("scan") && !watching) bar.clear("scan");
     }
 
     async function discover(start = false, refresh = false) {
         clearTimeout(pollTimer);
-        if (start) { watching = true; scan = { ...scan, status: "running", done: 0, total: 0 }; scanProgress(); }
+        if (start) { scan = { ...scan, status: "running", done: 0, total: 0 }; renderList(); scanProgress(); }
         try {
             const data = await json(root.dataset.discoveryUrl + (refresh ? "?refresh=1" : ""), start ? {} : undefined);
             const busyPaths = new Set(records.filter(item => item.busy).map(item => item.path));
-            scan = data; roots = data.roots || []; ignored = data.ignored || [];
+            scan = data;
+            // A new scan has no roots until AList responds; retain the last known directories.
+            if (data.roots?.length || !scanning() && data.status !== 'error') roots = data.roots || [];
+            ignored = data.ignored || [];
             records = data.records.map(item => busyPaths.has(item.path) ? { ...item, busy: true } : item);
             renderRoots(); renderList(); scanProgress();
-            if (scanning()) { watching = true; pollTimer = setTimeout(() => discover(), 1500); }
-            else if (watching || data.status === "error") {
-                watching = false;
-                const warnings = data.warnings || [];
-                const ready = records.filter(item => stateOf(item) === "ready").length;
-                if (data.status === "error") bar.result("scan", { tone: "danger", text: data.error || "AList 扫描失败，请重试。", duration: 0, action: { label: "重试", run: () => discover(true, true) } });
-                else bar.result("scan", {
-                    tone: warnings.length ? "warning" : "success",
-                    text: `扫描完成 · ${records.length} 项${ready ? ` · ${ready} 项可确认` : ""}`,
-                    detail: [data.ai_summary, warnings.length ? `${warnings.length} 项警告` : ""].filter(Boolean).join(" · "),
-                    duration: warnings.length ? 0 : 4000,
-                });
-                if (warnings.length) feedback(warnings.join("；"), "warning");
-            }
+            if (scanning()) pollTimer = setTimeout(() => discover(), document.hidden ? 15000 : currentView() === 'list' ? 1500 : 5000);
+            if (start) window.TaskCenter?.refresh();
             return data;
         } catch (error) {
-            watching = false;
-            bar.result("scan", { tone: "danger", text: error.message, duration: 0, action: { label: "重试", run: () => discover(true, true) } });
-            scan = { ...scan, status: "error" }; scanProgress();
+            feedback(error.message, "danger");
+            scan = { ...scan, status: "error" }; renderList(); scanProgress();
             return null;
         }
     }
@@ -548,7 +517,8 @@
 
     async function updateRoot(path, action) {
         try {
-            await json(root.dataset.rootsUrl, { path, action });
+            const data = await json(root.dataset.rootsUrl, { path, action });
+            roots = data.roots.map(path => ({path, auto:false})); renderRoots();
         } catch (error) { feedback(error.message, "danger"); return; }
         bootstrap.Modal.getInstance(browser)?.hide();
         discover(true);
@@ -570,7 +540,7 @@
             const item = el("li", "d-flex align-items-center gap-1");
             if (target !== "/") item.append(icon("chevron-right", "root-crumb-sep"));
             const node = button(label, () => browse(target), "btn btn-link root-crumb p-0");
-            if (target === "/") { node.textContent = ""; node.append(icon("hdd-network")); node.setAttribute("aria-label", "根目录"); }
+            if (target === "/") { node.textContent = ""; node.append(icon("network")); node.setAttribute("aria-label", "根目录"); }
             if (current) node.setAttribute("aria-current", "location");
             item.append(node); crumbs.append(item);
         };
@@ -580,7 +550,7 @@
         for (const folder of data.folders) {
             const item = el("li");
             const node = button("", () => browse(folder.path), "root-folder btn text-start");
-            node.append(icon("folder2"), el("span", "text-truncate flex-grow-1", folder.name), icon("chevron-right", "text-body-secondary"));
+            node.append(icon("folder"), el("span", "text-truncate flex-grow-1", folder.name), icon("chevron-right", "text-body-secondary"));
             item.append(node); folders.append(item);
         }
         if (!data.folders.length) folders.append(el("li", "root-folders-status", "没有子目录"));
@@ -703,7 +673,7 @@
             const label = el("span", "rule-piece-option-text");
             label.append(el("span", "", rules.labels[type]), el("small", "", PIECE_HINT[type]));
             option.append(sample, label);
-            if (active) option.append(icon("check2", "ms-auto"));
+            if (active) option.append(icon("check", "ms-auto"));
             const line = el("li"); line.append(option); menu.append(line);
         }
     }
@@ -730,7 +700,7 @@
             el("span", "rule-piece-tools-label", `第 ${index + 1} 段`),
             tool("左移", "arrow-left", swap(-1), index === 0),
             tool("右移", "arrow-right", swap(1), index === blocks.length - 1),
-            tool("删除", "trash3", () => changeBlocks(blocks.filter((_, i) => i !== index), Math.min(index, blocks.length - 2)), false, "is-danger"),
+            tool("删除", "trash-2", () => changeBlocks(blocks.filter((_, i) => i !== index), Math.min(index, blocks.length - 2)), false, "is-danger"),
         );
         menu.append(tools);
         if (block.type === "literal") {
@@ -797,14 +767,14 @@
             add.setAttribute("aria-expanded", "false");
             add.setAttribute("aria-label", "添加片段");
             add.title = blocks.length >= 16 ? "最多 16 段" : "添加片段";
-            add.append(icon("plus-lg"));
+            add.append(icon("plus"));
             const menu = el("ul", "dropdown-menu media-menu rule-piece-menu");
             typeOptions(menu, null, type => changeBlocks([...blocks, { type, value: "" }], blocks.length, type === "literal"));
             addWrap.append(add, menu);
             bootstrap.Dropdown.getOrCreateInstance(add, fixedPopper);
             box.append(addWrap);
             const warn = el("span", "rule-pattern-warn d-none");
-            warn.append(icon("exclamation-triangle-fill"), el("span"));
+            warn.append(icon("triangle-alert"), el("span"));
             box.append(warn, el("span", "rule-pattern-tip", "点片段可修改，按住拖动调整顺序"));
         }
         const issue = pieceIssue(), warn = box.querySelector(".rule-pattern-warn");
@@ -1045,7 +1015,7 @@
         if (!file) return;
         // 文件夹行：季号来自文件夹时标出读到的位置。
         const folder = el("div", "rule-sample-folder");
-        folder.append(icon("folder2"));
+        folder.append(icon("folder"));
         const label = folderLabel(file.folder), hit = rules.folderSeason(label);
         if (hit && seasonSource !== "fixed") {
             folder.append(el("span", "", label.slice(0, hit.start)), el("mark", `rule-season${seasonSource === "folder" ? "" : " is-soft"}`, label.slice(hit.start, hit.end)), el("span", "", label.slice(hit.end)));
@@ -1208,9 +1178,9 @@
             box.append(node);
         };
         part("files", `${chosen.length} 个文件`);
-        part(unread.length ? "exclamation-triangle-fill" : "check2", unread.length ? `${unread.length} 个读不出季集` : "季集全部读出", unread.length ? "is-warning" : "is-ok",
+        part(unread.length ? "triangle-alert" : "check", unread.length ? `${unread.length} 个读不出季集` : "季集全部读出", unread.length ? "is-warning" : "is-ok",
             unread.length ? () => { sampleIndex = files.indexOf(unread.find(file => !file.match) || unread[0]); renderRulePanel(); } : null);
-        part(missing > 0 ? "exclamation-triangle-fill" : "check2", missing > 0 ? `${missing} 个在 TMDB 找不到` : `${found.length} 个都在 TMDB 找到`, missing > 0 ? "is-warning" : "is-ok",
+        part(missing > 0 ? "triangle-alert" : "check", missing > 0 ? `${missing} 个在 TMDB 找不到` : `${found.length} 个都在 TMDB 找到`, missing > 0 ? "is-warning" : "is-ok",
             missing > 0 ? locateIssue : null);
     }
 
@@ -1245,7 +1215,7 @@
             target.classList.toggle("dropdown-toggle", series && file.included);
             if (!file.included) target.append(el("span", "text-body-secondary", "不关联"));
             else if (file.issue) {
-                target.append(icon("exclamation-triangle-fill", "file-issue-icon"), el("span", "text-truncate", file.issue[0]));
+                target.append(icon("triangle-alert", "file-issue-icon"), el("span", "text-truncate", file.issue[0]));
                 target.title = file.issue[1];
             } else {
                 const name = series ? `S${pad(file.season)}E${pad(file.episode)} · ${file.target?.name || ""}` : title ? title.name : "待选择作品";
@@ -1560,6 +1530,7 @@
     const pageUrl = new URL(location.href), wantsRoot = pageUrl.searchParams.has("add_root");
     if (wantsRoot) { pageUrl.searchParams.delete("add_root"); history.replaceState(history.state, "", pageUrl); }
     // 打开页面先显示已有结果（启动时的后台扫描或上次快照），没有结果时才开始扫描。
+    renderList();
     discover().then(data => {
         pollJobs(true);
         if (wantsRoot) $("[data-root-add]").click();

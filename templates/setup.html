@@ -1,3 +1,4 @@
+{% from "_ui.html" import icon as ui_icon %}
 {% extends "layout.html" %}
 
 {% block html_attrs %} data-first-run{% endblock %}
@@ -7,14 +8,14 @@
 {% macro secret(name, label, autocomplete="off") %}
     <div class="onboard-secret">
         <input class="form-control" id="ob-{{ name }}" name="{{ name }}" type="password" autocomplete="{{ autocomplete }}" spellcheck="false" placeholder="{{ label }}" aria-label="{{ label }}" data-secret>
-        <button class="onboard-reveal" type="button" data-reveal aria-label="显示{{ label }}" title="显示"><i class="bi bi-eye" aria-hidden="true"></i></button>
+        <button class="onboard-reveal" type="button" data-reveal aria-label="显示{{ label }}" aria-pressed="false" title="显示">{{ ui_icon('eye', '') }}</button>
     </div>
 {% endmacro %}
 
 {# 主操作按钮：忙碌时原位换成转圈与提示，宽度取两种状态的较大值，不推挤旁边的元素 #}
 {% macro action(attrs, label, busy, icon="arrow-right", cls="btn media-primary-action") %}
     <button class="{{ cls }} onboard-btn" type="button" {{ attrs|safe }}>
-        <span class="onboard-btn-idle"><span data-label>{{ label }}</span>{% if icon %}<i class="bi bi-{{ icon }}" aria-hidden="true"></i>{% endif %}</span>
+        <span class="onboard-btn-idle"><span data-label>{{ label }}</span>{% if icon %}{{ ui_icon(icon, '') }}{% endif %}</span>
         <span class="onboard-btn-busy" aria-hidden="true"><span class="spinner-border spinner-border-sm"></span><span>{{ busy }}</span></span>
     </button>
 {% endmacro %}
@@ -45,7 +46,7 @@
         </header>
 
         {% if remote %}
-            <p class="onboard-banner"><i class="bi bi-shield-lock" aria-hidden="true"></i><span>出于安全考虑，设置只能在运行 MovieDB 的电脑上完成。</span></p>
+            <p class="onboard-banner">{{ ui_icon('shield-check', '') }}<span>出于安全考虑，设置只能在运行 MovieDB 的电脑上完成。</span></p>
         {% endif %}
 
         {# 每一步的标题都从同一高度开始；检测结果占用固定高度的状态行，多行提示只向下展开 #}
@@ -61,7 +62,7 @@
                     <li data-check="library"><span class="onboard-dot"></span><span data-check-text>正在检查媒体库…</span></li>
                 </ul>
                 <div class="onboard-actions">
-                    <button class="btn media-primary-action" type="button" data-go="alist"><span>开始</span><i class="bi bi-arrow-right" aria-hidden="true"></i></button>
+                    <button class="btn media-primary-action" type="button" data-go="alist"><span>开始</span>{{ ui_icon('arrow-right', '') }}</button>
                 </div>
             </section>
 
@@ -143,18 +144,18 @@
                 <div class="onboard-extras">
                     <p class="onboard-extras-title">可选增强 · 随时在设置里开启</p>
                     <a class="onboard-extra" href="{{ url_for('settings_page') }}#ai">
-                        <i class="bi bi-stars" aria-hidden="true"></i>
+                        {{ ui_icon('sparkles', '') }}
                         <span><strong>AI 识别</strong><small>规则拿不准的文件名交给大模型判断，智谱 GLM-4.7-Flash 免费可用。</small></span>
-                        <i class="bi bi-chevron-right" aria-hidden="true"></i>
+                        {{ ui_icon('chevron-right', '') }}
                     </a>
                     <a class="onboard-extra" href="{{ url_for('settings_page') }}#metadata">
-                        <i class="bi bi-bar-chart" aria-hidden="true"></i>
+                        {{ ui_icon('chart-column', '') }}
                         <span><strong>多平台评分</strong><small>通过 MDBList 补充烂番茄、Metacritic 等评分，免费账号每天 1000 次。</small></span>
-                        <i class="bi bi-chevron-right" aria-hidden="true"></i>
+                        {{ ui_icon('chevron-right', '') }}
                     </a>
                 </div>
                 <div class="onboard-actions">
-                    <a class="btn media-primary-action" href="{{ url_for('media') }}" data-next-link><span>去关联第一批影片</span><i class="bi bi-arrow-right" aria-hidden="true"></i></a>
+                    <a class="btn media-primary-action" href="{{ url_for('media') }}" data-next-link><span>去关联第一批影片</span>{{ ui_icon('arrow-right', '') }}</a>
                 </div>
                 {% include "_tmdb_credit.html" %}
             </section>

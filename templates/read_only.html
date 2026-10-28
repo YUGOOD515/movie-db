@@ -1,3 +1,4 @@
+{% from "_ui.html" import icon as ui_icon %}
 {% extends "layout.html" %}
 
 {% from "_ui.html" import empty_state %}
@@ -6,6 +7,6 @@
 
 {% block main %}
     <div class="container-xl text-start">
-        {{ empty_state("本地 MovieDB 未连接，当前为只读快照。", "cloud-slash", "修改、录入与播放需要电脑上的 MovieDB 和 Tunnel 在线。", url_for('index'), "返回媒体库") }}
+        {{ empty_state("本地 MovieDB 未连接，当前为只读快照。", "cloud-off", "修改、录入与播放需要电脑上的 MovieDB 和 Tunnel 在线。", url_for('index'), "返回媒体库") }}
     </div>
 {% endblock %}

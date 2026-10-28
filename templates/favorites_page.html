@@ -25,7 +25,7 @@
                 {% endfor %}
             </div>
         {% else %}
-            {{ empty_state("当前收藏夹还没有媒体。", "bookmark-heart", "在电影或剧集详情页点击“加入收藏”即可归档至此", url_for('index'), "浏览媒体库") }}
+            {{ empty_state("当前收藏夹还没有媒体。", "bookmark", "在电影或剧集详情页点击“加入收藏”即可归档至此", url_for('index'), "浏览媒体库") }}
         {% endif %}
     </section>
 {% endblock %}

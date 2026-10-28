@@ -13,7 +13,7 @@ from pathlib import Path
 
 import requests
 
-from connectors import alist, imdb_ratings, media_probe, throttle, tmdb
+from connectors import alist, events, imdb_ratings, media_probe, throttle, tmdb
 from models.database import connect_database, connect_writable
 from models.library import import_media_bundle, enrich_media_bundle
 from queries.association import get_douban_id, get_existing_artwork_slots, get_file_targets, get_series_episodes
@@ -116,6 +116,7 @@ def _stage_new_artwork(
             exists = target.is_file()
         if exists:
             successful.append(image)
+            events.emit("end", stage="image", key=image["local_path"], failed=False)
         else:
             pending.append(image)
 
@@ -213,12 +214,27 @@ def _known_douban_id(library_db: sqlite3.Connection, title_id: str) -> str | Non
     return get_douban_id(library_db, title_id)
 
 
+def _observed_rating(service, function, *args):
+    with events.activity("rating", service, service) as outcome:
+        result = function(*args)
+        status = (result or {}).get("status", "success")
+        if status not in ("success", "no_key", "not_found", "skipped", "unavailable"):
+            outcome["failed"] = True
+            code = {"http_429": "rate_limit", "http_503": "busy"}.get(status, "error")
+            events.emit("issue", stage="rating", service=service, code=code,
+                        reason=events.safe_text((result or {}).get("message")) or "评分获取失败")
+        return result
+
+
 def _build_context(library_db: sqlite3.Connection, root_title_id: str, scope=None) -> ImportContext:
     catalog = load_title_catalog(library_db, root_title_id)
-    rating_future = scope.submit("rating", root_title_id, fetch_title_rating, root_title_id) if scope else runtime.pool("rating").submit(root_title_id, fetch_title_rating, root_title_id)
+    events.emit("title", name=catalog["root"].get("display_title") or root_title_id)
+    events.emit("plan", stage="rating", total=2)
+    rating_args = (_observed_rating, "MDBList", fetch_title_rating, root_title_id)
+    rating_future = scope.submit("rating", root_title_id, *rating_args) if scope else runtime.pool("rating").submit(root_title_id, *rating_args)
     # 豆瓣的低速接口使用独立有界队列，不占用 TMDB 元数据或 MDBList 评分工作线程。
     submit = scope.submit if scope else lambda name, key, fn, *args: runtime.pool(name).submit(key, fn, *args)
-    douban_future = submit("douban", root_title_id, fetch_douban_rating,
+    douban_future = submit("douban", root_title_id, _observed_rating, "豆瓣", fetch_douban_rating,
                            root_title_id, catalog["root"]["title_type"], _known_douban_id(library_db, root_title_id))
 
     metadata = catalog["metadata"]
@@ -328,6 +344,10 @@ def _stage_context_images(
     derivatives, derived_files = [], []
 
     def derive(row, source):
+        with events.activity("derive", row["local_path"], "生成预览"):
+            derive_image(row, source)
+
+    def derive_image(row, source):
         from PIL import Image
         local_path = row["local_path"]
         size = get_target_size_for_path(local_path)
@@ -353,6 +373,7 @@ def _stage_context_images(
 
     expected = len(artwork)
     profiles = sum(bool(person.get("local_path")) for person in context.cast)
+    events.emit("plan", stage="image", total=expected + profiles)
     try:
         context.artwork, artwork_files = _stage_new_artwork(
             artwork, image_root, staging_root, on_download=downloaded)
@@ -436,6 +457,15 @@ def _prepare_items(
     linked = 0
 
     def probe(index, title_id, alist_url, alist_path):
+        item = inputs[index - 1][2]
+        season, episode = item.get("season_number"), item.get("episode_number")
+        label = f"S{int(season):02}E{int(episode):02}" if season not in (None, "") and episode not in (None, "") else Path(alist_path).name
+        with events.activity("probe", index, label):
+            return probe_file(index, title_id, alist_url, alist_path)
+
+    events.emit("plan", stage="probe", total=len(inputs))
+
+    def probe_file(index, title_id, alist_url, alist_path):
         nonlocal linked
         cached = (probe_cache or {}).get(alist_path)
         raw = (raw_urls or {}).get(alist_path, "")
@@ -585,7 +615,7 @@ def _result(prepared: PreparedMediaImport, file_id: int) -> dict:
     }
 
 
-def _apply_imdb_ratings(prepared_items: list[PreparedMediaImport]) -> None:
+def _apply_imdb_ratings(prepared_items: list[PreparedMediaImport]) -> dict | None:
     """从 IMDb 评分文件填入 average_rating / num_votes；不可用时保留库内旧值。"""
     titles = {
         title["title_id"]: title
@@ -596,7 +626,7 @@ def _apply_imdb_ratings(prepared_items: list[PreparedMediaImport]) -> None:
         ratings = imdb_ratings.lookup_ratings(titles)
     except (OSError, ValueError, EOFError) as error:
         logger.warning("IMDb 评分文件读取失败：%s", error)
-        return
+        return {"status": "error", "message": "IMDb 评分文件读取失败"}
     for title_id, (rating, votes) in ratings.items():
         titles[title_id]["average_rating"] = rating
         titles[title_id]["num_votes"] = votes
@@ -658,7 +688,8 @@ def _finish_derivatives(image_root, prepared_items):
     }
     def build_thumbnail(local_path: str) -> None:
         try:
-            ensure_thumbnail(local_path, static_root=image_root.parent)
+            with events.activity("derive", local_path, "生成预览"):
+                ensure_thumbnail(local_path, static_root=image_root.parent)
         except Exception as error:
             logger.warning("Failed to build thumbnail for %s: %s", local_path, error)
 
@@ -675,7 +706,8 @@ def _finish_derivatives(image_root, prepared_items):
 def _enrich_prepared(database_path, image_root, prepared_items, commit_guard=None):
     bundles = {id(item.bundle): item.bundle for item in prepared_items}.values()
     # Start the local rating lookup while remote images and scores are running.
-    imdb_future = runtime.pool("imdb").submit(str(database_path), _apply_imdb_ratings, prepared_items)
+    events.emit("plan", stage="rating", total=1)
+    imdb_future = runtime.pool("imdb").submit(str(database_path), _observed_rating, "IMDb", _apply_imdb_ratings, prepared_items)
     retry, warning = 0, False
     for bundle in bundles:
         try:
@@ -815,8 +847,10 @@ def import_media_batch(
                                 link_resolver=link_resolver, probe_cache=probe_cache, on_probe=on_probe,
                                 defer_enrichment=defer_enrichment, commit_guard=commit_guard)
     except _PersistenceError as error:
+        events.emit("issue", stage="write", **events.error_info(error))
         failure = {"index": error.index, "title_id": error.title_id, "message": str(error)}
     except IMPORT_ERRORS as error:
+        events.emit("issue", **events.error_info(error))
         failure = {**progress, "message": str(error)}
         if isinstance(error, (requests.ConnectionError, requests.Timeout, throttle.RateLimitError)) or getattr(error, "retryable", False):
             failure.update(retryable=True, retry_after=getattr(error, "retry_after", None) or 5)

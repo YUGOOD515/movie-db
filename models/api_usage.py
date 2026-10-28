@@ -39,7 +39,10 @@ def reserve(account, limit, *, now=None):
         db.execute("DELETE FROM request_usage WHERE sent_at <= ?", (now - 86400,))
         count, oldest = db.execute("SELECT COUNT(*), MIN(sent_at) FROM request_usage WHERE account = ?", (account,)).fetchone()
         if count >= limit:
-            raise RateLimitError("mdblist", max(1, oldest + 86400 - now))
+            from connectors import events
+            delay = max(1, oldest + 86400 - now)
+            events.emit("wait", service="mdblist", code="quota", reason="额度用尽", until=now + delay)
+            raise RateLimitError("mdblist", delay, reason="quota")
         db.execute("INSERT INTO request_usage VALUES (?, ?)", (account, now))
 
 

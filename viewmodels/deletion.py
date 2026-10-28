@@ -69,13 +69,13 @@ def build_deletion_viewmodel(plan):
         else:
             retained_cast.append(person)
     image_groups = [
-        {"key": "posters", "name": "海报", "icon": "bi-image", "images": images["posters"], "is_cast": False},
-        {"key": "backdrops", "name": "背景图", "icon": "bi-image", "images": images["backdrops"], "is_cast": False},
-        {"key": "logos", "name": "LOGO", "icon": "bi-type", "images": images["logos"], "is_cast": False},
-        {"key": "other", "name": "其他图片", "icon": "bi-images", "images": images["other"], "is_cast": False},
-        {"key": "stills", "name": "剧照", "icon": "bi-image", "images": images["stills"], "is_cast": False},
-        {"key": "cast", "name": "演员照片", "icon": "bi-person", "images": cast, "is_cast": True, "retained": False},
-        {"key": "retained-cast", "name": "保留的演员照片", "icon": "bi-person-check", "images": retained_cast, "is_cast": True, "retained": True},
+        {"key": "posters", "name": "海报", "icon": "image", "images": images["posters"], "is_cast": False},
+        {"key": "backdrops", "name": "背景图", "icon": "image", "images": images["backdrops"], "is_cast": False},
+        {"key": "logos", "name": "LOGO", "icon": "type", "images": images["logos"], "is_cast": False},
+        {"key": "other", "name": "其他图片", "icon": "images", "images": images["other"], "is_cast": False},
+        {"key": "stills", "name": "剧照", "icon": "image", "images": images["stills"], "is_cast": False},
+        {"key": "cast", "name": "演员照片", "icon": "user-round", "images": cast, "is_cast": True, "retained": False},
+        {"key": "retained-cast", "name": "保留的演员照片", "icon": "user-round-check", "images": retained_cast, "is_cast": True, "retained": True},
     ]
     files = {row["file_id"]: row for row in records["media_file"]}
     history = []

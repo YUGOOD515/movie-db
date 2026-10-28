@@ -107,7 +107,7 @@ class Group:
     description: str
     settings: tuple[Setting, ...]
     test: str | None = None  # 对应 setup_wizard.TESTS 的检测项
-    icon: str = ""           # Bootstrap Icons 名称（不含 bi- 前缀）
+    icon: str = ""           # Lucide 图标名称
 
     @property
     def basic(self):
@@ -168,14 +168,14 @@ SECTIONS: tuple[Section, ...] = (
             S("ALIST_RATE", "每秒请求数", "float", 20, advanced=True, low=0.1, high=100, placeholder="20",
               hint="网盘风控严格时调低。"),
             S("ALIST_CONCURRENCY", "同时请求数", "int", 4, advanced=True, low=1, high=16, placeholder="4"),
-        ), test="alist", icon="hdd-network"),
+        ), test="alist", icon="network"),
         Group("scan", "待关联扫描", "发现新文件、检查失效文件", (
             S("MOVIEDB_AUTOSCAN", "启动时自动扫描", "bool", True,
               hint="MovieDB 启动后在后台扫描已选择的片库目录。"),
             S("IMPORT_TITLE_CONCURRENCY", "核心关联作品并行数", "int", 4, advanced=True, low=1, high=16, placeholder="4",
               hint="多个作品共用接口限额和视频探测池；图片与评分在独立资源池继续补齐。"),
         ), icon="radar"),
-        Group("player", "播放器", "播放影片并记录观看进度", PLAYER_SETTINGS, test="player", icon="play-circle"),
+        Group("player", "播放器", "播放影片并记录观看进度", PLAYER_SETTINGS, test="player", icon="circle-play"),
         Group("ffprobe", "ffprobe", "读取分辨率、HDR 与音轨", (
             S("FFPROBE_PATH", "程序路径", "path", placeholder="ffprobe", hint="安装包已自带；留空使用系统 PATH 中的 ffprobe。"),
             S("FFPROBE_TIMEOUT", "超时（秒）", "int", 60, advanced=True, low=5, high=600, placeholder="60"),
@@ -188,14 +188,14 @@ SECTIONS: tuple[Section, ...] = (
             S("MOVIEDB_SYNC_TOKEN", "同步令牌", "secret", hint="设置后，媒体库变化时自动同步到云端。"),
             S("MOVIEDB_SYNC_DISABLED", "暂停自动同步", "bool", False),
             S("MOVIEDB_SYNC_URL", "同步地址", "url", advanced=True, placeholder="https://moviedb-router.example.workers.dev"),
-        ), icon="cloud-arrow-up"),
+        ), icon="cloud-upload"),
         Group("app", "本机", "MovieDB 自身", (
             S("MOVIEDB_PORT", "端口", "int", 5000, low=1024, high=65535, restart=True, placeholder="5000",
               hint="桌面版使用的本机端口。"),
             S("MOVIEDB_UI", "界面打开方式", "select", restart=True,
               options=(("", "独立窗口（默认）"), ("browser", "系统浏览器")),
               hint="桌面版的界面显示在 MovieDB 自己的窗口里，还是用系统浏览器打开。"),
-        ), icon="pc-display"),
+        ), icon="monitor"),
     ), icon="plug"),
     Section("metadata", "元数据", "海报、简介、演员与评分", (
         Group("tmdb", "TMDB", "海报、简介、演员与季集", (
@@ -216,13 +216,13 @@ SECTIONS: tuple[Section, ...] = (
             S("MDBLIST_RATE", "每秒请求预算", "float", 2, advanced=True, low=0.1, high=2, placeholder="2"),
             S("MOVIEDB_API_USAGE_DATABASE", "请求预算与评分缓存位置", "path", advanced=True,
               hint="留空使用数据目录的 api-usage.db；更换位置前先迁移原文件以保留请求计数。"),
-        ), test="mdblist", icon="bar-chart"),
+        ), test="mdblist", icon="chart-column"),
         Group("imdb", "IMDb 评分", "官方评分文件，超过一天自动重新下载", (), icon="star"),
         Group("douban", "豆瓣评分", "录入和刷新评分时一并获取", (
             S("DOUBAN_ENABLED", "获取豆瓣评分", "bool", True,
               hint="使用豆瓣 App 的非官方接口，可能随时失效；请求过快时豆瓣会暂时拒绝访问，MovieDB 会自动暂停 30 分钟。"),
-        ), icon="chat-square-quote"),
-    ), icon="collection"),
+        ), icon="message-square-quote"),
+    ), icon="library"),
     Section("ai", "AI", "识别文件名拿不准的影片", (
         Group("llm", "AI 识别", "文件名规则拿不准时，让大模型判断片名、年份和季集", (
             S("LLM_BASE_URL", "接口地址", "url", placeholder="https://…/v1"),
@@ -238,8 +238,8 @@ SECTIONS: tuple[Section, ...] = (
               hint="留空时 DeepSeek 为 8，其他平台为 20。"),
             S("LLM_CONCURRENCY", "同时请求数", "int", advanced=True, low=1, high=500, placeholder="自动",
               hint="留空时 DeepSeek 为 64，其他平台为 2；遇到限流会自动减半再逐步恢复。"),
-        ), test="llm", icon="stars"),
-    ), icon="stars"),
+        ), test="llm", icon="sparkles"),
+    ), icon="sparkles"),
     Section("data", "数据", "清除本机数据，回到首次使用", icon="database"),
 )
 del S
