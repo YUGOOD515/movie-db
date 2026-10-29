@@ -236,7 +236,7 @@ def _setup_guard():
         source = request.headers.get("Origin") or request.headers.get("Referer") or ""
         expected = request.host_url.rstrip("/")
         if source != expected and not source.startswith(expected + "/"):
-            return jsonify(ok=False, message="请求来源不正确，请刷新设置页后重试。"), 403
+            return jsonify(ok=False, message="请求来源不正确，请刷新页面后重试。"), 403
     return None
 
 
@@ -575,7 +575,7 @@ def save_drive():
     try:
         result = _drives.save(
             payload.get("mount"), payload.get("kind"), payload.get("config") or {},
-            enabled=payload.get("enabled", True),
+            enabled=payload.get("enabled"), create=payload.get("create") is True,
         )
     except (RuntimeError, ValueError) as error:
         return jsonify(ok=False, message=str(error)), 400
@@ -647,7 +647,6 @@ def media():
         overview=page,
         missing_total=sum(missing.values()),
         health=health,
-        alist_origin=os.environ.get("ALIST_ORIGIN", "http://127.0.0.1:5244").rstrip("/"),
         drive_types=drive_types,
         drives=drive_list,
         missing_mounts=missing_mounts,
