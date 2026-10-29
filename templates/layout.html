@@ -24,7 +24,7 @@
                         document.documentElement.dataset.vtFrom = handoff.from;
                         const clear = () => delete document.documentElement.dataset.vtFrom;
                         addEventListener("pagereveal", (event) => {
-                            event.viewTransition ? event.viewTransition.finished.finally(clear) : clear();
+                            event.viewTransition ? event.viewTransition.finished.then(clear, clear) : clear();
                         }, { once: true });
                     }
                 } catch {}

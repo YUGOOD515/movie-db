@@ -146,10 +146,14 @@ function bindTransitions() {
             }
             clearTransitionNames();
             const card = link.closest(".poster-card, .continue-card, .ranked-feature, .home-hero-slide");
-            if (!card) {
+            if (!card || reduceMotion || !("onpageswap" in window)) {
                 return;
             }
             const fromHero = card.classList.contains("home-hero-slide");
+            const fromRanked = card.classList.contains("ranked-feature");
+            if (fromHero) {
+                card.closest("[data-home-hero]")?.dispatchEvent(new Event("media:navigate"));
+            }
             // 倾斜中的海报先复位，避免快照带着旋转与放大
             const tilted = card.querySelector("[data-tilt-bound]");
             if (tilted) {
@@ -157,21 +161,26 @@ function bindTransitions() {
                 tilted.style.transition = "none";
                 tilted.style.transform = "none";
             }
-            nameForTransition(card.querySelector(fromHero ? ".home-hero-media" : "img.media-cover"), "media-hero");
+            const visual = fromHero ? ".home-hero-media" : fromRanked ? ".ranked-feature-card" : "img.media-cover";
+            nameForTransition(card.querySelector(visual), "media-hero");
             nameForTransition(card.querySelector("[data-transition-logo]"), "media-logo");
+            if (fromRanked) {
+                nameForTransition(card.querySelector(".ranked-feature-meta"), "media-meta");
+            }
             // 告诉详情页本次来自哪类卡片（layout.html 读取后设置 data-vt-from）
             try {
                 sessionStorage.setItem(
                     "media-vt",
-                    JSON.stringify({ from: fromHero ? "hero" : "card", path: new URL(link.href).pathname, at: Date.now() }),
+                    JSON.stringify({ from: fromHero ? "hero" : fromRanked ? "ranked" : "card", path: new URL(link.href).pathname, at: Date.now() }),
                 );
             } catch {}
         },
         true,
     );
+    window.addEventListener("pageshow", clearTransitionNames);
     window.addEventListener("pagereveal", (event) => {
         if (event.viewTransition) {
-            event.viewTransition.finished.finally(clearTransitionNames);
+            event.viewTransition.finished.then(clearTransitionNames, clearTransitionNames);
         } else {
             clearTransitionNames();
         }

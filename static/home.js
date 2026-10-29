@@ -61,6 +61,26 @@
     }
     embla.on("select", select);
     embla.on("settle", () => slides.forEach((slide) => slide.classList.remove("is-leaving")));
+
+    // 导航快照保留当前推镜位置；从浏览器缓存返回时继续播放。
+    let pausedAnimations = [];
+    let resumeAutoplay = false;
+    hero.addEventListener("media:navigate", () => {
+        if (hero.classList.contains("is-navigating")) return;
+        hero.classList.add("is-navigating");
+        resumeAutoplay = autoplay?.isPlaying() || false;
+        autoplay?.stop();
+        pausedAnimations = hero.getAnimations({ subtree: true }).filter((animation) => animation.playState === "running");
+        pausedAnimations.forEach((animation) => animation.pause());
+    });
+    window.addEventListener("pageshow", () => {
+        if (!hero.classList.contains("is-navigating")) return;
+        hero.classList.remove("is-navigating");
+        pausedAnimations.forEach((animation) => animation.play());
+        pausedAnimations = [];
+        if (resumeAutoplay) autoplay?.play();
+    });
+
     // 首屏加载完后预载其余背景图，前后切换都不再等待下载。
     const preload = () => hero.querySelectorAll("img[loading=lazy]").forEach((img) => img.removeAttribute("loading"));
     if (document.readyState === "complete") {

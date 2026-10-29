@@ -28,7 +28,7 @@
                 <div class="detail-hero-grid d-flex flex-column flex-md-row align-items-md-end gap-3 w-100">
                     <div class="detail-primary d-flex flex-column align-items-start">
                         {% if media.logo_path %}
-                            <img class="detail-logo img-fluid w-100 object-fit-contain mb-4" src="{{ url_for('static', filename=media.logo_path) }}" alt="{{ media.name }}标志" data-media-logo>
+                            <img class="detail-logo img-fluid object-fit-contain mb-4" src="{{ url_for('static', filename=media.logo_path) }}" alt="{{ media.name }}标志" data-media-logo>
                             <h1 class="visually-hidden" id="detail-title">{{ media.name }}</h1>
                         {% else %}
                             <h1 class="display-4 fw-semibold lh-1 mb-4" id="detail-title">{{ media.name }}</h1>
