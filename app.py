@@ -33,7 +33,7 @@ from queries.home import (
     get_unwatched,
     query_home,
 )
-from queries.manager import get_rating_title_ids, query_manager
+from queries.manager import get_media_paths, get_rating_title_ids, query_manager
 from queries.title import (
     get_playable_file,
     query_title,
@@ -73,6 +73,7 @@ def _lazy(module: str, name: str):
 
 requests = _LazyModule("requests")
 media_source = _LazyModule("services.media_source")
+_drives = _LazyModule("services.drives")
 player = _LazyModule("connectors.player")
 tmdb = _LazyModule("connectors.tmdb")
 _media_import = _LazyModule("services.media_import")
@@ -554,6 +555,58 @@ def resume_title(title_id: str):
         url_for("play_media_file", file_id=source["file_id"]),
         code=307,
     )
+
+
+@app.get("/manager/drives")
+def drives_page():
+    if app.config["READ_ONLY"]:
+        abort(404)
+    return render_template(
+        "drives.html",
+        drive_types=_drives.types(),
+        drives=_drives.listing(),
+        missing_mounts=_drives.missing_mounts(get_media_paths(get_db())),
+    )
+
+
+@app.post("/manager/drives/save")
+def save_drive():
+    denied = _setup_guard()
+    if denied:
+        return denied
+    payload = request.get_json(silent=True) or {}
+    try:
+        result = _drives.save(
+            payload.get("mount"), payload.get("kind"), payload.get("config") or {},
+            enabled=payload.get("enabled", True),
+        )
+    except (RuntimeError, ValueError) as error:
+        return jsonify(ok=False, message=str(error)), 400
+    return jsonify(result)
+
+
+@app.post("/manager/drives/<mount>/test")
+def test_drive(mount):
+    denied = _setup_guard()
+    if denied:
+        return denied
+    return jsonify(_drives.test(mount))
+
+
+@app.post("/manager/drives/<mount>/toggle")
+def toggle_drive(mount):
+    denied = _setup_guard()
+    if denied:
+        return denied
+    return jsonify(_drives.toggle(mount))
+
+
+@app.post("/manager/drives/<mount>/delete")
+def delete_drive(mount):
+    denied = _setup_guard()
+    if denied:
+        return denied
+    return jsonify(_drives.delete(mount))
 
 
 @app.get("/media")

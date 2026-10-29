@@ -1,5 +1,5 @@
 // 首次使用引导：开场 → 片源 →（需要时）海报与资料 → 完成；右侧海报墙随进度逐级亮起。
-// TMDB 在开场时就用内置密钥自动检测：连得上就跳过这一步，AList 连接后直接保存。
+// TMDB 在开场时就用内置密钥自动检测：连得上就跳过这一步，网盘保存后直接完成设置。
 // AI 识别与多平台评分不再占用引导步骤，完成页给出去设置页开启的入口。
 (() => {
     const root = document.querySelector("[data-onboard]");
@@ -8,9 +8,9 @@
     const scenes = Object.fromEntries([...root.querySelectorAll("[data-scene]")].map(node => [node.dataset.scene, node]));
     const tiles = [...root.querySelectorAll(".onboard-tile")];
     const progress = root.querySelector("[data-progress]");
-    const STEPS = ["alist", "tmdb"];
+    const STEPS = ["drive", "tmdb"];
     const SERVICE_FIELDS = {
-        alist: ["ALIST_ORIGIN", "ALIST_USERNAME", "ALIST_PASSWORD", "ALIST_PATH_PASSWORD"],
+        drive: [],
         tmdb: ["TMDB_TOKEN", "TMDB_PROXY", "image_proxy"],
     };
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -65,7 +65,7 @@
     function syncProgress() {
         const index = STEPS.indexOf(at);
         // 只剩“片源”一步时不显示进度条
-        progress.hidden = index < 0 || (at === "alist" && tmdbReady());
+        progress.hidden = index < 0 || (at === "drive" && tmdbReady());
         progress.querySelectorAll("li").forEach((item, i) => {
             item.classList.toggle("is-current", i === index);
             item.classList.toggle("is-done", i < index);
@@ -110,7 +110,7 @@
         if (result.skip) {
             const skip = el("button", "onboard-skip", "跳过检测，先继续");
             skip.type = "button";
-            skip.addEventListener("click", () => { tests[service] = { ok: true, skipped: true }; setLevel(1); afterAlist(skip); });
+            skip.addEventListener("click", () => { tests[service] = { ok: true, skipped: true }; setLevel(1); afterDrive(skip); });
             box.append(skip);
         }
     }
@@ -131,31 +131,21 @@
         root.querySelector(`[data-connect="${service}"] [data-label]`).textContent = text;
     }
 
-    // AList 之后：TMDB 已就绪就直接保存，否则进入 TMDB 步骤
-    async function afterAlist(button) {
+    async function afterDrive(button) {
         await tmdbCheck;
         if (tmdbReady()) finish(button);
         else { prepareTmdb(); go("tmdb"); }
     }
 
     async function connect(service) {
-        const button = root.querySelector(`[data-connect="${service}"]`);
-        if (service === "alist" && tests.alist && tests.alist.ok) { afterAlist(button); return; }
-        if (service === "tmdb" && tmdbReady()) { finish(button); return; }
-        const result = await runTest(service, service === "tmdb" ? { with_posters: !postersShown } : undefined);
-        if (!result) return;
-        if (service === "alist") {
-            if (!result.ok) {
-                // AList 暂时没开也允许先往下走，之后到设置里再检测
-                if (!result.network) showResult(service, { ...result, skip: true });
-                return;
-            }
-            setLevel(1);
-            await tmdbCheck;
-            setConnectLabel("alist", tmdbReady() ? "完成设置" : "下一步");
-            syncProgress();
+        if (service === "drive") {
+            root.querySelector("[data-drive-save]").click();
             return;
         }
+        const button = root.querySelector(`[data-connect="${service}"]`);
+        if (service === "tmdb" && tmdbReady()) { finish(button); return; }
+        const result = await runTest(service, { with_posters: !postersShown });
+        if (!result) return;
         tmdbResult(result);
         if (result.ok && result.image_ok === false) {
             root.querySelector("[data-image-proxy]").hidden = false;
@@ -222,9 +212,8 @@
     }
 
     function renderChecks() {
-        const origin = state.values.ALIST_ORIGIN.replace(/^https?:\/\//, "");
-        check("alist", state.alist_running ? "ok" : "warn",
-            state.alist_running ? `AList 正在运行（${origin}）` : "没有检测到 AList，下一步可以填写它的地址");
+        const count = (state.drives || []).filter(drive => drive.enabled).length;
+        check("drive", count ? "ok" : "warn", count ? `已添加 ${count} 个网盘` : "下一步添加一个本机目录或网盘");
         const probe = state.ffprobe;
         check("ffprobe", probe.ok ? "ok" : "warn", probe.ok
             ? `ffprobe ${probe.bundled ? "随安装包提供" : "已就绪"}${probe.version ? ` · ${probe.version}` : ""}`
@@ -265,7 +254,6 @@
             const input = field(name);
             if (input && saved) input.placeholder = "已保存，留空保持不变";
         }
-        if (state.saved.ALIST_PATH_PASSWORD) root.querySelector('[data-more="path-password"]').open = true;
         if (state.saved.TMDB_TOKEN) root.querySelector('[data-more="token"]').open = true;
         renderChecks();
         // 后台检测 TMDB（无需用户操作），结果决定是否需要 TMDB 步骤
@@ -289,7 +277,7 @@
     form.addEventListener("keydown", event => {
         if (event.key !== "Enter" || !event.target.matches("input:not([type=checkbox])")) return;
         event.preventDefault();
-        if (at === "alist" || at === "tmdb") connect(at);
+        if (at === "drive" || at === "tmdb") connect(at);
     });
     form.addEventListener("submit", event => event.preventDefault());
     root.querySelectorAll("[data-reveal]").forEach(button => button.addEventListener("click", () => {
@@ -305,9 +293,14 @@
         go(button.dataset.go);
     }));
     root.querySelectorAll("[data-connect]").forEach(button => button.addEventListener("click", () => connect(button.dataset.connect)));
+    document.addEventListener("drive-saved", () => {
+        tests.drive = { ok: true };
+        setLevel(1);
+        afterDrive(root.querySelector("[data-drive-save]"));
+    });
 
     load().catch(() => {
-        check("alist", "warn", "无法读取当前状态，请刷新页面");
+        check("drive", "warn", "无法读取当前状态，请刷新页面");
         check("tmdb", "warn", "无法读取当前状态，请刷新页面");
     });
 })();

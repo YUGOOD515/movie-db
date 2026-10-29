@@ -53,7 +53,10 @@
             ]),
             ("管理", [
                 ("media", "媒体资源管理", "database", []),
-            ] + ([] if read_only else [("settings_page", "设置", "settings", ["setup_page"])])),
+            ] + ([] if read_only else [
+                ("drives_page", "网盘", "network", []),
+                ("settings_page", "设置", "settings", ["setup_page"]),
+            ])),
         ] %}
 
         <button class="site-menu-toggle" type="button" data-bs-toggle="offcanvas" data-bs-target="#site-sidebar" aria-controls="site-sidebar" aria-label="打开导航">

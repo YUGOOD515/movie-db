@@ -21,6 +21,10 @@ def get_rating_title_ids(db: Connection) -> list[str]:
     ]
 
 
+def get_media_paths(db: Connection) -> list[str]:
+    return [row[0] for row in db.execute("SELECT alist_path FROM media_file WHERE alist_path != ''")]
+
+
 def get_douban_refresh_targets(db: Connection) -> list[dict]:
     return [
         dict(row)

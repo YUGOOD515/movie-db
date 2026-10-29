@@ -1,0 +1,58 @@
+{% macro field_input(field, kind, prefix) %}
+    {% set input_id = prefix ~ '-' ~ kind ~ '-' ~ field.name %}
+    <label class="form-label" for="{{ input_id }}">{{ field.label }}</label>
+    {% if field.kind == 'select' %}
+        <select class="form-select" id="{{ input_id }}" data-drive-config="{{ field.name }}"{% if field.required %} required{% endif %}>
+            {% for value, label in field.options %}<option value="{{ value }}"{% if value == field.default %} selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+    {% elif field.kind == 'bool' %}
+        <div class="form-check form-switch">
+            <input class="form-check-input" id="{{ input_id }}" type="checkbox" role="switch" data-drive-config="{{ field.name }}"{% if field.default %} checked{% endif %}>
+        </div>
+    {% else %}
+        <input class="form-control" id="{{ input_id }}" type="{{ 'password' if field.kind == 'secret' else 'text' }}"
+               value="{{ '' if field.kind == 'secret' else field.default }}" placeholder="{{ field.hint if field.kind == 'secret' else '' }}"
+               autocomplete="off" spellcheck="false" data-drive-config="{{ field.name }}"{% if field.kind == 'secret' %} data-drive-secret{% endif %}{% if field.required %} required{% endif %}>
+    {% endif %}
+    {% if field.hint and field.kind != 'secret' %}<div class="form-text">{{ field.hint }}</div>{% endif %}
+{% endmacro %}
+
+{% macro drive_form(prefix, setup=false) %}
+<div class="vstack gap-3" data-drive-form{% if setup %} data-drive-setup{% endif %}>
+    <div class="row g-3">
+        <div class="col-md-6">
+            <label class="form-label" for="{{ prefix }}-kind">网盘类型</label>
+            <select class="form-select" id="{{ prefix }}-kind" data-drive-kind>
+                {% for type in drive_types %}<option value="{{ type.kind }}">{{ type.label }}</option>{% endfor %}
+            </select>
+        </div>
+        <div class="col-md-6" data-drive-mount>
+            <label class="form-label" for="{{ prefix }}-mount">挂载名</label>
+            <input class="form-control" id="{{ prefix }}-mount" type="text" placeholder="例如：夸克" required data-drive-mount-input>
+            <div class="form-text">已有媒体路径的第一级目录名，修改后需保持一致。</div>
+        </div>
+    </div>
+    {% for type in drive_types %}
+        <div class="vstack gap-3" data-drive-fields="{{ type.kind }}" hidden>
+            {% for field in type.fields if not field.advanced %}
+                <div>{{ field_input(field, type.kind, prefix) }}</div>
+            {% endfor %}
+            {% if type.kind in ('aliyun', 'baidu', 'pan123') %}
+                <p class="small text-body-secondary mb-0">默认令牌续期服务由 OpenList 团队提供。可在 <a href="https://api.oplist.org/" target="_blank" rel="noopener">OpenList Token 获取工具</a> 获取令牌，或在高级设置中使用自己的凭据。</p>
+            {% endif %}
+            {% if type.fields|selectattr('advanced')|list %}
+                <details>
+                    <summary>高级</summary>
+                    <div class="vstack gap-3 mt-3">
+                        {% for field in type.fields if field.advanced %}<div>{{ field_input(field, type.kind, prefix) }}</div>{% endfor %}
+                    </div>
+                </details>
+            {% endif %}
+        </div>
+    {% endfor %}
+    <div data-drive-result class="small" role="status" aria-live="polite"></div>
+    <div>
+        <button class="btn btn-primary" type="button" data-drive-save>检测并保存</button>
+    </div>
+</div>
+{% endmacro %}

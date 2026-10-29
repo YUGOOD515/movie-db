@@ -154,14 +154,14 @@ else:
 SECTIONS: tuple[Section, ...] = (
     Section("connection", "连接", "影片来源、播放器与本机服务", (
         Group("drive", "网盘", "从网盘读取和播放影片", (
-            S("MEDIA_IMPORT_ROOT", "导入根目录", advanced=True, hint="只允许导入这个目录下的文件，留空不限制。",
-              placeholder="/夸克/影视"),
             S("DRIVE_RATE", "网盘每秒请求数", "float", 20, advanced=True, low=0.1, high=100, placeholder="20"),
             S("DRIVE_CONCURRENCY", "网盘同时请求数", "int", 4, advanced=True, low=1, high=16, placeholder="4"),
         ), icon="network"),
         Group("scan", "待关联扫描", "发现新文件、检查失效文件", (
             S("MOVIEDB_AUTOSCAN", "启动时自动扫描", "bool", True,
               hint="MovieDB 启动后在后台扫描已选择的片库目录。"),
+            S("MEDIA_IMPORT_ROOT", "导入根目录", advanced=True, hint="只允许导入这个目录下的文件，留空不限制。",
+              placeholder="/夸克/影视"),
             S("IMPORT_TITLE_CONCURRENCY", "核心关联作品并行数", "int", 4, advanced=True, low=1, high=16, placeholder="4",
               hint="多个作品共用接口限额和视频探测池；图片与评分在独立资源池继续补齐。"),
         ), icon="radar"),
