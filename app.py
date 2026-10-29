@@ -247,7 +247,8 @@ def setup_page():
         abort(404)
     if _library_ready():
         return redirect(url_for("settings_page"))
-    return render_template("setup.html", first_run=True, remote=bool(request.headers.get("Cf-Connecting-Ip")))
+    return render_template("setup.html", first_run=True, remote=bool(request.headers.get("Cf-Connecting-Ip")),
+                           drive_types=_drives.types())
 
 
 @app.get("/setup/poster/<size>/<name>")
@@ -562,12 +563,7 @@ def drives_page():
     denied = _setup_guard()
     if denied:
         return denied
-    return render_template(
-        "drives.html",
-        drive_types=_drives.types(),
-        drives=_drives.listing(),
-        missing_mounts=_drives.missing_mounts(get_media_paths(get_db())),
-    )
+    return redirect(url_for("media", tab="drives"))
 
 
 @app.post("/manager/drives/save")
@@ -579,7 +575,7 @@ def save_drive():
     try:
         result = _drives.save(
             payload.get("mount"), payload.get("kind"), payload.get("config") or {},
-            enabled=payload.get("enabled", True), original_mount=payload.get("original_mount"),
+            enabled=payload.get("enabled", True),
         )
     except (RuntimeError, ValueError) as error:
         return jsonify(ok=False, message=str(error)), 400
@@ -617,18 +613,28 @@ def media():
         title_type = "series"
     if title_type not in ("all", "movie", "series"):
         title_type = "all"
-    raw = query_manager(
-        get_db(),
-        query=(request.args.get("q") or "").strip() or None,
-        title_type=title_type,
-    )
-    active_tab = (
-        "associate" if request.args.get("tab") == "associate" else "overview"
-    )
-    missing = {} if app.config["READ_ONLY"] else missing_by_title(app.config["DATABASE"])
-    health = "missing" if request.args.get("health") == "missing" and missing else ""
-    if health:
-        raw = {**raw, "titles": [title for title in raw["titles"] if title["title_id"] in missing]}
+    requested_tab = request.args.get("tab", "overview")
+    allowed_tabs = {"overview", "associate"} if app.config["READ_ONLY"] else {"overview", "associate", "drives"}
+    active_tab = requested_tab if requested_tab in allowed_tabs else "overview"
+    drive_list = _drives.listing() if active_tab in ("associate", "drives") and not app.config["READ_ONLY"] else []
+    drive_types = _drives.types() if active_tab == "drives" else []
+    missing_mounts = []
+    if active_tab == "drives":
+        raw = {"titles": [], "artwork": [], "query": "", "title_type": title_type}
+        missing = {}
+        health = ""
+        if _setup.library_ready(app.config["DATABASE"]):
+            missing_mounts = _drives.missing_mounts(get_media_paths(get_db()))
+    else:
+        raw = query_manager(
+            get_db(),
+            query=(request.args.get("q") or "").strip() or None,
+            title_type=title_type,
+        )
+        missing = {} if app.config["READ_ONLY"] else missing_by_title(app.config["DATABASE"])
+        health = "missing" if request.args.get("health") == "missing" and missing else ""
+        if health:
+            raw = {**raw, "titles": [title for title in raw["titles"] if title["title_id"] in missing]}
     page = build_manager_viewmodel(
         raw,
         active_tab=active_tab,
@@ -642,6 +648,9 @@ def media():
         missing_total=sum(missing.values()),
         health=health,
         alist_origin=os.environ.get("ALIST_ORIGIN", "http://127.0.0.1:5244").rstrip("/"),
+        drive_types=drive_types,
+        drives=drive_list,
+        missing_mounts=missing_mounts,
     )
 
 

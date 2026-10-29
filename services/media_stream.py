@@ -5,7 +5,7 @@ import re
 from concurrent.futures import ThreadPoolExecutor
 
 import requests
-from flask import Response, abort, redirect, send_file, stream_with_context
+from flask import Response, abort, redirect, request, send_file, stream_with_context
 from werkzeug.exceptions import NotFound
 
 from connectors.drives.base import DriveError
@@ -28,8 +28,8 @@ def _headers(response):
 
 def _single(path, drive, link):
     headers = {name: value for name, value in (
-        ("Range", media_source_request_header("Range")),
-        ("If-Range", media_source_request_header("If-Range")),
+        ("Range", request.headers.get("Range")),
+        ("If-Range", request.headers.get("If-Range")),
     ) if value}
     response = _request(drive, link, headers)
     if response.status_code in AUTH_STATUSES:
@@ -47,13 +47,7 @@ def _single(path, drive, link):
                     direct_passthrough=True)
 
 
-def media_source_request_header(name):
-    from flask import request
-    return request.headers.get(name)
-
-
 def _range(size):
-    from flask import request
     value = request.headers.get("Range")
     if not value:
         return 0, size - 1, False
@@ -93,7 +87,6 @@ def _head(path, drive, link):
 
 
 def _segmented(path, drive, link, entry):
-    from flask import request
     if entry.size <= 0:
         return Response("文件大小未知", status=502)
     requested = _range(entry.size)
@@ -121,33 +114,36 @@ def _segmented(path, drive, link, entry):
                             return data
                 finally:
                     response.close()
+            except FileNotFoundError:
+                raise
             except (requests.RequestException, OSError, RuntimeError, ValueError):
                 pass
             if attempt == 0:
                 try:
                     state["link"] = media_source.open_link(path, fresh=True)[0]
+                except FileNotFoundError:
+                    raise
                 except (requests.RequestException, OSError, RuntimeError, ValueError):
                     return b""
         return b""
+
+    first = fetch(parts[0])
+    if first is unsupported:
+        return _single(path, drive, state["link"])
+    if not first:
+        return Response(status=502)
 
     @stream_with_context
     def body():
         executor = ThreadPoolExecutor(max_workers=concurrency)
         futures = {}
         try:
-            for index in range(min(concurrency, len(parts))):
+            for index in range(1, min(concurrency + 1, len(parts))):
                 futures[index] = executor.submit(fetch, parts[index])
-            for index in range(len(parts)):
+            yield first
+            for index in range(1, len(parts)):
                 data = futures.pop(index).result()
-                if data is unsupported:
-                    if index:
-                        return
-                    for future in futures.values():
-                        future.cancel()
-                    single = _single(path, drive, state["link"])
-                    yield from single.response
-                    return
-                if not data:
+                if data is unsupported or not data:
                     return
                 yield data
                 next_index = index + concurrency
@@ -178,7 +174,6 @@ def _response(token):
     if link.local_path:
         return send_file(link.local_path, conditional=True)
     drive, _ = media_source.resolve(path)
-    from flask import request
     if request.method == "HEAD":
         return _head(path, drive, link)
     if not link.proxy:
@@ -193,9 +188,5 @@ def response(token):
         return _response(token)
     except (FileNotFoundError, NotFound):
         return Response("找不到挂载或文件", status=404)
-    except DriveError as error:
-        if "找不到" in str(error):
-            return Response("找不到挂载或文件", status=404)
-        return Response("网盘暂时无法访问，请稍后重试", status=502)
-    except requests.RequestException:
+    except (DriveError, requests.RequestException):
         return Response("网盘暂时无法访问，请稍后重试", status=502)

@@ -29,7 +29,7 @@ def env(tmp_path):
     movie_app.app.config.update(previous)
 
 
-def test_public_config_uses_whitelist_everywhere(env):
+def test_public_config_only_exposes_declared_non_secret_fields(env):
     drive_store.save_drive("aliyun", "aliyun", {
         "refresh_token": "refresh-secret", "access_token": "ali-access-secret",
         "drive_id": "derived-drive", "user_id": "derived-user", "drive_type": "resource", "root_id": "root",
@@ -40,14 +40,15 @@ def test_public_config_uses_whitelist_everywhere(env):
     drive_store.save_drive("pan123", "pan123", {
         "access_token": "direct-secret", "expires_at": "derived-expiry", "root_id": "0",
     }, True)
-    page = env["client"].get("/manager/drives", headers=HTML).get_data(as_text=True)
+    page = env["client"].get("/manager/drives", headers=HTML, follow_redirects=True).get_data(as_text=True)
     status = env["client"].get("/setup/status").get_data(as_text=True)
     for output in (page, status):
         for secret in ("refresh-secret", "ali-access-secret", "baidu-access-secret", "direct-secret",
                        "derived-drive", "derived-user", "derived-expiry"):
             assert secret not in output
     for row in drives.listing():
-        assert set(row["config"]) <= drives.PUBLIC_CONFIG_FIELDS[row["kind"]]
+        declared = {field.name for field in drives.DRIVERS[row["kind"]].fields if field.kind != "secret"}
+        assert set(row["config"]) == declared
 
 
 def test_drive_read_and_write_reject_tunnel(env):
@@ -124,7 +125,8 @@ def test_pan123_stops_on_missing_or_repeated_cursor(pages):
 
 @pytest.mark.parametrize("error,status", [
     (FileNotFoundError("找不到：/quark/a.mkv"), 404),
-    (DriveError("找不到挂载：quark"), 404),
+    (FileNotFoundError("找不到挂载：quark"), 404),
+    (DriveError("找不到挂载：quark"), 502),
     (DriveError("网盘读取失败"), 502),
     (requests.ConnectionError("offline"), 502),
 ])
@@ -171,15 +173,12 @@ def test_baidu_fallback_dlink_contains_access_token():
     assert "access_token=access-secret" in link.url
 
 
-def test_star_mount_is_reserved_and_edit_can_rename(env):
+def test_star_mount_is_reserved_and_edit_cannot_change_type(env):
     with pytest.raises(ValueError):
         drives.save("*", "local", {"root": str(env["tmp"])})
-    assert drives.save("old", "local", {"root": str(env["tmp"])})["ok"]
-    response = env["client"].post("/manager/drives/save", json={
-        "mount": "new", "original_mount": "old", "kind": "local", "config": {"root": str(env["tmp"])},
-    }, headers=ORIGIN)
-    assert response.status_code == 200
-    assert drive_store.get_drive("old") is None and drive_store.get_drive("new") is not None
+    assert drives.save("local", "local", {"root": str(env["tmp"])})["ok"]
+    with pytest.raises(ValueError, match="不能更改网盘类型"):
+        drives.save("local", "quark", {"cookie": "secret"})
 
 
 def test_quark_accepts_numeric_status_as_text():

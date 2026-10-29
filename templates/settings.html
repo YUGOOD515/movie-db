@@ -92,7 +92,7 @@
                             {% if group.id == "drive" %}
                                 <div class="settings-row">
                                     <div class="settings-row-label"><label>挂载管理</label><p class="settings-row-hint">添加、检测、停用或删除网盘与凭据。</p></div>
-                                    <div class="settings-row-control"><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('drives_page') }}">打开网盘页</a></div>
+                                    <div class="settings-row-control"><a class="btn btn-sm chip-btn" href="{{ url_for('media', tab='drives') }}">打开网盘页</a></div>
                                 </div>
                             {% endif %}
                             {% if group.id == "llm" %}

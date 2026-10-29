@@ -72,7 +72,7 @@
                 <h2 class="onboard-title" id="ob-drive">你的影片在哪里？</h2>
                 <p class="onboard-lead">添加一个本机目录或网盘。MovieDB 只读取目录和播放文件，不会修改其中的内容。</p>
                 <div class="onboard-fields">
-                    {{ drive_form('setup-drive', setup=true) }}
+                    {{ drive_form('setup-drive', setup=true, action=action) }}
                 </div>
                 <div class="onboard-result" data-result="save" role="status" aria-live="polite"></div>
                 <div class="onboard-actions">

@@ -47,7 +47,7 @@ def drive_for(mount):
             return _drives[mount]
         row = drive_store.get_drive(mount)
         if not row or not row["enabled"]:
-            raise DriveError(f"找不到挂载：{mount}")
+            raise FileNotFoundError(f"找不到挂载：{mount}")
         driver = DRIVERS.get(row["kind"])
         if driver is None:
             raise DriveError(f"不支持的网盘类型：{row['kind']}")
@@ -65,7 +65,7 @@ def _select(path):
     if fallback and fallback["enabled"]:
         full_parts = path.split("/")[1:]
         return "*", drive_for("*"), full_parts
-    raise DriveError(f"找不到挂载：{mount}")
+    raise FileNotFoundError(f"找不到挂载：{mount}")
 
 
 def _list(drive, mount, directory, refresh=False):

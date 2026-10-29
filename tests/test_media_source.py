@@ -71,7 +71,7 @@ def test_mount_resolution_and_fallback(source):
     drive, entry = media_source.resolve("/share/a.mkv")
     assert entry.id == "/share/a"
     rows.clear()
-    with pytest.raises(DriveError, match="找不到挂载：quark"):
+    with pytest.raises(FileNotFoundError, match="找不到挂载：quark"):
         media_source.resolve("/quark/a.mkv")
 
 

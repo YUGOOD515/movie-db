@@ -145,3 +145,14 @@ def test_head_uses_one_byte_get_and_returns_total_size(client, monkeypatch):
     assert response.status_code == 200 and response.data == b""
     assert response.headers["Content-Length"] == "12345"
     assert session.calls[0][1]["headers"]["Range"] == "bytes=0-0"
+
+
+def test_segmented_stops_if_later_part_loses_range_support(client, monkeypatch):
+    data = b"0123456789"
+    session = FakeSession(handler=lambda url, kwargs: FakeResponse(200, data) if len(session.calls) == 2
+                          else FakeResponse(206, b"0123", {"Content-Range": "bytes 0-3/10"}))
+    install(monkeypatch, Link("https://offline.invalid/video", proxy=True, concurrency=2, part_size=4),
+            session, Entry("a.mkv", False, "a", size=len(data)))
+    response = client.get("/stream/good/a.mkv")
+    assert response.status_code == 200 and response.data == b"0123"
+    assert len(session.calls) == 2

@@ -47,14 +47,6 @@ def list_drives(database=None):
     return [_row(row) for row in rows]
 
 
-def public_drive(drive, secret_fields=()):
-    result = {**drive, "config": dict(drive["config"])}
-    for name in secret_fields:
-        if name in result["config"]:
-            result["config"][name] = ""
-    return result
-
-
 def get_drive(mount, database=None):
     with closing(_connect(database)) as db:
         row = db.execute("SELECT * FROM drive WHERE mount = ?", (mount,)).fetchone()
@@ -88,13 +80,3 @@ def set_status(mount, status, database=None):
 def delete_drive(mount, database=None):
     with _lock, closing(_connect(database)) as db, db:
         db.execute("DELETE FROM drive WHERE mount = ?", (mount,))
-
-
-def rename_mount(old, new, database=None):
-    if not new or "/" in new or new in (".", ".."):
-        raise ValueError("挂载名无效。")
-    with _lock, closing(_connect(database)) as db, db:
-        kind = db.execute("SELECT kind FROM drive WHERE mount = ?", (old,)).fetchone()
-        if kind and (new == "*") != (kind[0] == "alist"):
-            raise ValueError("挂载名无效。")
-        db.execute("UPDATE drive SET mount = ? WHERE mount = ?", (new, old))

@@ -280,7 +280,7 @@
         if (at === "drive" || at === "tmdb") connect(at);
     });
     form.addEventListener("submit", event => event.preventDefault());
-    root.querySelectorAll("[data-reveal]").forEach(button => button.addEventListener("click", () => {
+    root.querySelectorAll("[data-reveal]:not([data-drive-reveal])").forEach(button => button.addEventListener("click", () => {
         const input = button.previousElementSibling, shown = input.type === "text";
         input.type = shown ? "password" : "text";
         button.replaceChildren(icon(shown ? 'eye' : 'eye-off'));

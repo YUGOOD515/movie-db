@@ -34,18 +34,48 @@ def test_local_drive_crud_page_and_json_are_safe(env):
     assert set(response.get_json()) == {"ok", "status"}
     assert drive_store.get_drive("local")["status"] == f"已连接：{env['tmp']}"
 
-    page = env["client"].get("/manager/drives", headers=HTML)
+    redirect = env["client"].get("/manager/drives", headers=HTML)
+    assert redirect.status_code == 302 and redirect.headers["Location"].endswith("/media?tab=drives")
+    page = env["client"].get("/media?tab=drives", headers=HTML)
     assert page.status_code == 200
     text = page.get_data(as_text=True)
     assert "本机目录" in text and "AList / OpenList（透传）" in text and "local" in text
-    for label in ("夸克网盘", "UC 网盘", "阿里云盘 Open", "百度网盘", "123 云盘 Open"):
-        assert label in text
+    assert "settings-row" in text and "settings-advanced" in text and "settings-status" in text
+    assert "data-drive-reveal" in text and "data-secret-textarea" in text and 'data-pick-path="folder"' in text
+    kinds = ("local", "quark", "uc", "aliyun", "baidu", "pan123", "alist")
+    positions = [text.index(f'<option value="{kind}">') for kind in kinds]
+    assert positions == sorted(positions)
 
     assert env["client"].post("/manager/drives/local/test", headers=ORIGIN).get_json()["ok"]
     toggled = env["client"].post("/manager/drives/local/toggle", headers=ORIGIN).get_json()
     assert toggled["enabled"] is False and drive_store.get_drive("local")["enabled"] is False
     assert env["client"].post("/manager/drives/local/delete", headers=ORIGIN).get_json()["ok"]
     assert drive_store.get_drive("local") is None
+
+
+def test_drives_tab_does_not_require_library(env):
+    (env["tmp"] / "library.db").unlink()
+    response = env["client"].get("/media?tab=drives")
+    assert response.status_code == 200 and "data-drive-page" in response.get_data(as_text=True)
+
+
+def test_existing_passthrough_is_hidden_from_type_options(env):
+    drive_store.save_drive("*", "alist", {}, True)
+    text = env["client"].get("/media?tab=drives", headers=HTML).get_data(as_text=True)
+    assert '<option value="alist">' not in text
+
+
+def test_association_without_drives_links_to_drives_tab(env):
+    text = env["client"].get("/media?tab=associate", headers=HTML).get_data(as_text=True)
+    assert "尚未添加网盘" in text and 'href="/media?tab=drives"' in text
+
+
+def test_read_only_snapshot_hides_drives_tab(env):
+    movie_app.app.config["READ_ONLY"] = True
+    response = env["client"].get("/media?tab=drives", headers=HTML)
+    text = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert 'href="/media?tab=drives"' not in text and "data-drive-page" not in text
 
 
 def test_secret_stays_on_edit_and_failed_check_does_not_save(env, monkeypatch):

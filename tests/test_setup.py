@@ -68,6 +68,14 @@ def test_first_run_redirects_pages_to_setup(setup_env):
     assert page.status_code == 200 and "欢迎" in page.get_data(as_text=True)
 
 
+def test_setup_renders_drive_type_options(setup_env):
+    page = setup_env["client"].get("/setup", headers=HTML)
+    text = page.get_data(as_text=True)
+    assert page.status_code == 200 and 'id="setup-drive-kind"' in text
+    for kind in ("local", "quark", "uc", "aliyun", "baidu", "pan123", "alist"):
+        assert f'<option value="{kind}">' in text
+
+
 def test_save_writes_env_creates_library_and_hides_secrets(setup_env):
     client = setup_env["client"]
     response = client.post("/setup/save", json=_form(TMDB_PROXY="http://127.0.0.1:7890"), headers=SAME_ORIGIN)
