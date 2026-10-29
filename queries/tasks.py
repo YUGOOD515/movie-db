@@ -4,11 +4,11 @@ from pathlib import Path
 import sqlite3
 import time
 
-from models import discovery_store
+from models import local_store
 
 
 def import_tasks(database):
-    path = discovery_store.store_path(database).resolve()
+    path = local_store.store_path(database).resolve()
     if not path.is_file():
         return []
     with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)) as db:

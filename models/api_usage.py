@@ -1,30 +1,20 @@
 """Persistent request budgets and response cache; credentials are only hashed."""
 
 import json
-import os
-import sqlite3
 import time
 from contextlib import closing
-from pathlib import Path
 
 from connectors.throttle import RateLimitError
+from models import local_store
 from services import paths
 
 
 def database_path():
-    return Path(os.environ.get("MOVIEDB_API_USAGE_DATABASE") or paths.DATA_DIR / "api-usage.db")
+    return local_store.store_path(paths.database_path())
 
 
 def _connect():
-    path = database_path()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    db = sqlite3.connect(path, timeout=10)
-    db.executescript("""
-        CREATE TABLE IF NOT EXISTS request_usage (account TEXT NOT NULL, sent_at REAL NOT NULL);
-        CREATE INDEX IF NOT EXISTS request_usage_account ON request_usage(account, sent_at);
-        CREATE TABLE IF NOT EXISTS api_response (cache_key TEXT PRIMARY KEY, payload TEXT NOT NULL, expires_at REAL NOT NULL);
-    """)
-    return db
+    return local_store._connect(paths.database_path())
 
 
 def reserve(account, limit, *, now=None):

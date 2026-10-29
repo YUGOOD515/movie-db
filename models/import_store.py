@@ -8,7 +8,7 @@ import uuid
 from contextlib import closing
 from pathlib import Path
 
-from models import discovery_store as store
+from models import local_store as store
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS import_job (

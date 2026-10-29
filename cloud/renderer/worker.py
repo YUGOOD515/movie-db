@@ -33,7 +33,6 @@ async def load_snapshot(env, version: str | None) -> bool:
         file.write(raw)
     movie_app.app.config.update(
         SNAPSHOT_AT=meta.get("snapshot_at", ""),
-        ALIST_ORIGIN=meta.get("alist_origin", ""),
         THUMBNAIL_INDEX=frozenset(meta.get("thumbnails", [])),
         IMAGE_TONES=meta.get("tones", {}),
     )

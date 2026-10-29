@@ -7,8 +7,8 @@ from unittest.mock import patch
 
 import requests
 import test_library_app as fixtures
-from connectors import alist, media_probe, tmdb
-from services import media_association, media_discovery as discovery, media_import
+from connectors import media_probe, tmdb
+from services import media_association, media_discovery as discovery, media_import, media_source
 
 
 def video(path, created="2026-09-20T10:00:00+08:00"):
@@ -40,19 +40,19 @@ class DiscoveryTest(unittest.TestCase):
             if path.endswith("broken"):
                 raise requests.Timeout("private upstream")
             return [{"name": "broken", "is_dir": True}, {"name": "good.MKV"}, {"name": "subtitle.srt"}]
-        with patch.object(alist, "list_directory", side_effect=listing):
-            files, warnings = discovery.collect_folder("/share", "token")
+        with patch.object(media_source, "list_directory", side_effect=listing):
+            files, warnings = discovery.collect_folder("/share")
         self.assertEqual([item["path"] for item in files], ["/share/good.MKV"])
         self.assertEqual(len(warnings), 1)
         self.assertNotIn("private", warnings[0])
 
     def test_root_resolution_and_ambiguous_mounts(self):
-        with patch.dict(os.environ, {"ALIST_IMPORT_ROOT": ""}), patch.object(alist, "list_directory") as listing:
+        with patch.dict(os.environ, {"MEDIA_IMPORT_ROOT": ""}), patch.object(media_source, "list_directory") as listing:
             listing.side_effect = [[{"name": "Quark", "is_dir": True}], [{"name": "来自：分享", "is_dir": True}]]
-            self.assertEqual(discovery.find_share_root("token"), "/Quark/来自：分享")
+            self.assertEqual(discovery.find_share_root(), "/Quark/来自：分享")
             listing.side_effect = [[{"name": "a", "is_dir": True}, {"name": "b", "is_dir": True}], [{"name": "来自：分享", "is_dir": True}], [{"name": "来自：分享", "is_dir": True}]]
             with self.assertRaisesRegex(ValueError, "多个"):
-                discovery.find_share_root("token")
+                discovery.find_share_root()
 
     def test_timestamp_fallback_and_invalid_paths(self):
         self.assertEqual(discovery._timestamp({"created": "0001-01-01T00:00:00Z", "modified": "2026-01-01T00:00:00Z"})[2], "modified")
@@ -103,10 +103,8 @@ class AssociationIntegrationTest(unittest.TestCase):
     def test_movie_batch_series_single_update_and_stale_selection(self):
         paths = ["/share/Movie.mkv", "/share/S01E01.mkv", "/share/S01E02.mkv"]
         self.seed_discovery(paths)
-        with patch.object(alist, "configured_token", return_value="test"), \
-             patch.object(alist, "get_file", side_effect=lambda path, token: {"signed_url": alist.get_origin() + "/d" + path + "?sign=test", "raw_url": ""}), \
-             patch.object(alist, "validate_alist_video_url"), \
-             patch.object(alist, "get_video_link", return_value="https://video.test/file.mkv"), \
+        with patch.object(media_source, "get_file", side_effect=lambda path: {
+                "signed_url": "https://video.test" + path, "raw_url": "https://video.test" + path}), \
              patch.object(media_probe, "probe_video", return_value={"duration_ms": 1000}), \
              patch.object(media_import, "fetch_title_rating", return_value={"status": "unavailable"}):
             movie = {"title_id": "tt9000001", "items": [{"path": paths[0]}]}
@@ -128,10 +126,8 @@ class AssociationIntegrationTest(unittest.TestCase):
         paths = ["/share/S01E01.mkv", "/share/S01E02.mkv"]
         self.seed_discovery(paths)
         before = self.database_path.read_bytes()
-        with patch.object(alist, "configured_token", return_value="test"), \
-             patch.object(alist, "get_file", side_effect=lambda path, token: {"signed_url": alist.get_origin() + "/d" + path + "?sign=secret", "raw_url": ""}), \
-             patch.object(alist, "validate_alist_video_url"), \
-             patch.object(alist, "get_video_link", return_value="https://video.test/file.mkv"), \
+        with patch.object(media_source, "get_file", side_effect=lambda path: {
+                "signed_url": "https://video.test" + path + "?sign=secret", "raw_url": "https://video.test" + path}), \
              patch.object(media_probe, "probe_video", side_effect=[{"duration_ms": 1000}, requests.Timeout("sign=secret")]), \
              patch.object(media_import, "fetch_title_rating", return_value={"status": "unavailable"}):
             payload = {"title_id": "tt9000002", "items": [{"path": path, "season_number": 1, "episode_number": index} for index, path in enumerate(paths, 1)]}
@@ -145,10 +141,8 @@ class AssociationIntegrationTest(unittest.TestCase):
         paths = ["/share/S01E01.mkv", "/share/S01E02.mkv"]
         self.seed_discovery(paths)
         steps = []
-        with patch.object(alist, "configured_token", return_value="test"), \
-             patch.object(alist, "get_file", side_effect=lambda path, token: {"signed_url": alist.get_origin() + "/d" + path + "?sign=secret", "raw_url": ""}), \
-             patch.object(alist, "validate_alist_video_url"), \
-             patch.object(alist, "get_video_link", return_value="https://video.test/file.mkv"), \
+        with patch.object(media_source, "get_file", side_effect=lambda path: {
+                "signed_url": "https://video.test" + path + "?sign=secret", "raw_url": "https://video.test" + path}), \
              patch.object(media_probe, "probe_video", return_value={"duration_ms": 1000}), \
              patch.object(media_import, "fetch_title_rating", return_value={"status": "unavailable"}):
             payload = {"title_id": "tt9000002", "items": [{"path": path, "season_number": 1, "episode_number": index} for index, path in enumerate(paths, 1)]}
@@ -169,7 +163,7 @@ class AssociationIntegrationTest(unittest.TestCase):
         self.assertEqual(result["imported"], 2)
         self.assertFalse(again["valid"])
 
-    def test_association_probes_in_parallel_with_single_alist_lookup(self):
+    def test_association_probes_in_parallel_with_single_media_lookup(self):
         paths = ["/share/S01E01.mkv", "/share/S01E02.mkv"]
         self.seed_discovery(paths)
         barrier = threading.Barrier(2, timeout=5)
@@ -180,18 +174,13 @@ class AssociationIntegrationTest(unittest.TestCase):
             probed.append(url)
             return {"duration_ms": 1000}
 
-        lookup = lambda path, token: {"signed_url": alist.get_origin() + "/d" + path + "?sign=s",
-                                      "raw_url": "https://raw.test" + path}
-        with patch.object(alist, "configured_token", return_value="test"), \
-             patch.object(alist, "get_file", side_effect=lookup) as get_file, \
-             patch.object(alist, "validate_alist_video_url") as validate, \
-             patch.object(alist, "get_video_link") as video_link, \
+        lookup = lambda path: {"signed_url": "https://raw.test" + path,
+                               "raw_url": "https://raw.test" + path}
+        with patch.object(media_source, "get_file", side_effect=lookup) as get_file, \
              patch.object(media_probe, "probe_video", side_effect=probe), \
              patch.object(media_import, "fetch_title_rating", return_value={"status": "unavailable"}):
             payload = {"title_id": "tt9000002", "items": [{"path": path, "season_number": 1, "episode_number": index} for index, path in enumerate(paths, 1)]}
             result = media_association.complete_association(library_database=self.database_path, image_root=fixtures.movie_app.app.config["IMAGE_ROOT"], payload=payload)
         self.assertEqual(result["imported"], 2)
         self.assertEqual(get_file.call_count, 2)
-        validate.assert_not_called()
-        video_link.assert_not_called()
         self.assertEqual(sorted(probed), ["https://raw.test" + path for path in paths])

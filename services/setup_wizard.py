@@ -17,8 +17,8 @@ from urllib.parse import urlparse
 
 import requests
 
-from connectors import alist, llm, throttle, tmdb
-from services import env_file, paths
+from connectors import llm, throttle, tmdb
+from services import env_file, media_source, paths
 
 ROOT = paths.APP_DIR
 ENV_PATH = paths.ENV_PATH
@@ -120,12 +120,11 @@ def current(database: Path) -> dict:
 
 
 def _alist_running(origin: str) -> bool:
-    from services.alist_process import is_alist_running
-
     try:
-        return is_alist_running(origin)
-    except ValueError:
+        response = requests.get(origin.rstrip("/"), timeout=1)
+    except (requests.RequestException, ValueError):
         return False
+    return response.status_code < 500
 
 
 # ---------------------------------------------------------------- 测试
@@ -503,6 +502,6 @@ def save(form: dict, database: Path) -> dict:
             os.environ.pop(name, None)
         else:
             os.environ[name] = value
-    alist.forget_token()
+    media_source.forget()
     throttle.reset()
     return {"ok": True, "library_created": created, "secret_key": updates.get("FLASK_SECRET_KEY")}

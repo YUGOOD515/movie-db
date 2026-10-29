@@ -72,7 +72,7 @@ def _lazy(module: str, name: str):
 
 
 requests = _LazyModule("requests")
-alist = _LazyModule("connectors.alist")
+media_source = _LazyModule("services.media_source")
 player = _LazyModule("connectors.player")
 tmdb = _LazyModule("connectors.tmdb")
 _media_import = _LazyModule("services.media_import")
@@ -90,7 +90,7 @@ set_ignored = _lazy("services.media_discovery", "set_ignored")
 find_record = _lazy("services.media_discovery", "find_record")
 discovery_path = _lazy("services.media_discovery", "canonical_path")
 browse_alist = _lazy("services.media_discovery", "browse")
-_discovery_store = _LazyModule("models.discovery_store")
+_local_store = _LazyModule("models.local_store")
 _recognition = _LazyModule("services.recognition")
 _setup = _LazyModule("services.setup_wizard")
 _settings = _LazyModule("services.settings")
@@ -133,23 +133,22 @@ app.config.update(
     MEDIA_ROOT=paths.MEDIA_ROOT,
     SECRET_KEY=os.environ.get("FLASK_SECRET_KEY") or secrets.token_hex(32),
     READ_ONLY=READ_ONLY,
-    # 只读快照的元数据：同步时间、AList 地址与已生成的缩略图清单。
+    # 只读快照的元数据：同步时间与已生成的缩略图清单。
     SNAPSHOT_AT=os.environ.get("MOVIEDB_SNAPSHOT_AT", ""),
-    ALIST_ORIGIN=os.environ.get("ALIST_ORIGIN", "http://127.0.0.1:5244").rstrip("/"),
     THUMBNAIL_INDEX=None,
     # 只读快照的影像色调表 {local_path: [color, blurhash]}；本地模式读取 static/thumbnails/tones.json。
     IMAGE_TONES=None,
 )
 init_database(app)
 if not READ_ONLY:
-    from services.alist_process import start_configured_alist
     from services import cloud_sync
 
+    _local_store.upgrade(DATABASE_PATH)
+    media_source.migrate_alist()
     try:
         upgrade_library(DATABASE_PATH)
     except Exception as error:  # 升级失败不影响启动；新功能的列缺失时只是读不到值
         logging.getLogger(__name__).warning("媒体库升级失败：%s", error)
-    start_configured_alist()
     cloud_sync.init_app(app)
     if not os.environ.get("MOVIEDB_TONES_DISABLED"):
         from services.image_tones import start_backfill
@@ -173,6 +172,12 @@ def serve_static(filename: str):
 
 
 app.view_functions["static"] = serve_static
+
+
+@app.route("/stream/<token>/<path:name>", methods=["GET", "HEAD"])
+def stream(token, name):
+    from services import media_stream
+    return media_stream.response(token)
 
 
 @app.context_processor
@@ -291,7 +296,6 @@ def setup_save():
     secret_key = result.pop("secret_key", None)
     if secret_key:
         app.secret_key = secret_key
-    app.config["ALIST_ORIGIN"] = os.environ.get("ALIST_ORIGIN", "http://127.0.0.1:5244").rstrip("/")
     app.config.get("LIBRARY_READY", set()).discard(str(app.config["DATABASE"]))
     if not app.config.get("TESTING") and not os.environ.get("MOVIEDB_AUTOSCAN_DISABLED"):
         from services.media_discovery import start_autoscan
@@ -583,7 +587,7 @@ def media():
         overview=page,
         missing_total=sum(missing.values()),
         health=health,
-        alist_origin=app.config["ALIST_ORIGIN"],
+        alist_origin=os.environ.get("ALIST_ORIGIN", "http://127.0.0.1:5244").rstrip("/"),
     )
 
 
@@ -659,24 +663,24 @@ def update_discovery_roots():
     try:
         payload, path = _discovery_payload()
         if payload.get("action") == "remove":
-            _discovery_store.remove_root(app.config["DATABASE"], path)
+            _local_store.remove_root(app.config["DATABASE"], path)
         elif path == "/":
             raise ValueError("请选择具体的目录。")
         else:
-            _discovery_store.add_root(app.config["DATABASE"], path)
+            _local_store.add_root(app.config["DATABASE"], path)
     except ValueError as error:
         return jsonify(error=str(error)), 400
-    return jsonify(roots=_discovery_store.list_roots(app.config["DATABASE"]))
+    return jsonify(roots=_local_store.list_roots(app.config["DATABASE"]))
 
 
 @app.get("/manager/discovery/browse")
 def browse_discovery_folders():
     try:
-        return jsonify(browse_alist(request.args.get("path") or "/", alist.configured_token()))
+        return jsonify(browse_alist(request.args.get("path") or "/"))
     except ValueError as error:
         return jsonify(error=str(error)), 400
     except (RuntimeError, requests.RequestException):
-        return jsonify(error="无法读取 AList，请检查服务和账号。"), 503
+        return jsonify(error="无法读取网盘，请检查挂载配置。"), 503
 
 
 @app.post("/manager/discovery/ignore")
@@ -704,7 +708,7 @@ def recognize_discovery_record():
         return jsonify(error="TMDB 或 AI 服务暂时无法访问，请稍后重试。"), 502
     except RuntimeError:
         return jsonify(error="TMDB 尚未配置。"), 503
-    _discovery_store.save_recognition(app.config["DATABASE"], path,
+    _local_store.save_recognition(app.config["DATABASE"], path,
                                       _recognition.signature(record, ai=_recognition.ai_used(result)), result)
     return jsonify(result)
 
@@ -935,7 +939,7 @@ def play_media_file(file_id: int):
     except player.PlayerNotFound as error:
         flash(str(error), "warning")
         return redirect(_referrer_url())
-    video_url = alist.get_video_link(source["alist_path"])
+    video_url = media_source.stream_url(source["alist_path"])
     try:
         player.play_video(
             video_url,

@@ -282,7 +282,6 @@ def build_snapshot(source_database: Path, workdir: Path) -> tuple[dict, dict]:
     objects["data/library.db"] = (database.read_bytes(), "application/vnd.sqlite3")
     meta = {
         "snapshot_at": snapshot_at,
-        "alist_origin": movie_app.app.config["ALIST_ORIGIN"],
         "thumbnails": thumbnails,
         "tones": tones,
         "pages": len(pages),

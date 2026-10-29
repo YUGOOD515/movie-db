@@ -21,7 +21,7 @@ from pathlib import PurePosixPath
 import requests
 
 from connectors import llm, throttle, tmdb
-from models import discovery_store as store
+from models import local_store as store
 from models.database import connect_database
 from services.name_cleaning import (
     english_title, folder_hints, guess_position, has_episode_marker, normalize,
@@ -107,7 +107,7 @@ def _score(candidate: dict, query: str, year: int | None, expected: str | None) 
     return round(max(0.0, min(score, 1.0)), 3)
 
 
-# TMDB 查询的持久缓存（discovery.db）：配置 AI 后重识别、规则版本升级或“重新识别”时不必再搜一遍。
+# TMDB 查询的持久缓存（local.db）：配置 AI 后重识别、规则版本升级或“重新识别”时不必再搜一遍。
 SEARCH_TTL = 7 * 86400
 SUMMARY_TTL = 30 * 86400
 MISSING_TTL = 86400  # 暂无 IMDb ID 的作品一天后再查，TMDB 补录后能及时用上

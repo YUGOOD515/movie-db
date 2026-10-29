@@ -10,9 +10,9 @@ from unittest.mock import Mock, patch
 
 import requests
 import test_library_app as fixtures
-from connectors import alist, llm, throttle, tmdb
-from models import discovery_store as store
-from services import media_association, media_discovery as discovery, media_health, recognition
+from connectors import llm, throttle, tmdb
+from models import local_store as store
+from services import media_association, media_discovery as discovery, media_health, media_source, recognition
 from services.name_cleaning import english_title, folder_hints, guess_position, normalize
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -176,7 +176,7 @@ class StoreTest(unittest.TestCase):
         self.database = Path(self.directory.name) / "library.db"
 
     def test_roundtrip(self):
-        self.assertEqual(store.store_path(self.database).name, "discovery.db")
+        self.assertEqual(store.store_path(self.database).name, "local.db")
         store.add_root(self.database, "/a"); store.add_root(self.database, "/b"); store.add_root(self.database, "/a")
         store.remove_root(self.database, "/b")
         self.assertEqual(store.list_roots(self.database), ["/a"])
@@ -360,7 +360,7 @@ class LookupCacheTest(unittest.TestCase):
              patch.object(tmdb, "search_media") as single:
             first = recognition._search(["黑镜"], None, None, self.database_path)
             second = recognition._search(["黑镜"], None, None, self.database_path)
-        self.assertEqual(multi.call_count, 1)  # 第二次命中 discovery.db 缓存
+        self.assertEqual(multi.call_count, 1)  # 第二次命中 local.db 缓存
         single.assert_not_called()
         self.assertEqual([(item["media_type"], item["tmdb_id"]) for item in first], [("tv", 7), ("movie", 8)])
         self.assertEqual(first, second)
@@ -396,8 +396,7 @@ class DiscoveryStateTest(unittest.TestCase):
                 "/r/Kept": [{"name": "S01E01.mkv"}, {"name": "S01E02.mkv"}], "/r/Skip": [{"name": "a.mkv"}]}
         store.add_root(self.database_path, "/r")
         store.set_ignored(self.database_path, "/r/Skip", "Skip", True)
-        with patch.object(alist, "configured_token", return_value="t"), \
-             patch.object(alist, "list_directory", side_effect=lambda path, token, **kw: tree[path]), \
+        with patch.object(media_source, "list_directory", side_effect=lambda path, **kw: tree[path]), \
              patch.object(media_health, "check_outside", return_value=[]), \
              patch.object(recognition, "prepare", side_effect=lambda db, item, **kw: {"record": item, "needs_ai": False}) as recognize, \
              patch.object(recognition, "finish", return_value={"status": "review", "title": None}):
@@ -420,8 +419,7 @@ class DiscoveryStateTest(unittest.TestCase):
         self.assertEqual(client.post("/manager/discovery/roots", json={"path": "/Media", "action": "add"}).json["roots"], ["/Media"])
         self.assertEqual(client.post("/manager/discovery/roots", json={"path": "/Media", "action": "remove"}).json["roots"], [])
         self.assertEqual(client.post("/manager/discovery/roots", json={"path": "../x"}).status_code, 400)
-        with patch.object(alist, "configured_token", return_value="t"), \
-             patch.object(alist, "list_directory", return_value=[{"name": "B", "is_dir": True}, {"name": "a.mkv"}, {"name": "A", "is_dir": True}]):
+        with patch.object(media_source, "list_directory", return_value=[{"name": "B", "is_dir": True}, {"name": "a.mkv"}, {"name": "A", "is_dir": True}]):
             data = client.get("/manager/discovery/browse?path=/Media").json
         self.assertEqual([item["path"] for item in data["folders"]], ["/Media/A", "/Media/B"])
         self.assertEqual(data["parent"], "/")
@@ -434,12 +432,12 @@ class DiscoveryStateTest(unittest.TestCase):
         self.assertNotIn("爱乐之城", page)
 
     def test_outside_health_check_marks_only_confirmed_missing(self):
-        def listing(path, token, **kw):
+        def listing(path, **kw):
             if path == "/TV/Young Sheldon":
                 return [{"name": "S01E01.mkv"}]
             raise RuntimeError("object not found" if path == "/Movies" else "timeout")
-        with patch.object(alist, "list_directory", side_effect=listing):
-            rows = media_health.check_outside(self.database_path, "t", [])
+        with patch.object(media_source, "list_directory", side_effect=listing):
+            rows = media_health.check_outside(self.database_path, [])
         status = {path: value for path, _, value in rows}
         self.assertEqual(status["/Movies/Interstellar.mkv"], "missing")
         self.assertEqual(status["/TV/Young Sheldon/S01E01.mkv"], "ok")

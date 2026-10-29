@@ -1,7 +1,12 @@
-"""扫描目录、识别结果、忽略列表与源文件健康状态的本地存储。
+"""本机状态存储：扫描目录、识别结果、忽略列表、源文件健康、关联任务与接口用量。
 
-这些数据只服务于本机的“待关联”流程，单独放在 ``discovery.db``，
-不写入 ``library.db``，避免触发云端快照同步。
+两层存储的分工：
+
+- ``library.db``：媒体库数据（作品、剧集、文件、进度、收藏），参与云端只读快照同步；
+- ``local.db``：其余**全部**本机状态——扫描与识别缓存、忽略列表、源文件健康、
+  关联任务与探测检查点、网盘配置与凭据（P2 起）、API 用量与评分缓存；不进入快照。
+
+旧版本的两处数据（``discovery.db`` 与 ``api-usage.db``）由 ``upgrade()`` 在启动时并入本文件。
 """
 
 from __future__ import annotations
@@ -54,16 +59,55 @@ CREATE TABLE IF NOT EXISTS media_health (
     status TEXT NOT NULL CHECK (status IN ('ok', 'missing')),
     checked_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS request_usage (
+    account TEXT NOT NULL,
+    sent_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS request_usage_account ON request_usage(account, sent_at);
+CREATE TABLE IF NOT EXISTS api_response (
+    cache_key TEXT PRIMARY KEY,
+    payload TEXT NOT NULL,
+    expires_at REAL NOT NULL
+);
 """
+
+KEEP_ON_CLEAR = ("drive",)
 
 
 def store_path(library_database) -> Path:
-    configured = os.environ.get("MOVIEDB_DISCOVERY_DATABASE", "").strip()
-    return Path(configured) if configured else Path(library_database).resolve().with_name("discovery.db")
+    configured = (os.environ.get("MOVIEDB_LOCAL_DATABASE")
+                  or os.environ.get("MOVIEDB_DISCOVERY_DATABASE", "")).strip()
+    return Path(configured) if configured else Path(library_database).resolve().with_name("local.db")
+
+
+def reset():
+    with _lock:
+        _ready.clear()
+
+
+def clear(library_database, keep=KEEP_ON_CLEAR) -> list[str]:
+    """清空本机表但保留数据库文件；默认保留网盘配置。"""
+    with _lock, closing(_connect(library_database)) as db, db:
+        rows = db.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+        ).fetchall()
+        tables = sorted(row["name"] for row in rows if row["name"] not in keep)
+        for name in tables:
+            db.execute(f'DELETE FROM "{name.replace(chr(34), chr(34) * 2)}"')
+    return tables
+
+
+def tables(library_database) -> list[str]:
+    with closing(_connect(library_database)) as db:
+        rows = db.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+        ).fetchall()
+    return sorted(row["name"] for row in rows)
 
 
 def _connect(library_database) -> sqlite3.Connection:
     path = store_path(library_database)
+    path.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(path, timeout=10)
     connection.row_factory = sqlite3.Row
     key = str(path)
@@ -74,10 +118,39 @@ def _connect(library_database) -> sqlite3.Connection:
     return connection
 
 
-def reset():
-    """数据文件被删除后调用：下次连接时重新建表。"""
+def upgrade(library_database) -> None:
+    """在本机打开任何存储连接前，迁移旧的本机数据库；可重复执行。"""
+    path = store_path(library_database)
+    legacy = path.with_name("discovery.db")
     with _lock:
-        _ready.clear()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if legacy != path and not path.exists() and legacy.exists():
+            for suffix in ("", "-wal", "-shm"):
+                source = Path(f"{legacy}{suffix}")
+                if source.exists():
+                    source.replace(Path(f"{path}{suffix}"))
+        with closing(_connect(library_database)):
+            pass
+        usage = path.with_name("api-usage.db")
+        if usage.exists():
+            with closing(_connect(library_database)) as db:
+                db.execute("ATTACH DATABASE ? AS legacy_api_usage", (str(usage),))
+                try:
+                    with db:
+                        db.execute(
+                            "INSERT OR IGNORE INTO main.request_usage (account, sent_at) "
+                            "SELECT account, sent_at FROM legacy_api_usage.request_usage"
+                        )
+                        db.execute(
+                            "INSERT OR IGNORE INTO main.api_response (cache_key, payload, expires_at) "
+                            "SELECT cache_key, payload, expires_at FROM legacy_api_usage.api_response"
+                        )
+                    db.execute("DETACH DATABASE legacy_api_usage")
+                except Exception:
+                    db.execute("DETACH DATABASE legacy_api_usage")
+                    raise
+            for suffix in ("", "-wal", "-shm", "-journal"):
+                Path(f"{usage}{suffix}").unlink(missing_ok=True)
 
 
 def _write(library_database, statements):

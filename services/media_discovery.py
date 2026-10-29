@@ -12,10 +12,11 @@ from threading import Lock, Thread
 
 import requests
 
-from connectors import alist
-from models import discovery_store as store
+from models import drive_store
+from models import local_store as store
 from models.database import connect_database
 from queries.association import get_associated_paths
+from services import media_source
 
 _lock = Lock()
 _scans = {}
@@ -29,8 +30,8 @@ def canonical_path(value):
     return value
 
 
-def find_share_root(token):
-    configured = os.environ.get("ALIST_IMPORT_ROOT", "").strip().rstrip("/")
+def find_share_root():
+    configured = (os.environ.get("MEDIA_IMPORT_ROOT") or os.environ.get("ALIST_IMPORT_ROOT", "")).strip().rstrip("/")
     if configured:
         return canonical_path(configured)
     parents = ["/"]
@@ -38,7 +39,7 @@ def find_share_root(token):
         following = []
         found = []
         for parent in parents:
-            for item in alist.list_directory(parent, token):
+            for item in media_source.list_directory(parent):
                 if not item.get("is_dir"):
                     continue
                 path = str(PurePosixPath(parent) / item["name"])
@@ -48,9 +49,9 @@ def find_share_root(token):
         if len(found) == 1:
             return found[0]
         if len(found) > 1:
-            raise ValueError("发现多个「来自：分享」目录，请配置 ALIST_IMPORT_ROOT。")
+            raise ValueError("发现多个「来自：分享」目录，请配置 MEDIA_IMPORT_ROOT。")
         parents = following[:50]
-    raise ValueError("未找到「来自：分享」目录，请配置 ALIST_IMPORT_ROOT。")
+    raise ValueError("未找到「来自：分享」目录，请配置 MEDIA_IMPORT_ROOT。")
 
 
 def _timestamp(item):
@@ -75,16 +76,15 @@ def _file(path, item):
 MAX_FOLDERS, MAX_FILES = 1000, 10000
 
 
-def collect_folder(path, token, refresh=False, pool=None):
+def collect_folder(path, refresh=False, pool=None):
     """遍历 path 下全部视频。传入 pool 时每轮并行读取多个子目录（实际并发受 AList 限速约束），
     大合集不再只占用一个线程逐个目录读取。"""
     files, warnings, pending = [], [], [path]
     visited = set()
-    password = os.environ.get("ALIST_PATH_PASSWORD", "")
 
     def read(parent):
         try:
-            return parent, alist.list_directory(parent, token, path_password=password, refresh=refresh)
+            return parent, media_source.list_directory(parent, refresh=refresh)
         except (requests.RequestException, RuntimeError, ValueError):
             return parent, None
 
@@ -111,7 +111,7 @@ def collect_folder(path, token, refresh=False, pool=None):
                 child = str(PurePosixPath(parent) / item["name"])
                 if item.get("is_dir"):
                     pending.append(child)
-                elif PurePosixPath(child).suffix.lower() in alist.VIDEO_EXTENSIONS:
+                elif PurePosixPath(child).suffix.lower() in media_source.VIDEO_EXTENSIONS:
                     files.append(_file(child, item))
     return files, warnings
 
@@ -170,12 +170,12 @@ def split_collection(record):
             for item in files]
 
 
-def scan_roots(database, token):
+def scan_roots(database):
     """返回 [(路径, 是否自动识别)]；用户未选择目录时沿用「来自：分享」自动识别。"""
     roots = store.list_roots(database)
     if roots:
         return [(root, False) for root in roots]
-    return [(find_share_root(token), True)]
+    return [(find_share_root(), True)]
 
 
 def _health_from_scan(associated, roots, listings):
@@ -285,16 +285,14 @@ def _recognition_pipeline(key, database):
 
 def _run_scan(key, database, refresh):
     try:
-        token = alist.configured_token()
-        roots = scan_roots(database, token)
+        roots = scan_roots(database)
         with _lock:
             _scans[key].update(roots=[{"path": path, "auto": auto} for path, auto in roots],
                                root=roots[0][0] if roots else "")
         listings, plan = {}, []
         for root, _ in roots:
             try:
-                entries = alist.list_directory(root, token,
-                    path_password=os.environ.get("ALIST_PATH_PASSWORD", ""), refresh=refresh)
+                entries = media_source.list_directory(root, refresh=refresh)
             except (requests.RequestException, RuntimeError, ValueError):
                 with _lock:
                     _scans[key]["warnings"].append(f"{root}：读取失败，请检查目录是否存在。")
@@ -310,9 +308,9 @@ def _run_scan(key, database, refresh):
         def scan(root, entry):
             path = str(PurePosixPath(root) / entry["name"])
             if entry.get("is_dir"):
-                files, warnings = collect_folder(path, token, refresh, listing_pool)
+                files, warnings = collect_folder(path, refresh, listing_pool)
             else:
-                files = [_file(path, entry)] if PurePosixPath(path).suffix.lower() in alist.VIDEO_EXTENSIONS else []
+                files = [_file(path, entry)] if PurePosixPath(path).suffix.lower() in media_source.VIDEO_EXTENSIONS else []
                 warnings = []
             records = [split for record in group_pending(path, entry, files, associated)
                        for split in split_collection(record)]
@@ -349,7 +347,7 @@ def _run_scan(key, database, refresh):
             store.save_health(database, health)
         try:
             from services.media_health import check_outside
-            check_outside(database, token, list(listings))
+            check_outside(database, list(listings))
         except Exception:
             pass
         with _lock:
@@ -482,9 +480,9 @@ def find_record(database, path):
     return None
 
 
-def browse(path, token):
+def browse(path):
     path = canonical_path(path) if path != "/" else "/"
-    entries = alist.list_directory(path, token, path_password=os.environ.get("ALIST_PATH_PASSWORD", ""))
+    entries = media_source.list_directory(path)
     folders = sorted((item["name"] for item in entries if item.get("is_dir") and item.get("name")),
                      key=lambda name: name.casefold())
     parent = str(PurePosixPath(path).parent) if path != "/" else None
@@ -496,20 +494,20 @@ _autoscan_started = set()
 
 
 def start_autoscan(database, *, attempts=24, delay=5):
-    """启动时在后台扫描一次：等 AList 就绪后扫描、检查失效文件并预识别。"""
+    """启动后在后台扫描一次：等网盘就绪后扫描、检查失效文件并预识别。"""
     import time
 
     key = str(database)
     if key in _autoscan_started or os.environ.get("MOVIEDB_AUTOSCAN", "1").strip() == "0":
         return False
-    if not (os.environ.get("ALIST_USERNAME", "").strip() and os.environ.get("ALIST_PASSWORD", "")):
+    if not any(row["enabled"] for row in drive_store.list_drives()):
         return False
     _autoscan_started.add(key)
 
     def wait_and_scan():
         for _ in range(attempts):
             try:
-                alist.configured_token()
+                media_source.list_directory("/")
             except (requests.RequestException, RuntimeError, ValueError):
                 time.sleep(delay)
                 continue
