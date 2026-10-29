@@ -76,6 +76,24 @@ def test_setup_renders_drive_type_options(setup_env):
         assert f'<option value="{kind}">' in text
 
 
+def test_setup_reuses_existing_drive_and_resaves_same_mount(setup_env):
+    """引导页不做重名拦截：同名再次保存按更新处理；已有网盘时给出“直接使用”入口。"""
+    client = setup_env["client"]
+    text = client.get("/setup", headers=HTML).get_data(as_text=True)
+    assert "使用已添加的网盘继续" in text and "data-drive-use-existing" in text
+
+    movies = setup_env["tmp"] / "movies"
+    movies.mkdir()
+    for _ in range(2):  # 引导页提交不带 create，重复保存同名应成功
+        response = client.post("/manager/drives/save",
+                               json={"mount": "local", "kind": "local", "config": {"root": str(movies)}},
+                               headers=SAME_ORIGIN)
+        assert response.status_code == 200 and response.get_json()["ok"]
+    assert drive_store.get_drive("local")["config"]["root"] == str(movies)
+    assert [row["mount"] for row in drive_store.list_drives()] == ["local"]
+    assert client.post("/setup/save", json=_form(), headers=SAME_ORIGIN).get_json()["ok"]
+
+
 def test_save_writes_env_creates_library_and_hides_secrets(setup_env):
     client = setup_env["client"]
     response = client.post("/setup/save", json=_form(TMDB_PROXY="http://127.0.0.1:7890"), headers=SAME_ORIGIN)

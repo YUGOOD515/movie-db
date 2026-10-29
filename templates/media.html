@@ -49,9 +49,9 @@
                 <input
                     class="form-control form-control-sm bg-body-tertiary"
                     name="alist_url"
-                    type="url"
-                    placeholder="AList 视频直链 ({{ alist_origin }}/d/...)"
-                    aria-label="AList 视频直链"
+                    type="text"
+                    placeholder="挂载路径或直链，如 /夸克/电影/xxx.mkv"
+                    aria-label="挂载路径或直链，如 /夸克/电影/xxx.mkv"
                     required
                 >
             </div>
@@ -263,8 +263,8 @@
                                                     <input class="form-control form-control-sm bg-body-tertiary" type="number" min="1" step="1" placeholder="集号" aria-label="集号 (Series 必填)" title="集号 (Series 必填)" required data-title-episode>
                                                 </div>
                                                 <div class="col-6">
-                                                    <input class="form-control form-control-sm bg-body-tertiary" type="url" aria-label="AList 视频直链"
-                                                           placeholder="{{ alist_origin }}/d/..." required data-title-alist-url>
+                                                    <input class="form-control form-control-sm bg-body-tertiary" type="text" aria-label="挂载路径或直链，如 /夸克/电影/xxx.mkv"
+                                                           placeholder="挂载路径或直链，如 /夸克/电影/xxx.mkv" required data-title-alist-url>
                                                 </div>
                                             </div>
                                             <button class="btn btn-sm icon-btn batch-remove-btn flex-shrink-0" type="button" aria-label="删除此单集" data-title-episode-remove>
@@ -273,9 +273,9 @@
                                         </div>
                                     </template>
                                     <div data-title-movie-fields>
-                                        <label class="form-label small" for="search-alist-url">AList 视频直链</label>
-                                        <input class="form-control form-control-sm bg-body-tertiary mb-3" id="search-alist-url" type="url"
-                                               placeholder="{{ alist_origin }}/d/..." required data-title-movie-url>
+                                        <label class="form-label small" for="search-alist-url">挂载路径或直链，如 /夸克/电影/xxx.mkv</label>
+                                        <input class="form-control form-control-sm bg-body-tertiary mb-3" id="search-alist-url" type="text"
+                                               placeholder="挂载路径或直链，如 /夸克/电影/xxx.mkv" required data-title-movie-url>
                                     </div>
                                     <div class="d-flex justify-content-end">
                                         <button class="btn btn-sm media-primary-action px-4" type="submit" data-title-record-add>添加到待导入列表</button>

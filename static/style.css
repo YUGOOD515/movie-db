@@ -4673,6 +4673,10 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
     display: none;
 }
 
+.drive-list {
+    gap: 48px;
+}
+
 .settings-group-head {
     display: flex;
     align-items: flex-start;
@@ -4978,6 +4982,10 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
     .settings-section {
         gap: 40px;
         margin-top: 32px;
+    }
+
+    .drive-list {
+        gap: 40px;
     }
 
     .settings-group-head {

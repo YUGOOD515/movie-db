@@ -60,12 +60,16 @@
         mountInput.value = mountInput.defaultValue;
         kindInput.disabled = false;
         mountInput.readOnly = false;
+        mountInput.disabled = false;
         kindInput.querySelectorAll("[data-drive-edit-option]").forEach(option => option.remove());
         kindInput.selectedIndex = 0;
         form.querySelectorAll("[data-drive-secret]").forEach(input => {
             input.placeholder = input.dataset.drivePlaceholder || "";
         });
-        if (page) page.querySelector("[data-drive-editor-title]").textContent = "添加网盘";
+        if (page) {
+            page.querySelector("[data-drive-editor-title]").textContent = "添加网盘";
+            page.querySelector("[data-drive-editor-icon]").replaceChildren(icon("plus"));
+        }
         if (cancelEditButton) cancelEditButton.hidden = true;
         renderResult(resultBox, null);
         syncKind(true);
@@ -104,7 +108,8 @@
         fields.querySelectorAll("[data-drive-config]").forEach(input => {
             config[input.dataset.driveConfig] = input.type === "checkbox" ? (input.checked ? "1" : "") : input.value;
         });
-        const result = await post("/manager/drives/save", { mount: mountInput.value.trim(), kind, config });
+        // 首次引导不做重名拦截：同名按更新处理，重名校验只用于网盘页的“添加”
+        const result = await post("/manager/drives/save", { mount: mountInput.value.trim(), kind, config, create: !editingMount && !setup });
         saveButton.disabled = false;
         saveButton.removeAttribute("aria-busy");
         if (result.ok && page) {
@@ -130,17 +135,19 @@
         kindInput.disabled = true;
         mountInput.value = mount;
         mountInput.readOnly = true;
+        mountInput.disabled = true;
         syncKind();
         const fields = form.querySelector(`[data-drive-fields="${drive.kind}"]`);
         fields.querySelectorAll("[data-drive-config]").forEach(input => {
             const name = input.dataset.driveConfig;
             if (input.hasAttribute("data-drive-secret")) {
                 input.value = "";
-                input.placeholder = drive.saved[name] ? "已保存，留空保持不变" : "";
+                input.placeholder = drive.saved[name] ? "已保存，留空保持不变" : input.dataset.drivePlaceholder || "";
             } else if (input.type === "checkbox") input.checked = Boolean(drive.config[name]);
             else input.value = drive.config[name] || "";
         });
         page.querySelector("[data-drive-editor-title]").textContent = `编辑 ${mount}`;
+        page.querySelector("[data-drive-editor-icon]").replaceChildren(icon("pencil"));
         cancelEditButton.hidden = false;
         form.scrollIntoView({ behavior: "smooth", block: "start" });
     }

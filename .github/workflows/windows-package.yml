@@ -232,10 +232,32 @@ jobs:
               Get-Content "$data\logs\moviedb.log" -ErrorAction SilentlyContinue; Fail "旧版数据没有迁移到 $data"
             }
             if (-not (Select-String -Quiet "ALIST_ORIGIN" "$data\.env")) { Fail "迁移后的 .env 内容不对" }
+            # /setup/save 要求先有启用的网盘：添加一个指向空目录的本机挂载（挂载名用 ASCII，避免编码问题）
+            $mediaRoot = Join-Path $env:RUNNER_TEMP "moviedb-ci-media"
+            New-Item -ItemType Directory -Force $mediaRoot | Out-Null
+            $driveBody = @{ mount = "ci"; kind = "local"; config = @{ root = $mediaRoot } } | ConvertTo-Json -Depth 3
+            try {
+              $drive = Invoke-RestMethod http://127.0.0.1:5071/manager/drives/save -Method Post -ContentType "application/json" -Body $driveBody -Headers @{ Origin = "http://127.0.0.1:5071" }
+            } catch {
+              "添加本机网盘失败，响应：$($_.ErrorDetails.Message)"
+              Get-Content "$data\logs\moviedb.log" -ErrorAction SilentlyContinue
+              Fail "添加本机网盘失败：$($_.Exception.Message)"
+            }
+            if (-not $drive.ok) {
+              ConvertTo-Json $drive
+              Get-Content "$data\logs\moviedb.log" -ErrorAction SilentlyContinue
+              Fail "添加本机网盘没有成功：$($drive.message)"
+            }
             # 模拟引导页最后一步：保存配置并建库（不连接外部服务）
-            $body = @{ ALIST_ORIGIN = "http://127.0.0.1:5244"; ALIST_USERNAME = "admin"; ALIST_PASSWORD = "ci"; TMDB_TOKEN = ("eyJ" + "a" * 100) } | ConvertTo-Json
-            $saved = Invoke-RestMethod http://127.0.0.1:5071/setup/save -Method Post -ContentType "application/json" -Body $body -Headers @{ Origin = "http://127.0.0.1:5071" }
-            if (-not $saved.library_created) { Fail "保存后没有创建媒体库" }
+            $body = @{ TMDB_TOKEN = ("eyJ" + "a" * 100) } | ConvertTo-Json
+            try {
+              $saved = Invoke-RestMethod http://127.0.0.1:5071/setup/save -Method Post -ContentType "application/json" -Body $body -Headers @{ Origin = "http://127.0.0.1:5071" }
+            } catch {
+              "保存首次设置失败，响应：$($_.ErrorDetails.Message)"
+              Get-Content "$data\logs\moviedb.log" -ErrorAction SilentlyContinue
+              Fail "保存首次设置失败：$($_.Exception.Message)"
+            }
+            if (-not $saved.library_created) { ConvertTo-Json $saved; Fail "保存后没有创建媒体库" }
             $code = curl.exe -s -o NUL -w "%{http_code}" -H "Accept: text/html" http://127.0.0.1:5071/
             if ($code -ne "200") { Fail "建库后首页返回 HTTP $code" }
             if (-not (Test-Path "$data\library.db")) { Fail "媒体库没有建在 $data" }
@@ -380,9 +402,17 @@ jobs:
           code=$(curl -s -o /dev/null -w "%{http_code}" -H "Accept: text/html" http://127.0.0.1:5072/)
           [ "$code" = 302 ] || fail "首次使用没有跳转到引导页（HTTP $code）"
           curl -sf http://127.0.0.1:5072/setup/status | python3 -c "import json, sys; s = json.load(sys.stdin)['ffprobe']; sys.exit(0 if s['ok'] and s['bundled'] else 1)" || fail "没有识别到内置 ffprobe"
-          body='{"ALIST_ORIGIN": "http://127.0.0.1:5244", "ALIST_USERNAME": "admin", "ALIST_PASSWORD": "ci", "TMDB_TOKEN": "eyJ'$(printf 'a%.0s' $(seq 100))'"}'
-          curl -sf http://127.0.0.1:5072/setup/save -H "Content-Type: application/json" -H "Origin: http://127.0.0.1:5072" -d "$body" \
-            | python3 -c "import json, sys; sys.exit(0 if json.load(sys.stdin).get('library_created') else 1)" || fail "保存后没有创建媒体库"
+          # /setup/save 要求先有启用的网盘：添加一个指向空目录的本机挂载
+          media="$RUNNER_TEMP/moviedb-ci-media"
+          mkdir -p "$media"
+          drive=$(curl -s http://127.0.0.1:5072/manager/drives/save -H "Content-Type: application/json" -H "Origin: http://127.0.0.1:5072" \
+            -d "{\"mount\": \"ci\", \"kind\": \"local\", \"config\": {\"root\": \"$media\"}}")
+          echo "$drive"
+          echo "$drive" | python3 -c "import json, sys; sys.exit(0 if json.load(sys.stdin).get('ok') else 1)" || fail "添加本机网盘失败：$drive"
+          body='{"TMDB_TOKEN": "eyJ'$(printf 'a%.0s' $(seq 100))'"}'
+          saved=$(curl -s http://127.0.0.1:5072/setup/save -H "Content-Type: application/json" -H "Origin: http://127.0.0.1:5072" -d "$body")
+          echo "$saved"
+          echo "$saved" | python3 -c "import json, sys; sys.exit(0 if json.load(sys.stdin).get('library_created') else 1)" || fail "保存后没有创建媒体库：$saved"
           code=$(curl -s -o /dev/null -w "%{http_code}" -H "Accept: text/html" http://127.0.0.1:5072/)
           [ "$code" = 200 ] || fail "建库后首页返回 HTTP $code"
           for file in library.db .env logs/moviedb.log; do

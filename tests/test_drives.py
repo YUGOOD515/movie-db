@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -23,9 +24,11 @@ def env(tmp_path):
     movie_app.app.config.update(previous)
 
 
-def save(client, mount="local", kind="local", config=None):
-    return client.post("/manager/drives/save", json={"mount": mount, "kind": kind, "config": config or {}},
-                       headers=ORIGIN)
+def save(client, mount="local", kind="local", config=None, create=None):
+    payload = {"mount": mount, "kind": kind, "config": config or {}}
+    if create is not None:
+        payload["create"] = create
+    return client.post("/manager/drives/save", json=payload, headers=ORIGIN)
 
 
 def test_local_drive_crud_page_and_json_are_safe(env):
@@ -113,3 +116,60 @@ def test_missing_mounts_use_first_path_segment_and_fallback():
     assert drives.missing_mounts(paths) == ["UC"]
     drive_store.save_drive("*", "alist", {}, True)
     assert drives.missing_mounts(paths) == []
+
+
+def test_create_rejects_existing_mount_without_overwriting(env):
+    root = str(env["tmp"])
+    assert save(env["client"], "duplicate", config={"root": root}, create=True).get_json()["ok"]
+    response = save(env["client"], "duplicate", config={"root": "changed"}, create=True)
+    assert response.status_code == 400
+    assert response.get_json()["message"] == "挂载名已存在，请换一个或编辑原挂载"
+    assert drive_store.get_drive("duplicate")["config"]["root"] == root
+    drive_store.delete_drive("duplicate")
+
+
+def test_without_create_same_mount_updates_instead_of_failing(env):
+    """网盘页的编辑路径不带 create：同名按更新处理，与添加路径的拦截形成对比。"""
+    root = str(env["tmp"])
+    assert save(env["client"], "duplicate", config={"root": root}, create=True).get_json()["ok"]
+    moved = env["tmp"] / "moved"
+    moved.mkdir()
+    response = save(env["client"], "duplicate", config={"root": str(moved)}, create=False)
+    assert response.status_code == 200 and response.get_json()["ok"]
+    assert drive_store.get_drive("duplicate")["config"]["root"] == str(moved)
+    drive_store.delete_drive("duplicate")
+
+
+def test_edit_preserves_disabled_state(env):
+    assert save(env["client"], "disabled", config={"root": str(env["tmp"])}, create=True).get_json()["ok"]
+    assert env["client"].post("/manager/drives/disabled/toggle", headers=ORIGIN).get_json()["enabled"] is False
+    response = save(env["client"], "disabled", config={"root": str(env["tmp"])}, create=False)
+    assert response.status_code == 200 and response.get_json()["ok"]
+    assert drive_store.get_drive("disabled")["enabled"] is False
+    drive_store.delete_drive("disabled")
+
+
+def test_cross_origin_error_asks_for_page_refresh(env):
+    response = env["client"].post("/manager/drives/save", json={}, headers={"Origin": "https://evil.test"})
+    assert response.status_code == 403
+    assert response.get_json()["message"] == "请求来源不正确，请刷新页面后重试。"
+
+
+def test_media_source_fields_use_mount_path_guidance(env):
+    text = env["client"].get("/media?tab=associate", headers=HTML).get_data(as_text=True)
+    assert "AList 视频直链" not in text and "alist_origin" not in text and "/d/..." not in text
+    assert text.count("挂载路径或直链，如 /夸克/电影/xxx.mkv") == 8
+    assert 'type="text" aria-label="挂载路径或直链，如 /夸克/电影/xxx.mkv"' in text
+    assert 'id="search-alist-url" type="text"' in text
+
+
+def test_drive_editor_responsive_markup_and_script_contract(env):
+    text = env["client"].get("/media?tab=drives", headers=HTML).get_data(as_text=True)
+    assert 'col-12 col-xl-5 order-2 order-xl-1' in text
+    assert 'col-12 col-xl-7 order-1 order-xl-2' in text
+    assert 'vstack drive-list' in text and 'data-drive-editor-icon' in text
+    script = (Path(movie_app.app.static_folder) / "drives.js").read_text(encoding="utf-8")
+    assert "create: !editingMount && !setup" in script
+    assert ': input.dataset.drivePlaceholder || ""' in script
+    assert "mountInput.disabled = true" in script
+    assert 'replaceChildren(icon("pencil"))' in script

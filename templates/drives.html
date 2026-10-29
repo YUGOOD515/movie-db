@@ -6,10 +6,10 @@
         <div class="settings-banner mb-3">{{ ui_icon('triangle-alert', '') }}<span>尚未添加网盘的挂载名：{{ missing_mounts|join('、') }}。添加时使用相同名称即可继续播放。</span></div>
     {% endif %}
     <div class="row g-4">
-        <div class="col-12 col-xl-5">
+        <div class="col-12 col-xl-5 order-2 order-xl-1">
             <section class="settings-group" aria-labelledby="drive-editor-heading">
                 <header class="settings-group-head">
-                    <span class="settings-group-icon" aria-hidden="true">{{ ui_icon('plus', '') }}</span>
+                    <span class="settings-group-icon" aria-hidden="true" data-drive-editor-icon>{{ ui_icon('plus', '') }}</span>
                     <div class="min-w-0 flex-grow-1">
                         <h2 class="settings-group-title" id="drive-editor-heading" data-drive-editor-title>添加网盘</h2>
                         <p class="settings-group-desc">保存前先检测目录与凭据是否可用。</p>
@@ -18,8 +18,8 @@
                 <div class="settings-body">{{ drive_form('drive') }}</div>
             </section>
         </div>
-        <div class="col-12 col-xl-7">
-            <div class="vstack gap-3" data-drive-list>
+        <div class="col-12 col-xl-7 order-1 order-xl-2">
+            <div class="vstack drive-list" data-drive-list>
                 {% for drive in drives %}
                     <section class="settings-group" data-drive-card="{{ drive.mount }}">
                         <header class="settings-group-head">

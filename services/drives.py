@@ -64,15 +64,19 @@ def _driver(kind, config, save):
     return driver(config, save)
 
 
-def save(mount, kind, values, enabled=True):
+def save(mount, kind, values, enabled=None, create=False):
     if kind not in DRIVERS:
         raise ValueError("不支持的网盘类型。")
     mount = "*" if kind == "alist" else str(mount or "").strip()
     if not mount or "/" in mount or mount in (".", "..") or (mount == "*") != (kind == "alist"):
         raise ValueError("请填写有效的挂载名，且不要包含 /。")
     previous = drive_store.get_drive(mount) or {}
+    if create and previous:
+        raise ValueError("挂载名已存在，请换一个或编辑原挂载")
     if previous and previous["kind"] != kind:
         raise ValueError("编辑时不能更改网盘类型。")
+    if enabled is None:
+        enabled = previous.get("enabled", True)
     config = dict(previous.get("config") or {})
     changed = False
     for field in DRIVERS[kind].fields:
