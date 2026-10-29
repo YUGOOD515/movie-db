@@ -10,11 +10,12 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+import sqlite3
 import tempfile
 from pathlib import Path
 
-from connectors import alist, throttle, tmdb
-from models import discovery_store as store
+from connectors import throttle, tmdb
+from models import local_store as store
 from services import cloud_sync, media_discovery, setup_wizard
 
 logger = logging.getLogger(__name__)
@@ -28,7 +29,7 @@ PARTS = (
     {"id": "images", "label": "海报与缩略图", "icon": "images",
      "hint": "已下载的海报、剧照、头像和缩略图"},
     {"id": "config", "label": "连接与密钥", "icon": "key",
-     "hint": "AList、TMDB、AI 等全部设置（.env）"},
+     "hint": "网盘、TMDB、AI 等全部设置与凭据"},
 )
 PART_IDS = tuple(part["id"] for part in PARTS)
 
@@ -38,13 +39,12 @@ class ResetError(Exception):
 
 
 def _targets(app) -> dict[str, list[Path]]:
-    from models import api_usage
     database = Path(app.config["DATABASE"])
-    discovery = store.store_path(database)
+    local = store.store_path(database)
     sqlite_files = lambda path: [path, *(Path(f"{path}{suffix}") for suffix in ("-wal", "-shm", "-journal"))]
     return {
         "library": sqlite_files(database),
-        "discovery": [*sqlite_files(discovery), *sqlite_files(api_usage.database_path())],
+        "discovery": sqlite_files(local),
         "images": [Path(app.config["IMAGE_ROOT"]), Path(app.config["THUMBNAIL_ROOT"])],
         "config": [setup_wizard.ENV_PATH],
     }
@@ -114,14 +114,29 @@ def clear(app, parts) -> dict:
     targets = _targets(app)
     failed: list[str] = []
     # 先删图片和媒体库，再发布空快照：快照会带上 static 下的文件，远端多余的图片也一并删除。
-    for part in ("images", "library", "discovery"):
+    for part in ("images", "library"):
         if part in selected:
             for path in targets[part]:
                 _remove(path, failed)
+    local = store.store_path(app.config["DATABASE"])
+    if "discovery" in selected:
+        try:
+            store.clear(app.config["DATABASE"])
+        except (OSError, sqlite3.Error) as error:
+            logger.warning("Failed to clear %s: %s", local, error)
+            failed.append(local.name)
     cloud = None
     if "library" in selected and cloud_sync.is_enabled():
         cloud = "cleared" if _clear_cloud() else "failed"
     if "config" in selected:
+        if local.exists():
+            try:
+                keep = set(store.tables(app.config["DATABASE"])) - {"drive"}
+                store.clear(app.config["DATABASE"], keep=keep)
+            except (OSError, sqlite3.Error) as error:
+                logger.warning("Failed to clear drive configuration in %s: %s", local, error)
+                if local.name not in failed:
+                    failed.append(local.name)
         keys = _env_keys(setup_wizard.ENV_PATH)
         _remove(setup_wizard.ENV_PATH, failed)
         if setup_wizard.ENV_PATH.name not in failed:
@@ -135,10 +150,9 @@ def clear(app, parts) -> dict:
     store.reset()
     tmdb.clear_cache()
     throttle.reset()
-    alist.forget_token()
+    from services import media_source
+    media_source.forget()
     app.config.pop("LIBRARY_READY", None)
-    if "config" in selected:
-        app.config["ALIST_ORIGIN"] = os.environ.get("ALIST_ORIGIN", "http://127.0.0.1:5244").rstrip("/")
 
     restart = "library" in selected or "config" in selected
     return {"ok": not failed, "cleared": selected, "failed": failed, "cloud": cloud,

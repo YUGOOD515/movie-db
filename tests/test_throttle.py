@@ -5,7 +5,9 @@ from unittest.mock import Mock, patch
 
 import requests
 
-from connectors import alist, llm, throttle
+from connectors import llm, throttle
+from connectors.drives.alist import AListDrive
+from connectors.drives.base import Entry
 from services import recognition
 
 
@@ -94,21 +96,15 @@ class CallTest(unittest.TestCase):
 class AlistTest(unittest.TestCase):
     def test_driver_throttling_message_is_retried(self):
         busy = response(payload={"code": 500, "message": "failed get link: 请求太频繁，请稍后再试", "data": None})
-        ok = response(payload={"code": 200, "data": {"sign": "abc", "raw_url": "http://raw/x"}})
-        with patch.object(alist.requests, "post", side_effect=[busy, ok]) as post:
-            links = alist.get_file("/Movies/A.mkv", "token")
-        self.assertEqual(post.call_count, 2)
-        self.assertTrue(links["signed_url"].endswith("/d/Movies/A.mkv?sign=abc"))
-        self.assertEqual(links["raw_url"], "http://raw/x")
-
-    def test_token_is_cached_between_calls(self):
-        with patch.dict("os.environ", {"ALIST_USERNAME": "u", "ALIST_PASSWORD": "p"}), \
-             patch.object(alist, "get_token", return_value="tok") as login:
-            self.assertEqual(alist.configured_token(), "tok")
-            self.assertEqual(alist.configured_token(), "tok")
-            alist.forget_token()
-            alist.configured_token()
-        self.assertEqual(login.call_count, 2)
+        ok = response(payload={"code": 200, "data": {"sign": "abc"}})
+        session = Mock()
+        session.post.side_effect = [busy, ok]
+        driver = AListDrive({"origin": "http://alist.invalid", "username": "u", "password": "p"},
+                            lambda config: None, session)
+        driver._token, driver._token_at = "token", time.monotonic()
+        link = driver.link(Entry("A.mkv", False, "/Movies/A.mkv"))
+        self.assertEqual(session.post.call_count, 2)
+        self.assertTrue(link.url.endswith("/d/Movies/A.mkv?sign=abc"))
 
 
 class RecognitionQuotaTest(unittest.TestCase):

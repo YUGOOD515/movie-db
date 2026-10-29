@@ -1,0 +1,112 @@
+{% from "_ui.html" import icon as ui_icon %}
+
+{% macro field_control(field, kind, prefix, setup) %}
+    {% set input_id = prefix ~ '-' ~ kind ~ '-' ~ field.name %}
+    {% if field.kind == 'select' %}
+        <select class="form-select" id="{{ input_id }}" data-drive-config="{{ field.name }}"{% if field.required %} required{% endif %}>
+            {% for value, label in field.options %}<option value="{{ value }}"{% if value == field.default %} selected{% endif %}>{{ label }}</option>{% endfor %}
+        </select>
+    {% elif field.kind == 'bool' %}
+        <div class="form-check form-switch m-0">
+            <input class="form-check-input" id="{{ input_id }}" type="checkbox" role="switch" data-drive-config="{{ field.name }}"{% if field.default %} checked{% endif %}>
+        </div>
+    {% elif field.kind == 'secret' %}
+        <div class="{{ 'onboard-secret' if setup else 'settings-secret' }}">
+            {% if kind == 'quark' and field.name == 'cookie' %}
+                <textarea class="form-control" id="{{ input_id }}" rows="4" placeholder="{{ field.hint }}" autocomplete="off" spellcheck="false" data-drive-config="{{ field.name }}" data-drive-secret data-drive-placeholder="{{ field.hint }}" data-secret-textarea{% if field.required %} required{% endif %}></textarea>
+            {% else %}
+                <input class="form-control" id="{{ input_id }}" type="password" value="" placeholder="{{ field.hint }}" autocomplete="off" spellcheck="false" data-drive-config="{{ field.name }}" data-drive-secret data-drive-placeholder="{{ field.hint }}"{% if field.required %} required{% endif %}>
+            {% endif %}
+            <button class="{{ 'onboard-reveal' if setup else 'settings-inline-btn' }}" type="button" data-reveal data-drive-reveal aria-label="显示{{ field.label }}" aria-pressed="false" title="显示">{{ ui_icon('eye', '') }}</button>
+        </div>
+    {% elif field.kind == 'path' %}
+        <div class="settings-path">
+            <input class="form-control" id="{{ input_id }}" type="text" value="{{ field.default }}" autocomplete="off" spellcheck="false" data-drive-config="{{ field.name }}"{% if field.required %} required{% endif %}>
+            <button class="settings-inline-btn" type="button" data-pick-path="folder" hidden>选择…</button>
+        </div>
+    {% else %}
+        <input class="form-control" id="{{ input_id }}" type="{{ 'url' if field.kind == 'url' else 'text' }}" value="{{ field.default }}" autocomplete="off" spellcheck="false" data-drive-config="{{ field.name }}"{% if field.required %} required{% endif %}>
+    {% endif %}
+{% endmacro %}
+
+{% macro field_input(field, kind, prefix, setup=false) %}
+    {% set input_id = prefix ~ '-' ~ kind ~ '-' ~ field.name %}
+    {% if setup %}
+        <div class="onboard-field">
+            <label for="{{ input_id }}">{{ field.label }}</label>
+            {{ field_control(field, kind, prefix, setup) }}
+            {% if field.hint and field.kind != 'secret' %}<small>{{ field.hint }}</small>{% endif %}
+        </div>
+    {% else %}
+        <div class="settings-row{% if field.kind == 'bool' %} is-switch{% endif %}">
+            <div class="settings-row-label">
+                <label for="{{ input_id }}">{{ field.label }}</label>
+                {% if field.hint and field.kind != 'secret' %}<p class="settings-row-hint">{{ field.hint }}</p>{% endif %}
+            </div>
+            <div class="settings-row-control">{{ field_control(field, kind, prefix, setup) }}</div>
+        </div>
+    {% endif %}
+{% endmacro %}
+
+{% macro drive_form(prefix, setup=false, action=none) %}
+<div{% if setup %} class="vstack gap-3"{% endif %} data-drive-form{% if setup %} data-drive-setup{% endif %}>
+    {% if setup %}
+        <div class="onboard-field">
+            <label for="{{ prefix }}-kind">网盘类型</label>
+            <select class="form-select" id="{{ prefix }}-kind" data-drive-kind>
+                {% for type in drive_types %}<option value="{{ type.kind }}">{{ type.label }}</option>{% endfor %}
+            </select>
+        </div>
+    {% else %}
+        <div class="settings-row">
+            <div class="settings-row-label"><label for="{{ prefix }}-kind">网盘类型</label></div>
+            <div class="settings-row-control">
+                <select class="form-select" id="{{ prefix }}-kind" data-drive-kind>
+                    {% for type in drive_types %}<option value="{{ type.kind }}">{{ type.label }}</option>{% endfor %}
+                </select>
+            </div>
+        </div>
+    {% endif %}
+    {% if setup %}
+        <div class="onboard-field" data-drive-mount hidden>
+            <label for="{{ prefix }}-mount">挂载名</label>
+            <input class="form-control" id="{{ prefix }}-mount" type="text" required data-drive-mount-input>
+        </div>
+    {% else %}
+        <div class="settings-row" data-drive-mount>
+            <div class="settings-row-label">
+                <label for="{{ prefix }}-mount">挂载名</label>
+                <p class="settings-row-hint">与已有媒体路径的第一级目录保持一致，编辑时不能修改。</p>
+            </div>
+            <div class="settings-row-control"><input class="form-control" id="{{ prefix }}-mount" type="text" placeholder="例如：夸克" required data-drive-mount-input></div>
+        </div>
+    {% endif %}
+    {% for type in drive_types %}
+        <div{% if setup %} class="vstack gap-3"{% endif %} data-drive-fields="{{ type.kind }}" hidden>
+            {% for field in type.fields if not field.advanced %}
+                {{ field_input(field, type.kind, prefix, setup) }}
+            {% endfor %}
+            {% if type.kind in ('aliyun', 'baidu', 'pan123') %}
+                <p class="small text-body-secondary mb-0">默认令牌续期服务由 OpenList 团队提供。可在 <a href="https://api.oplist.org/" target="_blank" rel="noopener">OpenList Token 获取工具</a> 获取令牌，或在高级设置中使用自己的凭据。</p>
+            {% endif %}
+            {% if type.fields|selectattr('advanced')|list %}
+                <details class="{{ 'onboard-more' if setup else 'settings-advanced' }}">
+                    <summary>高级</summary>
+                    {% if setup %}<div class="vstack gap-3 mt-3">{% endif %}
+                    {% for field in type.fields if field.advanced %}{{ field_input(field, type.kind, prefix, setup) }}{% endfor %}
+                    {% if setup %}</div>{% endif %}
+                </details>
+            {% endif %}
+        </div>
+    {% endfor %}
+    <div class="{{ 'onboard-result' if setup else 'settings-result' }}" data-drive-result role="status" aria-live="polite"></div>
+    <div class="{{ 'onboard-actions' if setup else 'd-flex flex-wrap gap-2 pt-3' }}">
+        {% if setup %}
+            {{ action('data-drive-save', '检测并保存', '正在检测…') }}
+        {% else %}
+            <button class="btn btn-sm chip-btn" type="button" data-drive-save>{{ ui_icon('plug', '') }}<span>检测并保存</span></button>
+            <button class="btn btn-sm chip-btn" type="button" data-drive-cancel-edit hidden>{{ ui_icon('x', '') }}<span>取消编辑</span></button>
+        {% endif %}
+    </div>
+</div>
+{% endmacro %}

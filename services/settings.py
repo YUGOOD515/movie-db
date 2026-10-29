@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlparse
 
-from connectors import alist, imdb_ratings, llm, player, throttle, tmdb
+from connectors import imdb_ratings, llm, player, throttle, tmdb
 from services import env_file, setup_wizard
 
 KEEP = object()  # 密钥留空：保持已保存的值
@@ -151,27 +151,17 @@ else:
           placeholder="/Applications/IINA.app" if IS_MACOS else "/usr/bin/mpv",
           hint="留空自动查找" + ("；可以直接选择 .app。" if IS_MACOS else "。")),
     )
-ALIST_BINARY = "alist.exe" if IS_WINDOWS else "alist"
 SECTIONS: tuple[Section, ...] = (
     Section("connection", "连接", "影片来源、播放器与本机服务", (
-        Group("alist", "AList", "从网盘读取和播放影片", (
-            S("ALIST_ORIGIN", "地址", "url", "http://127.0.0.1:5244", placeholder="http://127.0.0.1:5244"),
-            S("ALIST_USERNAME", "用户名", required=True),
-            S("ALIST_PASSWORD", "密码", "secret", required=True),
-            S("ALIST_PATH_PASSWORD", "路径密码", "secret", hint="目录在 AList“元信息”里设置了密码时填写。"),
-            S("ALIST_AUTOSTART", "随 MovieDB 启动 AList", "bool", True, advanced=True,
-              hint="需要同时填写 AList 程序目录。"),
-            S("ALIST_DIR", "AList 程序目录", "path", advanced=True, hint=f"包含 {ALIST_BINARY} 的文件夹。",
-              placeholder="D:\\Apps\\alist" if IS_WINDOWS else "/opt/homebrew/bin" if IS_MACOS else "/usr/local/bin"),
-            S("ALIST_IMPORT_ROOT", "导入根目录", advanced=True, hint="只允许导入这个目录下的文件，留空不限制。",
-              placeholder="/夸克/影视"),
-            S("ALIST_RATE", "每秒请求数", "float", 20, advanced=True, low=0.1, high=100, placeholder="20",
-              hint="网盘风控严格时调低。"),
-            S("ALIST_CONCURRENCY", "同时请求数", "int", 4, advanced=True, low=1, high=16, placeholder="4"),
-        ), test="alist", icon="network"),
+        Group("drive", "网盘", "从网盘读取和播放影片", (
+            S("DRIVE_RATE", "网盘每秒请求数", "float", 20, advanced=True, low=0.1, high=100, placeholder="20"),
+            S("DRIVE_CONCURRENCY", "网盘同时请求数", "int", 4, advanced=True, low=1, high=16, placeholder="4"),
+        ), icon="network"),
         Group("scan", "待关联扫描", "发现新文件、检查失效文件", (
             S("MOVIEDB_AUTOSCAN", "启动时自动扫描", "bool", True,
               hint="MovieDB 启动后在后台扫描已选择的片库目录。"),
+            S("MEDIA_IMPORT_ROOT", "导入根目录", advanced=True, hint="只允许导入这个目录下的文件，留空不限制。",
+              placeholder="/夸克/影视"),
             S("IMPORT_TITLE_CONCURRENCY", "核心关联作品并行数", "int", 4, advanced=True, low=1, high=16, placeholder="4",
               hint="多个作品共用接口限额和视频探测池；图片与评分在独立资源池继续补齐。"),
         ), icon="radar"),
@@ -214,8 +204,8 @@ SECTIONS: tuple[Section, ...] = (
             S("MDBLIST_DAILY_BUDGET", "24 小时请求预算", "int", 900, advanced=True, low=1, high=100000, placeholder="900",
               hint="按连续 24 小时统计，包含重试。根据账号套餐设置并保留余量。"),
             S("MDBLIST_RATE", "每秒请求预算", "float", 2, advanced=True, low=0.1, high=2, placeholder="2"),
-            S("MOVIEDB_API_USAGE_DATABASE", "请求预算与评分缓存位置", "path", advanced=True,
-              hint="留空使用数据目录的 api-usage.db；更换位置前先迁移原文件以保留请求计数。"),
+            S("MOVIEDB_LOCAL_DATABASE", "本机状态数据库位置", "path", advanced=True, restart=True,
+              hint="扫描、识别、关联任务、网盘配置、请求预算与评分缓存共用 local.db；更换位置前先迁移原文件。"),
         ), test="mdblist", icon="chart-column"),
         Group("imdb", "IMDb 评分", "官方评分文件，超过一天自动重新下载", (), icon="star"),
         Group("douban", "豆瓣评分", "录入和刷新评分时一并获取", (
@@ -288,7 +278,6 @@ def statuses() -> dict:
 
     sync_token = bool(env("MOVIEDB_SYNC_TOKEN", "").strip())
     return {
-        "alist": configured(env("ALIST_USERNAME", "").strip() and env("ALIST_PASSWORD", "")),
         "scan": configured(FIELDS["MOVIEDB_AUTOSCAN"].display(), "已开启", "已关闭"),
         "player": _player_status(),
         "ffprobe": {"state": "ok", "text": f"已就绪{' · ' + ffprobe['version'] if ffprobe['version'] else ''}"}
@@ -386,20 +375,11 @@ def apply(changed: list[str], app) -> list[str]:
     """让已保存的修改立即生效；返回执行过的动作说明（用于日志与测试）。"""
     changed = set(changed)
     actions = []
-    if changed & {"ALIST_ORIGIN", "ALIST_USERNAME", "ALIST_PASSWORD", "ALIST_PATH_PASSWORD"}:
-        alist.forget_token()
-        app.config["ALIST_ORIGIN"] = os.environ.get("ALIST_ORIGIN", "http://127.0.0.1:5244").rstrip("/")
-        actions.append("alist-login")
     if changed:
         throttle.configure()  # 保留正在进行的请求和服务冷却时间
         actions.append("throttle")
     testing = app.config.get("TESTING")
-    if changed & {"ALIST_DIR", "ALIST_AUTOSTART", "ALIST_ORIGIN"} and not testing:
-        from services.alist_process import start_configured_alist
-
-        threading.Thread(target=start_configured_alist, name="alist-start", daemon=True).start()
-        actions.append("alist-start")
-    if changed & {"MOVIEDB_AUTOSCAN", "ALIST_USERNAME", "ALIST_PASSWORD"} and not testing \
+    if "MOVIEDB_AUTOSCAN" in changed and not testing \
             and not os.environ.get("MOVIEDB_AUTOSCAN_DISABLED"):
         from services.media_discovery import start_autoscan
 

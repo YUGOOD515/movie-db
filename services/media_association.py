@@ -3,12 +3,12 @@
 import re
 from contextlib import closing
 from pathlib import PurePosixPath
-from urllib.parse import quote
 
-from connectors import alist, events
+from connectors import events
 from connectors import tmdb
 from models.database import connect_database
 from queries.association import get_associated_paths
+from services import media_source
 from services.media_discovery import canonical_path, scan_status
 from services.media_import import MAX_BATCH_ITEMS, import_media_batch, load_title_catalog
 from viewmodels.title_search import build_selection_viewmodel
@@ -59,7 +59,7 @@ def check_association(library_database, payload, *, allow_existing=False):
         season = _position(item.get("season_number"), 0)
         episode = _position(item.get("episode_number"), 1)
         position = (season, episode)
-        if (path not in discovered and not (allow_existing and path in associated)) or PurePosixPath(path).suffix.lower() not in alist.VIDEO_EXTENSIONS:
+        if (path not in discovered and not (allow_existing and path in associated)) or PurePosixPath(path).suffix.lower() not in media_source.VIDEO_EXTENSIONS:
             error = "文件不在本次发现结果中，请刷新待关联列表。"
         elif path in associated and not allow_existing:
             error = "该文件已完成关联，请刷新待关联列表。"
@@ -88,7 +88,7 @@ def check_association(library_database, payload, *, allow_existing=False):
 
 def _learn_alias(library_database, source_name, title):
     """记住“乱码目录名 → 作品”的人工确认结果，下次同名目录直接识别。"""
-    from models import discovery_store as store
+    from models import local_store as store
     from services.recognition import alias_key
 
     key = alias_key(source_name)
@@ -110,21 +110,18 @@ def complete_association(*, library_database, image_root, payload, on_progress=N
         events.emit("title", name=checked["title"].get("name") or payload["title_id"])
     if not checked["valid"]:
         return checked
-    token = alist.configured_token()
     is_series = checked["title"]["media_type"] == "tv"
     rows = checked["rows"]
     total = len(rows)
     report("link", 0, total)
-    # Internal placeholders are only parsed locally. A worker obtains a fresh
-    # signed/raw link immediately before probing, never while queued for minutes.
     items = [{"title_id": checked["title"]["title_id"],
-              "alist_url": alist.get_origin() + "/d" + quote(row["path"], safe="/") + "?sign=pending",
+              "path": row["path"],
               "season_number": str(row["season_number"]) if is_series else "",
               "episode_number": str(row["episode_number"]) if is_series else ""}
              for row in rows]
 
     def resolve(path):
-        link = alist.get_file(path, token)
+        link = media_source.get_file(path)
         expected = (expected_files or {}).get(path)
         if expected is not None:
             if expected[0] is not None and link.get("size") is not None and expected[0] != link["size"]:

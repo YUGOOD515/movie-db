@@ -12,9 +12,9 @@ from unittest.mock import Mock, patch
 
 import pytest
 import test_library_app as fixtures
-from connectors import alist, llm, media_probe, throttle, tmdb, mdblist
+from connectors import llm, media_probe, throttle, tmdb, mdblist
 from models import api_usage
-from services import import_jobs, import_runtime, media_discovery, media_import, recognition
+from services import import_jobs, import_runtime, media_discovery, media_import, media_source, recognition
 
 
 def eventually(check, timeout=5):
@@ -33,9 +33,8 @@ class ImportJobsTest(unittest.TestCase):
     def setUp(self):
         fixtures.LibraryIntegrationTest.setUp(self)
         for patcher in (
-            patch.object(alist, "configured_token", return_value="offline"),
-            patch.object(alist, "get_file", side_effect=lambda path, token: {
-                "signed_url": alist.get_origin() + "/d" + path + "?sign=private",
+            patch.object(media_source, "get_file", side_effect=lambda path: {
+                "signed_url": "https://offline.invalid/stream" + path,
                 "raw_url": "https://offline.invalid" + path + "?private=raw"}),
             patch.object(media_probe, "probe_video", return_value={"duration_ms": 1000}),
             patch.object(media_import, "fetch_title_rating", return_value={"status": "no_key"}),
@@ -193,16 +192,16 @@ class ImportJobsTest(unittest.TestCase):
         self.seed(paths)
         first_probe = threading.Event()
 
-        def link(path, token):
+        def link(path):
             if path == paths[1]:
                 assert first_probe.wait(5), "second link blocked the first probe"
-            return {"signed_url": alist.get_origin() + "/d" + path + "?sign=s", "raw_url": "https://offline.invalid" + path}
+            return {"signed_url": "https://offline.invalid/stream" + path, "raw_url": "https://offline.invalid" + path}
 
         def probe(url):
             first_probe.set()
             return {"duration_ms": 1000}
 
-        with patch.object(alist, "get_file", side_effect=link), patch.object(media_probe, "probe_video", side_effect=probe):
+        with patch.object(media_source, "get_file", side_effect=link), patch.object(media_probe, "probe_video", side_effect=probe):
             jobs = self.submit([self.selection(paths)])
             self.assertEqual(self.finished([job["id"] for job in jobs])[0]["state"], "complete")
 
@@ -324,18 +323,18 @@ class ImportJobsTest(unittest.TestCase):
     def test_expired_video_link_is_refreshed_once(self):
         path = "/share/a.mkv"
         self.seed([path])
-        with patch.object(media_probe, "probe_video", side_effect=[media_probe.ProbeError("expired", code="expired"), {"duration_ms": 12}]) as probe, patch.object(alist, "get_file", return_value={"signed_url": alist.get_origin() + "/d" + path + "?sign=s", "raw_url": "https://offline.invalid/file"}) as link:
+        with patch.object(media_probe, "probe_video", side_effect=[media_probe.ProbeError("expired", code="expired"), {"duration_ms": 12}]) as probe, patch.object(media_source, "get_file", return_value={"signed_url": "https://offline.invalid/stream" + path, "raw_url": "https://offline.invalid/file"}) as link:
             jobs = self.submit([self.selection([path])])
             self.assertEqual(self.finished([job["id"] for job in jobs])[0]["state"], "complete")
             self.assertEqual(probe.call_count, 2)
             self.assertEqual(link.call_count, 2)
 
     def test_partial_import_keeps_recognition_of_remaining_files(self):
-        from models import discovery_store
+        from models import local_store
         paths = ["/share/a.mkv", "/share/b.mkv"]
         self.seed(paths)
         record = media_discovery._scans[str(self.database_path)]["records"][0]
-        discovery_store.save_recognition(self.database_path, record["path"], recognition.signature(record),
+        local_store.save_recognition(self.database_path, record["path"], recognition.signature(record),
             {"status": "ready", "method": "rule", "title": {"title_id": "tt9000001", "name": "Movie", "media_type": "movie"}})
         job = self.submit([self.selection(paths[:1])])[0]
         self.assertEqual(self.finished([job["id"]])[0]["state"], "complete")

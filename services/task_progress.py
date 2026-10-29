@@ -1,4 +1,4 @@
-"""Bounded import observations, coalesced to discovery.db; checkpoints stay separate."""
+"""Bounded import observations, coalesced to local.db; checkpoints stay separate."""
 from copy import deepcopy
 from contextlib import closing
 import json

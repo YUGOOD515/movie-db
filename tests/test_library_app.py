@@ -17,12 +17,13 @@ from urllib.parse import unquote
 
 with patch.dict(os.environ, {"ALIST_AUTOSTART": "0"}):
     import app as movie_app
-from connectors import alist, imdb_ratings, media_probe, player, tmdb
+from connectors import imdb_ratings, media_probe, player, tmdb
 from models import database as database_module
 from models import library as models
 from queries.collection import get_collection_items
 from queries.title import query_title
 from services import media_import as media_import_service
+from services import media_source
 from services import rating_sync
 from services.playback import is_effectively_completed
 from connectors import tmdb as tmdb_connector
@@ -186,8 +187,8 @@ class LibraryIntegrationTest(unittest.TestCase):
         with patch.object(tmdb, "_session"), patch.object(tmdb, "_get") as get, \
              patch.object(tmdb, "identify_title", new=REAL_IDENTIFY_TITLE), \
              patch.object(tmdb, "build_media_metadata", new=REAL_BUILD_MEDIA_METADATA), \
-             patch.object(alist, "validate_alist_video_url"), \
-             patch.object(alist, "get_video_link", return_value="https://media.test/movie.mkv"), \
+             patch.object(media_source, "get_file", return_value={"signed_url": "https://media.test/movie.mkv",
+                                                                  "raw_url": "https://media.test/movie.mkv"}), \
              patch.object(media_probe, "probe_video", return_value={"duration_ms": 7200000}), \
              patch.object(media_import_service, "fetch_title_rating", return_value={"status": "unavailable"}):
             get.side_effect = [
@@ -631,7 +632,7 @@ class LibraryIntegrationTest(unittest.TestCase):
                 "SELECT COUNT(*) FROM playback_progress WHERE file_id = 3"
             ).fetchone()[0]
 
-        with patch.object(alist, "get_video_link", return_value="https://media.test/a.mkv"), patch.object(
+        with patch.object(media_source, "stream_url", return_value="https://media.test/a.mkv"), patch.object(
             player, "play_video"
         ) as play_video:
             response = self.client.post("/play/3")
@@ -727,7 +728,7 @@ class LibraryIntegrationTest(unittest.TestCase):
         self.assertFalse(page["play_label"].startswith("继续播放"))
 
         with patch.object(
-            alist, "get_video_link", return_value="https://media.test/movie.mkv"
+            media_source, "stream_url", return_value="https://media.test/movie.mkv"
         ), patch.object(player, "play_video") as play_video:
             self.assertEqual(self.client.post("/play/3").status_code, 204)
         self.assertEqual(play_video.call_args.kwargs["start_position_ms"], 0)
@@ -909,8 +910,9 @@ class LibraryIntegrationTest(unittest.TestCase):
         self.assertGreaterEqual(len(payload["items"]), 2)
         self.assertEqual(
             set(payload["items"][0]),
-            {"title_id", "season_number", "episode_number", "alist_url"},
+            {"title_id", "season_number", "episode_number", "path"},
         )
+        self.assertIn("alist_url", payload["items"][1])
 
     def test_title_id_import_accepts_movie_series_and_episode(self):
         movie_metadata = {
@@ -994,11 +996,9 @@ class LibraryIntegrationTest(unittest.TestCase):
             "audio_channel_layout": "5.1",
         }
         with patch.object(
-            media_import_service.alist, "validate_alist_video_url"
-        ), patch.object(
-            media_import_service.alist,
-            "get_video_link",
-            return_value="https://media.test/file.mkv",
+            media_import_service.media_source,
+            "get_file",
+            return_value={"signed_url": "https://media.test/file.mkv", "raw_url": "https://media.test/file.mkv"},
         ), patch.object(
             media_import_service.media_probe, "probe_video", return_value=probe
         ), patch.object(
@@ -1233,8 +1233,8 @@ class LibraryIntegrationTest(unittest.TestCase):
                     target.write_bytes(b"staged image")
                 return {"downloaded": 1, "skipped": 0, "failed": 0}
 
-            with patch.object(alist, "validate_alist_video_url", return_value=None), \
-                 patch.object(alist, "get_video_link", side_effect=lambda p: f"http://127.0.0.1:5244/d{p}"), \
+            with patch.object(media_source, "get_file", side_effect=lambda p: {
+                    "signed_url": f"https://media.test{p}", "raw_url": f"https://media.test{p}"}), \
                  patch.object(media_probe, "probe_video", side_effect=probe_side_effect), \
                  patch.object(media_import_service, "fetch_title_rating", return_value={"status": "skipped", "ratings": {}}), \
                  patch.object(tmdb, "build_media_metadata", side_effect=fake_metadata_with(metadata["title_artwork"])), \
@@ -1301,8 +1301,8 @@ class LibraryIntegrationTest(unittest.TestCase):
         with closing(self.connect()) as database:
             before_files = database.execute("SELECT COUNT(*) FROM media_file").fetchone()[0]
 
-        with patch.object(alist, "validate_alist_video_url", return_value=None), \
-             patch.object(alist, "get_video_link", return_value="https://media.test/episode"), \
+        with patch.object(media_source, "get_file", return_value={
+                "signed_url": "https://media.test/episode", "raw_url": "https://media.test/episode"}), \
              patch.object(media_probe, "probe_video", return_value={"duration_ms": 1000}), \
              patch.object(media_import_service, "fetch_title_rating", return_value={"status": "skipped", "ratings": {}}), \
              patch.object(tmdb, "build_media_metadata", side_effect=fake_metadata_with(metadata["title_artwork"])), \
@@ -1342,8 +1342,8 @@ class LibraryIntegrationTest(unittest.TestCase):
             {"title_id": "tt9000003", "season_number": "", "episode_number": "", "alist_url": "http://127.0.0.1:5244/d/Series/E01.mkv?sign=one"},
             {"title_id": "tt9000004", "season_number": "", "episode_number": "", "alist_url": "http://127.0.0.1:5244/d/Series/E02.mkv?sign=two"},
         ]
-        with patch.object(alist, "validate_alist_video_url", return_value=None), \
-             patch.object(alist, "get_video_link", side_effect=lambda path: f"https://media.test{path}"), \
+        with patch.object(media_source, "get_file", side_effect=lambda path: {
+                "signed_url": f"https://media.test{path}", "raw_url": f"https://media.test{path}"}), \
              patch.object(media_probe, "probe_video", side_effect=probe_video), \
              patch.object(media_import_service, "fetch_title_rating", return_value={"status": "skipped", "ratings": {}}), \
              patch.object(media_import_service, "_build_context", wraps=media_import_service._build_context) as build_context:
@@ -1412,8 +1412,8 @@ class LibraryIntegrationTest(unittest.TestCase):
             "episode_number": "",
             "alist_url": "http://127.0.0.1:5244/d/Movies/Movie.mkv?sign=one",
         }
-        with patch.object(alist, "validate_alist_video_url", return_value=None), \
-             patch.object(alist, "get_video_link", return_value="https://media.test/movie"), \
+        with patch.object(media_source, "get_file", return_value={
+                "signed_url": "https://media.test/movie", "raw_url": "https://media.test/movie"}), \
              patch.object(media_probe, "probe_video", return_value={"duration_ms": 1000}), \
              patch.object(media_import_service, "fetch_title_rating", return_value={"status": "skipped", "ratings": {}}), \
              patch.object(tmdb, "build_media_metadata", side_effect=fake_metadata_with(metadata["title_artwork"])), \
@@ -1529,23 +1529,20 @@ class ConnectorUnitTest(unittest.TestCase):
         ), patch.dict(os.environ, {}, clear=True):
             with self.assertRaisesRegex(RuntimeError, "TMDB_TOKEN"):
                 tmdb_connector._token()
-            with self.assertRaisesRegex(RuntimeError, "ALIST_USERNAME"):
-                alist.get_video_link("/Movies/Test.mkv")
 
         with patch.dict(os.environ, {"TMDB_TOKEN": "test-token"}, clear=True):
             self.assertEqual(tmdb_connector._token(), "test-token")
 
-    def test_alist_url_is_restricted_to_signed_local_direct_links(self):
-        valid = "http://127.0.0.1:5244/d/Movies/Test.mkv?sign=abc"
-        self.assertEqual(alist.parse_alist_url(valid), "/Movies/Test.mkv")
-
+    def test_media_source_accepts_legacy_direct_links_and_validates_paths(self):
+        self.assertEqual(media_source.parse_source("https://example.com/d/Movies/Test.mkv?sign=abc"), "/Movies/Test.mkv")
+        self.assertEqual(media_source.parse_source("http://127.0.0.1:5244/d/Movies/Test.mkv"), "/Movies/Test.mkv")
         for invalid in (
-            "https://example.com/d/Movies/Test.mkv?sign=abc",
-            "http://127.0.0.1:5244/d/Movies/Test.mkv",
+            "not-a-url",
+            "http://127.0.0.1:5244/p/Movies/Test.mkv",
             "http://127.0.0.1:5244/d/../secret.mkv?sign=abc",
         ):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
-                alist.parse_alist_url(invalid)
+                media_source.parse_source(invalid)
 
     def test_ffprobe_output_is_normalized(self):
         payload = {

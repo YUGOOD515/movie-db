@@ -23,8 +23,6 @@ TOKEN = "eyJ" + "a" * 120
 def env(tmp_path, monkeypatch):
     for name in (*settings.FIELDS, "FLASK_SECRET_KEY"):
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("ALIST_USERNAME", "admin")
-    monkeypatch.setenv("ALIST_PASSWORD", "old-pass")
     monkeypatch.setenv("TMDB_TOKEN", TOKEN)
     env_path = tmp_path / ".env"
     monkeypatch.setattr(setup_wizard, "ENV_PATH", env_path)
@@ -68,24 +66,18 @@ def test_settings_page_renders_registry_and_setup_redirects(env):
 
 def test_state_reports_secrets_as_saved_only(env):
     state = env["client"].get("/settings/state").get_json()
-    assert state["saved"]["ALIST_PASSWORD"] is True and state["saved"]["LLM_API_KEY"] is False
-    assert "old-pass" not in str(state) and TOKEN not in str(state)
+    assert state["saved"]["TMDB_TOKEN"] is True and state["saved"]["LLM_API_KEY"] is False
+    assert TOKEN not in str(state)
     assert state["values"]["MOVIEDB_AUTOSCAN"] is True and state["restart_supported"] is False
 
 
-def test_blank_secret_keeps_value_and_required_cannot_be_cleared(env):
+def test_blank_secret_keeps_value(env):
     client = env["client"]
-    response = _save(client, {"ALIST_USERNAME": "bob", "ALIST_PASSWORD": "", "TMDB_TOKEN": ""})
+    response = _save(client, {"TMDB_TOKEN": ""})
     assert response.status_code == 200, response.get_json()
-    assert response.get_json()["changed"] == ["ALIST_USERNAME"]
-    assert os.environ["ALIST_PASSWORD"] == "old-pass" and os.environ["TMDB_TOKEN"] == TOKEN
-    text = env["env"].read_text(encoding="utf-8")
-    assert "ALIST_USERNAME=bob" in text and TOKEN not in text
-
-    refused = _save(client, {"ALIST_PASSWORD": None, "ALIST_USERNAME": ""})
-    assert refused.status_code == 400
-    assert set(refused.get_json()["errors"]) == {"ALIST_PASSWORD", "ALIST_USERNAME"}
-    assert os.environ["ALIST_PASSWORD"] == "old-pass"
+    assert response.get_json()["changed"] == []
+    assert os.environ["TMDB_TOKEN"] == TOKEN
+    assert not env["env"].exists()
 
 
 def test_tmdb_key_is_optional_and_status_shows_source(env, monkeypatch):
@@ -107,11 +99,11 @@ def test_optional_secret_can_be_cleared(env, monkeypatch):
 
 
 def test_validation_errors_are_keyed_by_field(env):
-    response = _save(env["client"], {"ALIST_ORIGIN": "127.0.0.1:5244", "LLM_BATCH_SIZE": "99",
+    response = _save(env["client"], {"TMDB_API_ORIGIN": "127.0.0.1", "LLM_BATCH_SIZE": "99",
                                      "FFPROBE_TIMEOUT": "abc", "LLM_API": "soap", "NOPE": "1"})
     assert response.status_code == 400
     errors = response.get_json()["errors"]
-    assert set(errors) == {"ALIST_ORIGIN", "LLM_BATCH_SIZE", "FFPROBE_TIMEOUT", "LLM_API", "NOPE"}
+    assert set(errors) == {"TMDB_API_ORIGIN", "LLM_BATCH_SIZE", "FFPROBE_TIMEOUT", "LLM_API", "NOPE"}
     assert not env["env"].exists()
 
 
@@ -139,12 +131,11 @@ def test_ai_enable_requires_core_fields_and_normalizes_deepseek(env):
     assert not any(name in os.environ for name in settings.AI_CORE)
 
 
-def test_alist_change_applies_immediately(env):
-    with patch.object(settings.alist, "forget_token") as forget:
-        result = _save(env["client"], {"ALIST_ORIGIN": "http://nas.local:5244/"}).get_json()
-    forget.assert_called_once()
-    assert "alist-login" in result["applied"] and "throttle" in result["applied"]
-    assert movie_app.app.config["ALIST_ORIGIN"] == "http://nas.local:5244"
+def test_drive_change_applies_immediately(env):
+    result = _save(env["client"], {"DRIVE_RATE": "10", "MEDIA_IMPORT_ROOT": "/夸克/影视"}).get_json()
+    assert result["changed"] == ["DRIVE_RATE", "MEDIA_IMPORT_ROOT"]
+    assert result["applied"] == ["throttle"]
+    assert os.environ["DRIVE_RATE"] == "10" and os.environ["MEDIA_IMPORT_ROOT"] == "/夸克/影视"
 
 
 def test_port_change_waits_for_restart(env):
@@ -166,11 +157,11 @@ def test_port_change_waits_for_restart(env):
 
 def test_writes_require_same_origin_and_local_access(env):
     client = env["client"]
-    assert client.post("/settings/save", json={"values": {"ALIST_USERNAME": "x"}},
+    assert client.post("/settings/save", json={"values": {"DRIVE_RATE": "10"}},
                        headers={"Origin": "http://evil.test"}).status_code == 403
     assert client.post("/settings/restart", headers={**SAME_ORIGIN, "Cf-Connecting-Ip": "1.2.3.4"}).status_code == 403
     assert client.get("/settings/state", headers={"Cf-Connecting-Ip": "1.2.3.4"}).status_code == 403
-    assert os.environ["ALIST_USERNAME"] == "admin"
+    assert os.environ.get("DRIVE_RATE") is None
 
 
 def test_setup_poster_validates_size_and_name(env):

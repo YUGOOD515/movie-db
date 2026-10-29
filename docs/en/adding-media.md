@@ -2,10 +2,11 @@
 
 **English** | [简体中文](../zh-CN/adding-media.md)
 
-There are three ways to add media: **smart discovery** scans your AList folders and proposes matches, the **link editor** lets you check every file against TMDB episodes, and **manual entry** takes an IMDb ID or a JSON file. All of them live under **Media management → Link** (媒体资源管理 → 关联) in the sidebar.
+There are three ways to add media: **smart discovery** scans your drive folders and proposes matches, the **link editor** lets you check every file against TMDB episodes, and **manual entry** takes an IMDb ID or a JSON file. All of them live under **Media management → Link** (媒体资源管理 → 关联) in the sidebar.
 
 > The UI is in Chinese; labels are given in English with the original in parentheses where it helps.
 
+- [Drives and credentials](#drives-and-credentials)
 - [Smart discovery](#smart-discovery)
 - [AI recognition](#ai-recognition)
 - [Link editor](#link-editor)
@@ -14,11 +15,25 @@ There are three ways to add media: **smart discovery** scans your AList folders 
 - [How importing works](#how-importing-works)
 - [Deleting a title](#deleting-a-title)
 
+## Drives and credentials
+
+Add mounts under **Manage → Drives** (管理 → 网盘). MovieDB only lists folders and reads playback files; it never uploads, renames or deletes drive content. Keep the mount name equal to the first segment of existing media paths; mounts can also be renamed while editing.
+
+- **Local folder** — enter an absolute path. Hidden files are skipped, and symlinks cannot escape the mount root.
+- **Quark / UC** — sign in to `pan.quark.cn` (`drive.uc.cn` for UC), open the browser's network inspector and copy the complete Cookie header from any `clouddrive` request.
+- **Aliyun Drive Open** — open the [OpenList token tool](https://api.oplist.org/), choose Aliyun Open or TV, scan the QR code and copy the refresh_token. Resource and backup drives are supported; custom client credentials are available under Advanced.
+- **Baidu Netdisk** — choose Baidu in the same tool, authorize it and copy the refresh_token. Custom developer credentials are also supported.
+- **123 Cloud Open** — use a refresh_token, a developer client_id / client_secret pair, or an access_token (about 90 days), whichever you have. Refresh tokens are available from the tool above.
+
+Aliyun, Baidu and 123 renew through `api.oplist.org` by default, a **third-party service run by the OpenList team**, not by MovieDB. Advanced settings allow custom credentials and renewal endpoints. New refresh/access tokens are stored only in the local `local.db` and never enter cloud snapshots.
+
+**Upgrading** — legacy AList settings in `.env` automatically create an **AList / OpenList (passthrough)** mount without changing the original values, so existing media keeps playing. You can move to a built-in driver later by reusing the same mount name. MovieDB no longer starts AList for you; keep the existing service running when using passthrough.
+
 ## Smart discovery
 
 ![Discovered files ready to link](../images/discovery.webp)
 
-The pending list (待关联) scans the AList folders you pick (click **+ Add folder**; if none is picked, MovieDB uses the shared folder it finds automatically). In the background it cleans up disguised file names, searches TMDB and works out seasons and episodes. Results are split into tabs with counts; when one tab is done the next one opens:
+The pending list (待关联) scans the drive folders you pick (click **+ Add folder**; if none is picked, MovieDB uses the shared folder it finds automatically). In the background it cleans up disguised file names, searches TMDB and works out seasons and episodes. Results are split into tabs with counts; when one tab is done the next one opens:
 
 - **Ready** (可确认) — confidence ≥ 0.8, and for series every file maps to exactly one TMDB episode. Several sources of the same title are merged into one expandable row. Rows are selected by default; the bottom bar shows how many items and videos are selected, and **Link N items** imports them in one go. Nothing is imported without your click.
 - **Review** (待核对) — an inline tag explains why (for example “6/12 episodes matched”, “duplicate of a ready item”, “same-name titles exist”, “low confidence”). **Review** opens the [link editor](#link-editor) prefilled with the match.
@@ -28,9 +43,9 @@ Each row's **⋯** menu offers *Change title*, *Recognize again* and *Ignore*. I
 
 Recognition order: existing links in the library → folder names you confirmed before → same-name titles in the library → TMDB rule-based search → AI. Confirmed folder names are remembered, so the same name is recognized instantly next time. Results are cached by a signature of the folder contents and are not recomputed unless the contents change.
 
-Each scan also checks files that are already linked. A file is marked **missing** only when AList explicitly says it no longer exists (network errors don't count). The **Overview** tab can filter by missing files; nothing is deleted from your drive.
+Each scan also checks files that are already linked. A file is marked **missing** only when the drive explicitly says it no longer exists (network errors don't count). The **Overview** tab can filter by missing files; nothing is deleted from your drive.
 
-All of this is stored in `discovery.db` in the data folder (override with `MOVIEDB_DISCOVERY_DATABASE`) and is never included in the cloud snapshot. Once an AList account is configured, MovieDB scans once at startup; turn this off in Settings or with `MOVIEDB_AUTOSCAN=0`.
+All of this is stored in `local.db` in the data folder (override with `MOVIEDB_LOCAL_DATABASE`) and is never included in the cloud snapshot. Once a drive is configured, MovieDB scans once at startup; turn this off in Settings or with `MOVIEDB_AUTOSCAN=0`.
 
 ## AI recognition
 
@@ -40,7 +55,7 @@ After you configure `LLM_BASE_URL`, `LLM_API_KEY` and `LLM_MODEL` (or pick a pro
 
 Each fully read directory enters recognition immediately while other directories continue scanning. Rules, AI and verification run **as a pipeline**: 16 threads run rule-based searches, uncertain folders are batched for AI, and another pool verifies answers and maps episodes. You can confirm recognized items while scanning continues. Incomplete directories remain available for review.
 
-TMDB results are cached in `discovery.db` (searches 7 days, title summaries 30 days, titles without an IMDb ID 1 day), so re-recognizing after enabling AI, after a rule upgrade, or with *Recognize again* doesn't repeat the searches. When a folder's type is unclear, `/search/multi` finds movies and series in one request.
+TMDB results are cached in `local.db` (searches 7 days, title summaries 30 days, titles without an IMDb ID 1 day), so re-recognizing after enabling AI, after a rule upgrade, or with *Recognize again* doesn't repeat the searches. When a folder's type is unclear, `/search/multi` finds movies and series in one request.
 
 ### Requests
 
@@ -89,7 +104,7 @@ The **Media versions** section shows every file and all its parameters directly,
 The **⋯** menu at the top right of the pending list has *Manual entry*, *Upload JSON* and *JSON template*.
 
 - **By IMDb ID** — add a movie or an episode. A series ID needs a season and episode number; an episode ID resolves its parent series automatically. Episodes without an IMDb ID on TMDB can't be added.
-- **Search TMDB** — search by name → pick a movie or series → for a series, enter season, episode and AList video URL per row (add or remove rows); for a movie, enter one URL → add everything to the import list. Season and episode numbers are validated against TMDB on import. Adding only creates rows on the page and never overwrites existing data; the first addition replaces the single empty placeholder row. Finish with **Validate and import**.
+- **Search TMDB** — search by name → pick a movie or series → for a series, enter season, episode and a mounted path (`/mount/path`) per row (add or remove rows); for a movie, enter one path → add everything to the import list. Season and episode numbers are validated against TMDB on import. Adding only creates rows on the page and never overwrites existing data; the first addition replaces the single empty placeholder row. Finish with **Validate and import**.
 - **Upload JSON** — bulk import following the template; if any entry fails, the whole batch is rolled back.
 
 Searches and IMDb mappings are cached in memory for 10 minutes (up to 2048 entries) and identical concurrent requests are merged; the chosen match is reused on import. Cast and final artwork are fetched only on import, and candidate posters load in the browser on demand. If TMDB is unavailable you can still enter an IMDb ID; when an IMDb mapping or local data is missing, MovieDB tells you why.
@@ -104,12 +119,12 @@ When you re-import an existing title, names, genres and season/episode relations
 
 ## How importing works
 
-Confirmed jobs are scheduled by root IMDb title ID, with four titles preparing core associations by default. Committed titles continue enrichment in separate resource pools, freeing preparation slots. The total active window is four times the preparation concurrency, capped at 32 titles. Bounded process-wide pools prevent overlapping imports from multiplying concurrency. Each file obtains its AList signed and raw URLs immediately before probing; expired links refresh once. Probe checkpoints survive restarts, while signed URLs and credentials are never stored in jobs.
+Confirmed jobs are scheduled by root IMDb title ID, with four titles preparing core associations by default. Committed titles continue enrichment in separate resource pools, freeing preparation slots. The total active window is four times the preparation concurrency, capped at 32 titles. Bounded process-wide pools prevent overlapping imports from multiplying concurrency. Each file gets a MovieDB `/stream` URL through `media_source` immediately before probing; expired links refresh once. Probe checkpoints survive restarts, while signed URLs and credentials are never stored in jobs.
 
 Core associations commit as soon as required metadata and probes are ready. Artwork, scores, thumbnails and tones run alongside them, retrying unavailable services at their recovery time for up to three rounds. Images are processed as they arrive, shared actor photos download once, thumbnails and tones share a decode, and only selected episodes' images are prepared. A local SQLite index of each IMDb ratings-file version avoids repeatedly decompressing it for separate titles. Manual JSON imports retain their batch atomicity.
 
-Jobs and probe checkpoints live in `discovery.db`; request budgets and cached MDBList scores live in `api-usage.db` in the data folder. Neither is included in cloud snapshots. Duplicate submissions reuse jobs; deleting a title cancels unfinished jobs before they can write it back. Resource pools and short write transactions are shared within the desktop application's process; a multi-process deployment needs a single import dispatcher. See [Configuration → Rate limits](configuration.md#rate-limits).
+Jobs, probe checkpoints, request budgets and cached MDBList scores all live in `local.db` and are never included in cloud snapshots. Duplicate submissions reuse jobs; deleting a title cancels unfinished jobs before they can write it back. Resource pools and short write transactions are shared within the desktop application's process; a multi-process deployment needs a single import dispatcher. See [Configuration → Rate limits](configuration.md#rate-limits).
 
 ## Deleting a title
 
-**Delete title** at the bottom of a detail page first shows exactly what will be removed: overview, ratings, every season and episode, local images and watch history. Images and cast photos can be scrolled sideways and are tagged *delete* or *shared, kept*; watch history shows the time, position and file length. The original videos on AList and the collections themselves are kept. If the scope changes or more than five minutes pass, MovieDB checks again before deleting; afterwards you return to Media management with a confirmation.
+**Delete title** at the bottom of a detail page first shows exactly what will be removed: overview, ratings, every season and episode, local images and watch history. Images and cast photos can be scrolled sideways and are tagged *delete* or *shared, kept*; watch history shows the time, position and file length. The original videos on the drive and the collections themselves are kept. If the scope changes or more than five minutes pass, MovieDB checks again before deleting; afterwards you return to Media management with a confirmation.

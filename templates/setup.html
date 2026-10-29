@@ -1,4 +1,5 @@
 {% from "_ui.html" import icon as ui_icon %}
+{% from "_drive_form.html" import drive_form with context %}
 {% extends "layout.html" %}
 
 {% block html_attrs %} data-first-run{% endblock %}
@@ -40,7 +41,7 @@
         <header class="onboard-top">
             <span class="onboard-brand">MovieDB</span>
             <ol class="onboard-progress" aria-label="设置进度" data-progress hidden>
-                <li data-progress-step="alist">片源</li>
+                <li data-progress-step="drive">片源</li>
                 <li data-progress-step="tmdb">海报与资料</li>
             </ol>
         </header>
@@ -54,50 +55,27 @@
             <section class="onboard-scene" data-scene="welcome" aria-labelledby="ob-welcome">
                 <p class="onboard-eyebrow">欢迎使用 MovieDB</p>
                 <h1 class="onboard-title" id="ob-welcome">你的网盘电影库，<br>从这里开始。</h1>
-                <p class="onboard-lead">连上 AList，一分钟后就能浏览带海报、简介和演员的片库。所有设置之后都能在“设置”里修改。</p>
+                <p class="onboard-lead">添加网盘，一分钟后就能浏览带海报、简介和演员的片库。所有设置之后都能在“设置”里修改。</p>
                 <ul class="onboard-checks" data-checks>
-                    <li data-check="alist"><span class="onboard-dot"></span><span data-check-text>正在检查 AList…</span></li>
+                    <li data-check="drive"><span class="onboard-dot"></span><span data-check-text>正在检查网盘…</span></li>
                     <li data-check="tmdb"><span class="onboard-dot"></span><span data-check-text>正在检查 TMDB…</span></li>
                     <li data-check="ffprobe"><span class="onboard-dot"></span><span data-check-text>正在检查 ffprobe…</span></li>
                     <li data-check="library"><span class="onboard-dot"></span><span data-check-text>正在检查媒体库…</span></li>
                 </ul>
                 <div class="onboard-actions">
-                    <button class="btn media-primary-action" type="button" data-go="alist"><span>开始</span>{{ ui_icon('arrow-right', '') }}</button>
+                    <button class="btn media-primary-action" type="button" data-go="drive"><span>开始</span>{{ ui_icon('arrow-right', '') }}</button>
                 </div>
             </section>
 
-            <section class="onboard-scene" data-scene="alist" aria-labelledby="ob-alist" hidden>
-                <p class="onboard-eyebrow">片源 · AList</p>
-                <h2 class="onboard-title" id="ob-alist">连接 AList</h2>
-                <p class="onboard-lead">AList 把夸克等网盘挂载成文件夹，MovieDB 通过它浏览和播放。记得在 AList 后台“设置 → 全局”中开启“签名所有”。</p>
+            <section class="onboard-scene" data-scene="drive" aria-labelledby="ob-drive" hidden>
+                <p class="onboard-eyebrow">片源 · 添加网盘</p>
+                <h2 class="onboard-title" id="ob-drive">你的影片在哪里？</h2>
+                <p class="onboard-lead">添加一个本机目录或网盘。MovieDB 只读取目录和播放文件，不会修改其中的内容。</p>
                 <div class="onboard-fields">
-                    <label class="onboard-field">
-                        <span>AList 地址</span>
-                        <input class="form-control" id="ob-ALIST_ORIGIN" name="ALIST_ORIGIN" type="url" inputmode="url" placeholder="http://127.0.0.1:5244" spellcheck="false">
-                    </label>
-                    <div class="onboard-pair">
-                        <label class="onboard-field">
-                            <span>用户名</span>
-                            <input class="form-control" id="ob-ALIST_USERNAME" name="ALIST_USERNAME" type="text" autocomplete="username" spellcheck="false">
-                        </label>
-                        <div class="onboard-field">
-                            <label for="ob-ALIST_PASSWORD">密码</label>
-                            {{ secret("ALIST_PASSWORD", "密码", "current-password") }}
-                        </div>
-                    </div>
-                    <details class="onboard-more" data-more="path-password">
-                        <summary>目录设置了访问密码？</summary>
-                        <div class="onboard-field">
-                            <label for="ob-ALIST_PATH_PASSWORD">路径密码</label>
-                            {{ secret("ALIST_PATH_PASSWORD", "路径密码") }}
-                            <small>AList 中为目录设置的“元信息 → 密码”，没有则留空。</small>
-                        </div>
-                    </details>
+                    {{ drive_form('setup-drive', setup=true, action=action) }}
                 </div>
-                <div class="onboard-result" data-result="alist" role="status" aria-live="polite"></div>
                 <div class="onboard-result" data-result="save" role="status" aria-live="polite"></div>
                 <div class="onboard-actions">
-                    {{ action('data-connect="alist"', "连接", "正在连接…") }}
                     <button class="btn onboard-link" type="button" data-go="welcome">返回</button>
                 </div>
             </section>
@@ -133,7 +111,7 @@
                 <div class="onboard-result" data-result="save" role="status" aria-live="polite"></div>
                 <div class="onboard-actions">
                     {{ action('data-connect="tmdb"', "连接", "正在连接…") }}
-                    <button class="btn onboard-link" type="button" data-go="alist">返回</button>
+                    <button class="btn onboard-link" type="button" data-go="drive">返回</button>
                 </div>
             </section>
 
@@ -165,5 +143,6 @@
 {% endblock %}
 
 {% block scripts %}
+    <script src="{{ url_for('static', filename='drives.js') }}"></script>
     <script src="{{ url_for('static', filename='setup.js') }}"></script>
 {% endblock %}

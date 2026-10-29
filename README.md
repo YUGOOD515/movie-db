@@ -2,7 +2,7 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-A self-hosted movie & TV library for videos stored on cloud drives. MovieDB reads your files through [AList](https://github.com/AlistGo/alist), fills in posters, cast and ratings from TMDB, recognizes messy release names (with optional AI help), and plays everything in your local player with resume support. It runs on Windows and macOS as a desktop app with a web UI.
+A self-hosted movie & TV library for videos stored on cloud drives. MovieDB's built-in read-only drive layer lists files and streams playback directly, fills in posters, cast and ratings from TMDB, recognizes messy release names (with optional AI help), and plays everything in your local player with resume support. It runs on Windows and macOS as a desktop app with a web UI.
 
 > The user interface is in Simplified Chinese.
 
@@ -12,9 +12,10 @@ A self-hosted movie & TV library for videos stored on cloud drives. MovieDB read
 
 - **Library** — a home page with a “Latest additions” carousel, continue watching, unwatched and top-rated rows; browse by genre, year, rating and language; favorites and custom collections; light and dark themes.
 - **Rich detail pages** — TMDB artwork, title logos, cast, overview; ratings from IMDb, Douban, Rotten Tomatoes, Metacritic, Letterboxd and Trakt; file details (4K, HDR10 / Dolby Vision, codecs, audio channels) read by ffprobe; season and episode browser.
-- **Smart discovery** — scans the AList folders you choose, cleans up release names, matches them on TMDB and works out seasons and episodes. Uncertain names can go to an AI model (any OpenAI-compatible API; DeepSeek recommended). Results are grouped into *Ready*, *Review* and *Unrecognized*, and you confirm in bulk.
+- **Built-in drive layer** — direct support for Quark / UC, Aliyun Drive Open, Baidu Netdisk, 123 Cloud Open and local folders, plus AList / OpenList passthrough; read-only listing and playback, never uploads or deletes.
+- **Smart discovery** — scans the drive folders you choose, cleans up release names, matches them on TMDB and works out seasons and episodes. Uncertain names can go to an AI model (any OpenAI-compatible API; DeepSeek recommended). Results are grouped into *Ready*, *Review* and *Unrecognized*, and you confirm in bulk.
 - **Link editor** — check every file against TMDB episodes, fix numbering with a visual filename-rule editor, handle per-folder seasons, continuous numbering and multiple versions of the same episode.
-- **Local playback** — opens AList links in MPC-HC, IINA, mpv, VLC or the system default app; MPC-HC, IINA and mpv record progress and resume where you left off.
+- **Local playback** — opens MovieDB `/stream` URLs in MPC-HC, IINA, mpv, VLC or the system default app, with redirect, single-connection and ranged multi-part proxying; MPC-HC, IINA and mpv record progress and resume where you left off.
 - **Desktop app** — Windows installer or portable zip, macOS `.dmg` for Apple silicon and Intel; bundles Python, all dependencies and ffprobe, and runs in its own native window (the system WebView2 / WKWebView — no bundled browser engine).
 - **Guided setup** — a first-run walkthrough and a settings page that checks each service as you configure it.
 - **Optional remote access** — reach the library through a Cloudflare Tunnel, with a read-only snapshot on Cloudflare Workers when your computer is offline.
@@ -30,7 +31,7 @@ A self-hosted movie & TV library for videos stored on cloud drives. MovieDB read
 
 ## Requirements
 
-- **AList** (v3) with your cloud drives mounted. MovieDB can start a local AList for you.
+- **A local folder or a supported cloud-drive account** — add it directly during setup; no AList installation is required. See [drive credentials](docs/en/adding-media.md#drives-and-credentials).
 - Posters and details come from TMDB. The installers ship with a built-in API key, so you don't need your own (you can still set one in Settings).
 - Optional: an **MDBList** API key for extra ratings, an **AI** API key for smarter recognition, and a **video player** (MPC-HC on Windows, IINA on macOS, or mpv / VLC).
 
@@ -64,22 +65,22 @@ MovieDB serves `http://127.0.0.1:5000` locally (if another program already uses 
 
 ![First-run walkthrough](docs/images/onboarding.webp)
 
-1. **Welcome** — checks whether AList is running, whether ffprobe works and where the library will be created, and connects to TMDB with the built-in key (falling back to the official `api.tmdb.org` domain when `api.themoviedb.org` is unreachable).
-2. **Source · AList** — address and account. MovieDB checks the login, the visible storages and whether *Sign all* is enabled (needed for playback links). You can skip the check if AList isn't running yet. If TMDB is already reachable, setup finishes here.
+1. **Welcome** — checks configured drives, whether ffprobe works and where the library will be created, and connects to TMDB with the built-in key (falling back to the official `api.tmdb.org` domain when `api.themoviedb.org` is unreachable).
+2. **Source · Add a drive** — choose a local folder or drive type, enter a mount name and credentials, then check and save. At least one drive is required to continue. If TMDB is already reachable, setup finishes here.
 3. **Posters & details · TMDB** (only when TMDB can't be reached) — set a proxy used for TMDB only, turn on the public image relay (wsrv.nl) if posters don't load, or enter your own TMDB key.
 4. **Done** — an empty library is created and **Add a folder to scan** opens right away. The page also points to optional extras in Settings: **AI recognition** (Zhipu GLM-4.7-Flash is free; DeepSeek, SiliconFlow, Gemini, OpenRouter, OpenAI and others work too) and **MDBList** ratings.
 
-Then open **Media management → Link** (媒体资源管理 → 关联) in the sidebar, add your AList folders and confirm what MovieDB found. See [Adding media](docs/en/adding-media.md) for the details.
+Then open **Media management → Link** (媒体资源管理 → 关联) in the sidebar, add your drive folders and confirm what MovieDB found. See [Adding media](docs/en/adding-media.md) for the details.
 
 ## Configuration
 
-Everything can be changed later in **Manage → Settings** (管理 → 设置), grouped into **Connection** (AList, scanning, player, ffprobe, cloud snapshot, port), **Metadata** (TMDB, MDBList, IMDb ratings), **AI** and **Data**. Each group shows its status and has a **Check** button; less common options are under **Advanced**. Saved passwords and keys are never shown again — leave a field empty to keep it.
+Everything can be changed later in **Manage → Settings** (管理 → 设置), grouped into **Connection** (drives, scanning, player, ffprobe, cloud snapshot, port), **Metadata** (TMDB, MDBList, IMDb ratings), **AI** and **Data**. Each group shows its status and has a **Check** button; less common options are under **Advanced**. Saved passwords and keys are never shown again — leave a field empty to keep it. Mounts and drive credentials are managed under **Manage → Drives**.
 
 Settings are stored in a `.env` file in the data folder and take effect immediately, except the port (`MOVIEDB_PORT`), which needs a restart (use **Restart MovieDB** in the settings page or tray menu). The full list of variables is in [Configuration](docs/en/configuration.md).
 
 ### Where your data lives
 
-The library (`library.db`), recognition cache (`discovery.db`), settings (`.env`), posters, thumbnails, the IMDb ratings file and logs are all kept in the **data folder**. Use **Open data folder** in the tray / menu bar to find it.
+The library (`library.db`), local state (`local.db` — discovery, jobs, drive configuration and rating caches), settings (`.env`), posters, thumbnails, the IMDb ratings file and logs are all kept in the **data folder**. Use **Open data folder** in the tray / menu bar to find it.
 
 | How you run MovieDB | Data folder |
 |---|---|
@@ -124,4 +125,4 @@ On macOS, install the tools with `brew install uv ffmpeg` and a player such as `
 
 ## License
 
-The author has not chosen a license for MovieDB's own code yet. Bundled third-party code and assets keep their original licenses (for example the libraries in `static/vendor/` and the LGPL build of ffprobe in the installers). Movie data and images come from [TMDB](https://www.themoviedb.org); this product uses the TMDB API but is not endorsed or certified by TMDB.
+MovieDB's own code is licensed under the **GNU Affero General Public License v3.0 or later** (full text in [LICENSE](LICENSE)); third-party attribution is listed in [NOTICE](NOTICE). Bundled third-party code and assets keep their original licenses (for example the libraries in `static/vendor/` and the LGPL build of ffprobe in the installers). Movie data and images come from [TMDB](https://www.themoviedb.org); this product uses the TMDB API but is not endorsed or certified by TMDB.

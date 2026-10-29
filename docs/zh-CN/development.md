@@ -24,7 +24,7 @@ uv run flask --app app run                # 也可以直接用 Flask 开发服�
 
 `desktop.py` 支持 `--port`、`--browser`（用系统浏览器，等同 `MOVIEDB_UI=browser`）、`--no-browser`（只运行服务）、`--no-tray`、`--self-test`（打开窗口检查页面与接口后退出，CI 用）。还没有 `library.db` 时页面会进入首次使用引导；也可以照 `.env.example` 手动写 `.env`。
 
-**macOS**：`brew install uv ffmpeg`，再安装一个播放器（推荐 [IINA](https://iina.io)：`brew install --cask iina`，或 `brew install mpv`），之后与 Windows 相同。AList 可下载 macOS 版手动运行，或把它所在的文件夹填到 `ALIST_DIR` 由 MovieDB 自动启动。
+**macOS**：`brew install uv ffmpeg`，再安装一个播放器（推荐 [IINA](https://iina.io)：`brew install --cask iina`，或 `brew install mpv`），之后与 Windows 相同。内置网盘驱动不需要 AList；使用 AList / OpenList 透传时需自行运行 macOS 版服务。
 
 ## 项目结构
 
@@ -34,10 +34,10 @@ uv run flask --app app run                # 也可以直接用 Flask 开发服�
 | `desktop.py` | 桌面入口：启动服务、托盘 / 菜单栏、单实例、重启 |
 | `desktop_window.py` | 原生窗口（pywebview）：关窗隐藏、记住位置、深浅色标题栏、外链与文件选择框、macOS 菜单 |
 | `queries/` | 只读查询（页面查询只读 `library.db`） |
-| `models/` | 写操作：`library.py`（媒体库）、`discovery_store.py`（`discovery.db`） |
+| `models/` | 写操作：`library.py`（媒体库）、`local_store.py` / `drive_store.py`（`local.db`） |
 | `viewmodels/` | 页面 ViewModel |
-| `services/` | 导入、关联、识别、播放、删除、设置、数据目录等业务 |
-| `connectors/` | 外部接口：TMDB、AList、MDBList、IMDb 评分、AI、ffprobe、播放器、限速 |
+| `services/` | 导入、关联、识别、播放、删除、设置、数据目录等业务；`media_source.py` 统一挂载解析，`media_stream.py` 负责 `/stream` 转发 |
+| `connectors/` | 外部接口：TMDB、MDBList、IMDb 评分、AI、ffprobe、播放器、限速；`drives/` 为内置网盘与 AList / OpenList 透传驱动 |
 | `templates/`、`static/` | Jinja 模板、样式与按页拆分的脚本；第三方库在 `static/vendor/` |
 | `migrations/` | 数据库结构，`library_schema.sql` 为当前结构 |
 | `scripts/` | 命令行工具：缩略图、评分、快照发布、`.env` 核对等 |

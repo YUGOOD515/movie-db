@@ -72,17 +72,22 @@
             <div class="d-flex align-items-center gap-3">
                 <h1 class="h3 mb-0">媒体资源管理</h1>
                 <div class="segmented-control text-nowrap" role="group" aria-label="管理页面板块切换">
-                    <a class="btn btn-sm{{ ' active' if active_tab != 'associate' }}" href="{{ url_for('media', tab='overview') }}"{% if active_tab != 'associate' %} aria-current="page"{% endif %}>
+                    <a class="btn btn-sm{{ ' active' if active_tab == 'overview' }}" href="{{ url_for('media', tab='overview') }}"{% if active_tab == 'overview' %} aria-current="page"{% endif %}>
                         概览
                     </a>
                     <a class="btn btn-sm{{ ' active' if active_tab == 'associate' }}" href="{{ url_for('media', tab='associate') }}"{% if active_tab == 'associate' %} aria-current="page"{% endif %}>
                         关联
                     </a>
+                    {% if not read_only %}
+                    <a class="btn btn-sm{{ ' active' if active_tab == 'drives' }}" href="{{ url_for('media', tab='drives') }}"{% if active_tab == 'drives' %} aria-current="page"{% endif %}>
+                        网盘
+                    </a>
+                    {% endif %}
                 </div>
             </div>
 
             <div class="d-flex flex-wrap align-items-center gap-2 ms-auto">
-            {% if active_tab != 'associate' %}
+            {% if active_tab == 'overview' %}
             <form class="d-flex flex-wrap align-items-center gap-2 mb-0" action="{{ url_for('media') }}" method="get" id="overview-search-form" role="search" data-auto-submit>
                 <input type="hidden" name="tab" value="overview">
                 <div class="manager-search">
@@ -112,7 +117,7 @@
             </div>
         </header>
 
-        {% if active_tab != 'associate' %}
+        {% if active_tab == 'overview' %}
             <!-- ================= 概览板块 (Overview) ================= -->
             <section class="overview-section" aria-labelledby="overview-list-heading">
 
@@ -151,11 +156,14 @@
                 {% endif %}
             </section>
 
-        {% else %}
+        {% elif active_tab == 'associate' %}
             <!-- ================= 关联板块 (Association) ================= -->
             {% if read_only %}
             {{ empty_state("本地 MovieDB 未连接，关联与录入暂不可用。", "cloud-off", "电脑上的 MovieDB 与 Tunnel 在线后，刷新页面即可恢复完整功能。") }}
             {% else %}
+            {% if not drives %}
+            <div class="settings-banner mb-3">{{ ui_icon('network', '') }}<span>尚未添加网盘，添加后即可关联影片。</span><a href="{{ url_for('media', tab='drives') }}">前往网盘标签</a></div>
+            {% endif %}
             {% include "_association_flow.html" %}
             <section class="association-section d-none" data-manual-panel aria-labelledby="associate-heading">
                 <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
@@ -278,6 +286,8 @@
                     </div>
                 </div>
             {% endif %}
+        {% elif active_tab == 'drives' %}
+            {% include "drives.html" %}
         {% endif %}
     </div>
 {% endblock %}
@@ -288,5 +298,7 @@
     <script src="{{ url_for('static', filename='title-search.js') }}" defer></script>
     <script src="{{ url_for('static', filename='filename-rules.js') }}" defer></script>
     <script src="{{ url_for('static', filename='media-association.js') }}" defer></script>
+    {% elif active_tab == 'drives' %}
+    <script src="{{ url_for('static', filename='drives.js') }}"></script>
     {% endif %}
 {% endblock %}

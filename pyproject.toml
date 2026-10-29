@@ -2,6 +2,7 @@
 name = "2026-08-26-moviedb"
 version = "0.6.0"
 description = "Add your description here"
+license = "AGPL-3.0-or-later"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [

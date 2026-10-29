@@ -11,12 +11,12 @@ import requests
 
 with patch.dict(os.environ, {"ALIST_AUTOSTART": "0", "MOVIEDB_AUTOSCAN_DISABLED": "1"}):
     import app as movie_app
+from models import drive_store
 from services import env_file, setup_wizard
 
 HTML = {"Accept": "text/html,application/xhtml+xml,*/*;q=0.8"}
 SAME_ORIGIN = {"Origin": "http://localhost"}
-MANAGED = ("ALIST_ORIGIN", "ALIST_USERNAME", "ALIST_PASSWORD", "ALIST_PATH_PASSWORD", "TMDB_TOKEN", "TMDB_PROXY",
-           "TMDB_API_ORIGIN", "TMDB_IMAGE_ORIGIN",
+MANAGED = ("TMDB_TOKEN", "TMDB_PROXY", "TMDB_API_ORIGIN", "TMDB_IMAGE_ORIGIN",
            "LLM_BASE_URL", "LLM_API_KEY", "LLM_MODEL", "LLM_RPM", "LLM_API", "LLM_CONCURRENCY", "MDBLIST_APIKEY", "FLASK_SECRET_KEY", "FFPROBE_PATH")
 TOKEN = "eyJ" + "a" * 120
 
@@ -45,7 +45,8 @@ def setup_env(tmp_path, monkeypatch):
     previous = {key: movie_app.app.config.get(key) for key in ("DATABASE", "TESTING", "READ_ONLY")}
     movie_app.app.config.update(DATABASE=database, TESTING=True, READ_ONLY=False)
     movie_app.app.config.pop("LIBRARY_READY", None)
-    yield {"env": env_path, "db": database, "client": movie_app.app.test_client()}
+    drive_store.save_drive("local", "local", {"root": str(tmp_path)}, True)
+    yield {"env": env_path, "db": database, "client": movie_app.app.test_client(), "tmp": tmp_path}
     movie_app.app.config.update(previous)
     movie_app.app.config.pop("LIBRARY_READY", None)
     for name in MANAGED:  # save() 会写入 os.environ
@@ -53,8 +54,7 @@ def setup_env(tmp_path, monkeypatch):
 
 
 def _form(**values):
-    return {"ALIST_ORIGIN": "http://127.0.0.1:5244", "ALIST_USERNAME": "admin", "ALIST_PASSWORD": "pa ss",
-            "TMDB_TOKEN": TOKEN, **values}
+    return {"TMDB_TOKEN": TOKEN, **values}
 
 
 def test_first_run_redirects_pages_to_setup(setup_env):
@@ -68,6 +68,14 @@ def test_first_run_redirects_pages_to_setup(setup_env):
     assert page.status_code == 200 and "欢迎" in page.get_data(as_text=True)
 
 
+def test_setup_renders_drive_type_options(setup_env):
+    page = setup_env["client"].get("/setup", headers=HTML)
+    text = page.get_data(as_text=True)
+    assert page.status_code == 200 and 'id="setup-drive-kind"' in text
+    for kind in ("local", "quark", "uc", "aliyun", "baidu", "pan123", "alist"):
+        assert f'<option value="{kind}">' in text
+
+
 def test_save_writes_env_creates_library_and_hides_secrets(setup_env):
     client = setup_env["client"]
     response = client.post("/setup/save", json=_form(TMDB_PROXY="http://127.0.0.1:7890"), headers=SAME_ORIGIN)
@@ -77,7 +85,7 @@ def test_save_writes_env_creates_library_and_hides_secrets(setup_env):
     assert "secret_key" not in data
 
     text = setup_env["env"].read_text(encoding="utf-8")
-    assert "ALIST_PASSWORD='pa ss'" in text and f"TMDB_TOKEN={TOKEN}" in text
+    assert f"TMDB_TOKEN={TOKEN}" in text and "ALIST_PASSWORD" not in text
     assert "TMDB_PROXY=http://127.0.0.1:7890" in text and "FLASK_SECRET_KEY=" in text
     assert "LLM_API_KEY" not in text.replace("# LLM_API_KEY=", "")
     with closing(sqlite3.connect(setup_env["db"])) as db:
@@ -86,21 +94,23 @@ def test_save_writes_env_creates_library_and_hides_secrets(setup_env):
     # 已就绪：不再重定向；状态接口只说明密钥已保存，不回显
     assert client.get("/media", headers=HTML).status_code == 200
     status = client.get("/setup/status").get_json()
-    assert status["saved"]["ALIST_PASSWORD"] is True and status["library"]["ready"] is True
-    assert "pa ss" not in str(status) and TOKEN not in str(status)
+    assert status["saved"]["TMDB_TOKEN"] is True and status["library"]["ready"] is True
+    assert status["drives"][0]["mount"] == "local" and TOKEN not in str(status)
 
     # 再次保存时留空密钥 = 保持不变；已有媒体库不会被重建
-    again = client.post("/setup/save", json=_form(ALIST_PASSWORD="", TMDB_TOKEN="", mdblist_enabled=True,
+    again = client.post("/setup/save", json=_form(TMDB_TOKEN="", mdblist_enabled=True,
                                                   MDBLIST_APIKEY="mdb"), headers=SAME_ORIGIN).get_json()
     assert again["ok"] and not again["library_created"]
     text = setup_env["env"].read_text(encoding="utf-8")
-    assert "ALIST_PASSWORD='pa ss'" in text and "MDBLIST_APIKEY=mdb" in text and text.count("FLASK_SECRET_KEY=") == 1
+    assert "MDBLIST_APIKEY=mdb" in text and text.count("FLASK_SECRET_KEY=") == 1
 
 
 def test_save_validates_required_and_ai_fields(setup_env):
     client = setup_env["client"]
-    missing = client.post("/setup/save", json=_form(ALIST_PASSWORD=""), headers=SAME_ORIGIN)
-    assert missing.status_code == 400 and "必填" in missing.get_json()["message"]
+    drive_store.delete_drive("local")
+    missing = client.post("/setup/save", json=_form(), headers=SAME_ORIGIN)
+    assert missing.status_code == 400 and "至少" in missing.get_json()["message"]
+    drive_store.save_drive("local", "local", {"root": str(setup_env["tmp"])}, True)
     # 没有内置密钥的版本（源码运行）仍需要自己的 TMDB 密钥
     no_token = client.post("/setup/save", json=_form(TMDB_TOKEN=""), headers=SAME_ORIGIN)
     assert no_token.status_code == 400 and "内置" in no_token.get_json()["message"]
@@ -128,7 +138,7 @@ def test_setup_rejects_cross_site_and_tunnel_requests(setup_env):
     client = setup_env["client"]
     assert client.post("/setup/save", json=_form(), headers={"Origin": "https://evil.test"}).status_code == 403
     assert client.post("/setup/save", json=_form()).status_code == 403
-    tunneled = client.post("/setup/test/alist", json=_form(), headers={**SAME_ORIGIN, "Cf-Connecting-Ip": "1.2.3.4"})
+    tunneled = client.post("/setup/test/tmdb", json=_form(), headers={**SAME_ORIGIN, "Cf-Connecting-Ip": "1.2.3.4"})
     assert tunneled.status_code == 403
     assert client.get("/setup/status", headers={"Cf-Connecting-Ip": "1.2.3.4"}).status_code == 403
     assert not setup_env["env"].exists()
@@ -171,26 +181,12 @@ def _response(status=200, payload=None):
     return response
 
 
-def test_alist_check_reports_sign_all_warning(setup_env):
-    def post(url, **kwargs):
-        if url.endswith("/api/auth/login"):
-            return _response(payload={"code": 200, "data": {"token": "t"}})
-        return _response(payload={"code": 200, "data": {"content": [{"name": "夸克"}]}})
-
-    def get(url, **kwargs):
-        if url.endswith("/api/public/settings"):
-            return _response(payload={"data": {"version": "v3.45.0"}})
-        return _response(payload={"code": 200, "data": {"value": "false"}})
-
-    with patch.object(requests, "post", side_effect=post), patch.object(requests, "get", side_effect=get):
-        result = setup_wizard.test_alist(_form())
-    assert result["ok"] and result["sign_all"] is False
-    assert "AList v3.45.0" in result["details"] and any("签名所有" in text for text in result["warnings"])
-
-    with patch.object(requests, "post", return_value=_response(payload={"code": 400, "message": "password is incorrect"})):
-        assert setup_wizard.test_alist(_form())["message"] == "用户名或密码不正确。"
-    with patch.object(requests, "post", side_effect=requests.ConnectionError()):
-        assert "AList 已启动" in setup_wizard.test_alist(_form())["message"]
+def test_local_drive_is_ready_for_scanning(setup_env):
+    from services import media_source
+    (setup_env["tmp"] / "movie.mkv").write_bytes(b"video")
+    assert media_source.list_directory("/")[0]["name"] == "local"
+    entries = media_source.list_directory("/local")
+    assert ("movie.mkv", False) in [(entry["name"], entry["is_dir"]) for entry in entries]
 
 
 def _image(status=200, kind="image/jpeg"):

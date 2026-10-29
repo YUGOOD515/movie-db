@@ -13,7 +13,7 @@ from pathlib import Path
 
 import requests
 
-from connectors import alist, events, imdb_ratings, media_probe, throttle, tmdb
+from connectors import events, imdb_ratings, media_probe, throttle, tmdb
 from models.database import connect_database, connect_writable
 from models.library import import_media_bundle, enrich_media_bundle
 from queries.association import get_douban_id, get_existing_artwork_slots, get_file_targets, get_series_episodes
@@ -21,6 +21,7 @@ from services.rating_sync import fetch_douban_rating, fetch_title_rating
 from services.image_tones import ensure_tones, compute_tone, merge_tones, wants_tone
 from services.thumbnails import ensure_thumbnail, normalize_image_path, generate_thumbnail, get_target_size_for_path
 from services import import_runtime as runtime
+from services import media_source
 
 
 TITLE_ID_PATTERN = re.compile(r"tt[0-9]+")
@@ -309,28 +310,28 @@ def _validate_title_id(title_id: str) -> str:
 def _check_file(
     library_db: sqlite3.Connection,
     target_title_id: str,
-    alist_url: str,
+    source: str,
     seen_alist_paths: set[str] | None = None,
 ) -> str:
-    """本地校验：解析直链、批内去重、是否已关联其他作品。只读库，不联网。"""
-    alist_path = alist.parse_alist_url(alist_url)
+    """本地校验：解析来源、批内去重、是否已关联其他作品。只读库，不联网。"""
+    alist_path = media_source.parse_source(source)
+    if Path(alist_path).suffix.lower() not in media_source.VIDEO_EXTENSIONS:
+        raise MediaImportError("该文件不是支持的视频格式。")
 
     if seen_alist_paths is not None:
         if alist_path in seen_alist_paths:
-            raise MediaImportError("同一批次不能重复填写同一个 AList 文件。")
+            raise MediaImportError("同一批次不能重复填写同一个媒体文件。")
         seen_alist_paths.add(alist_path)
 
     existing = get_file_targets(library_db, [alist_path]).get(alist_path)
     if existing is not None and existing["title_id"] != target_title_id:
-        raise MediaImportError("该 AList 文件已关联其他影视条目。")
+        raise MediaImportError("该媒体文件已关联其他影视条目。")
     return alist_path
 
 
-def _probe_file(alist_url: str, alist_path: str, raw_url: str = "") -> dict:
-    """联网读取媒体信息。raw_url 由调用方刚从 AList 取得时，可跳过直链校验与再次取链。"""
+def _probe_file(source: str, alist_path: str, raw_url: str = "") -> dict:
     if not raw_url:
-        alist.validate_alist_video_url(alist_url)
-        raw_url = alist.get_video_link(alist_path)
+        raw_url = media_source.get_file(alist_path)["raw_url"]
     return media_probe.probe_video(raw_url)
 
 
@@ -421,10 +422,10 @@ def _prepare_items(
         progress.update(index=index, title_id="")
         title_id = _validate_title_id(item.get("title_id") or "")
         progress["title_id"] = title_id
-        alist_url = item.get("alist_url", "")
-        alist_path = alist.parse_alist_url(alist_url)
+        alist_url = item.get("path") or item.get("alist_url", "")
+        alist_path = media_source.parse_source(alist_url)
         if alist_path in seen_alist_paths:
-            raise MediaImportError("同一批次不能重复填写同一个 AList 文件。")
+            raise MediaImportError("同一批次不能重复填写同一个媒体文件。")
         seen_alist_paths.add(alist_path)
         inputs.append((index, title_id, item, alist_url, alist_path))
         if title_id not in identities:
@@ -812,6 +813,7 @@ def normalize_batch_import_items(payload) -> list[dict]:
                     "title_id",
                     "season_number",
                     "episode_number",
+                    "path",
                     "alist_url",
                 )
             }
@@ -840,7 +842,7 @@ def import_media_batch(
     defer_enrichment=False,
     commit_guard=None,
 ) -> dict:
-    """raw_urls 只供服务端内部传入（刚从 AList 取得的 {alist_path: raw_url}），不接受请求数据。"""
+    """raw_urls 只供服务端内部传入（刚从 media_source 取得的 {alist_path: raw_url}），不接受请求数据。"""
     progress = {"index": 0, "title_id": ""}
     try:
         successes = _run_import(library_database, image_root, items, progress, on_progress, raw_urls,

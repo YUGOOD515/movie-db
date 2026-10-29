@@ -8,7 +8,7 @@ import pytest
 
 with patch.dict(os.environ, {"ALIST_AUTOSTART": "0", "MOVIEDB_AUTOSCAN_DISABLED": "1"}):
     import app as movie_app
-from models import discovery_store as store
+from models import local_store as store
 from services import cloud_sync, data_reset, media_discovery, settings, setup_wizard
 
 SAME_ORIGIN = {"Origin": "http://localhost"}
@@ -17,7 +17,7 @@ HTML = {"Accept": "text/html,application/xhtml+xml,*/*;q=0.8"}
 
 @pytest.fixture
 def env(tmp_path, monkeypatch):
-    for name in (*settings.FIELDS, "FLASK_SECRET_KEY", "MOVIEDB_DISCOVERY_DATABASE"):
+    for name in (*settings.FIELDS, "FLASK_SECRET_KEY", "MOVIEDB_LOCAL_DATABASE", "MOVIEDB_DISCOVERY_DATABASE"):
         monkeypatch.delenv(name, raising=False)
     env_path = tmp_path / ".env"
     env_path.write_text("ALIST_USERNAME=admin\nTMDB_TOKEN=secret\nMOVIEDB_SYNC_TOKEN=sync\n", encoding="utf-8")
@@ -73,9 +73,10 @@ def test_clear_everything_empties_cloud_then_removes_env(env, monkeypatch):
     for path in (env["database"], Path(f"{env['database']}-wal"), env["tmp"] / "discovery.db",
                  env["images"], env["thumbnails"], env["env"]):
         assert not path.exists()
+    assert (env["tmp"] / "local.db").is_file()
     assert not os.environ.get("TMDB_TOKEN") and not os.environ.get("MOVIEDB_SYNC_TOKEN")
     assert env["client"].get("/", headers=HTML).headers["Location"].endswith("/setup")
-    assert store.list_roots(env["database"]) == []  # 识别库删除后能重新建表
+    assert store.list_roots(env["database"]) == []
 
 
 def test_partial_clear_keeps_other_data(env, monkeypatch):
@@ -84,6 +85,30 @@ def test_partial_clear_keeps_other_data(env, monkeypatch):
     assert body["ok"] and body["next"] is None and body["cloud"] is None
     assert not env["images"].exists() and env["database"].exists() and env["env"].exists()
     assert os.environ["TMDB_TOKEN"] == "secret"
+
+
+def test_local_clear_preserves_drive_until_config_is_cleared(env):
+    db = store._connect(env["database"])
+    with db:
+        db.execute("CREATE TABLE drive (mount TEXT PRIMARY KEY)")
+        db.execute("INSERT INTO drive VALUES ('quark')")
+        db.execute("INSERT INTO request_usage VALUES ('account', 123)")
+    db.close()
+
+    body = _clear(env["client"], parts=["discovery"]).get_json()
+    assert body["ok"] and env["env"].exists()
+    assert store.list_roots(env["database"]) == []
+    db = store._connect(env["database"])
+    assert db.execute("SELECT mount FROM drive").fetchone()[0] == "quark"
+    assert db.execute("SELECT COUNT(*) FROM request_usage").fetchone()[0] == 0
+    db.close()
+
+    body = _clear(env["client"], parts=["config"]).get_json()
+    assert body["ok"] and not env["env"].exists()
+    assert store.list_roots(env["database"]) == []
+    db = store._connect(env["database"])
+    assert db.execute("SELECT COUNT(*) FROM drive").fetchone()[0] == 0
+    db.close()
 
 
 def test_clear_requires_confirmation_selection_and_local_origin(env):

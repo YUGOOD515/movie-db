@@ -17,8 +17,8 @@ from urllib.parse import urlparse
 
 import requests
 
-from connectors import alist, llm, throttle, tmdb
-from services import env_file, paths
+from connectors import llm, throttle, tmdb
+from services import env_file, media_source, paths
 
 ROOT = paths.APP_DIR
 ENV_PATH = paths.ENV_PATH
@@ -27,8 +27,8 @@ SCHEMA_PATH = ROOT / "migrations" / "library_schema.sql"
 BUNDLED_FFPROBE = paths.BUNDLED_FFPROBE
 TIMEOUT = 12
 
-SECRET_FIELDS = ("ALIST_PASSWORD", "ALIST_PATH_PASSWORD", "TMDB_TOKEN", "LLM_API_KEY", "MDBLIST_APIKEY")
-PLAIN_FIELDS = ("ALIST_ORIGIN", "ALIST_USERNAME", "TMDB_PROXY", "LLM_BASE_URL", "LLM_MODEL", "LLM_RPM")
+SECRET_FIELDS = ("TMDB_TOKEN", "LLM_API_KEY", "MDBLIST_APIKEY")
+PLAIN_FIELDS = ("TMDB_PROXY", "LLM_BASE_URL", "LLM_MODEL", "LLM_RPM")
 
 # OpenAI 兼容接口的常见平台；model 只作输入提示。
 LLM_PRESETS = [
@@ -105,8 +105,8 @@ def ffprobe_status() -> dict:
 
 def current(database: Path) -> dict:
     """引导页初始数据：普通字段给值，密钥只给“是否已保存”。"""
+    from services import drives
     values = {name: os.environ.get(name, "") for name in PLAIN_FIELDS}
-    values["ALIST_ORIGIN"] = values["ALIST_ORIGIN"] or "http://127.0.0.1:5244"
     return {
         "values": values,
         "saved": {name: bool(os.environ.get(name, "").strip()) for name in SECRET_FIELDS},
@@ -114,18 +114,9 @@ def current(database: Path) -> dict:
         "ffprobe": ffprobe_status(),
         "presets": LLM_PRESETS,
         "env_exists": ENV_PATH.exists(),
-        "alist_running": _alist_running(values["ALIST_ORIGIN"]),
+        "drives": drives.listing(),
         "tmdb_builtin": bool(tmdb.BUILTIN_TOKEN),
     }
-
-
-def _alist_running(origin: str) -> bool:
-    from services.alist_process import is_alist_running
-
-    try:
-        return is_alist_running(origin)
-    except ValueError:
-        return False
 
 
 # ---------------------------------------------------------------- 测试
@@ -154,55 +145,6 @@ def _network_message(error: Exception, what: str) -> str:
     if isinstance(error, requests.exceptions.SSLError):
         return f"与{what}的安全连接失败。"
     return f"无法连接{what}。"
-
-
-def test_alist(form: dict) -> dict:
-    origin = _url(_field(form, "ALIST_ORIGIN") or "http://127.0.0.1:5244", "AList 地址")
-    username, password = _field(form, "ALIST_USERNAME"), _field(form, "ALIST_PASSWORD")
-    if not username or not password:
-        raise SetupError("请填写 AList 用户名和密码。")
-    try:
-        login = requests.post(origin + "/api/auth/login", json={"username": username, "password": password}, timeout=TIMEOUT)
-        payload = login.json()
-    except ValueError:
-        return {"ok": False, "message": "这个地址不是 AList 服务，请检查端口。"}
-    except requests.RequestException as error:
-        return {"ok": False, "message": _network_message(error, " AList") + "请确认 AList 已启动、地址和端口正确。"}
-    if payload.get("code") != 200:
-        return {"ok": False, "message": "用户名或密码不正确。" if payload.get("code") in (400, 401, 403)
-                else f"AList 登录失败：{payload.get('message') or '未知错误'}"}
-    token = payload["data"]["token"]
-    headers = {"Authorization": token}
-    details, warnings = [], []
-    try:
-        version = requests.get(origin + "/api/public/settings", timeout=TIMEOUT).json().get("data", {}).get("version")
-        if version:
-            details.append(f"AList {version}")
-    except (requests.RequestException, ValueError, AttributeError):
-        pass
-    try:
-        listing = requests.post(origin + "/api/fs/list", headers=headers, timeout=TIMEOUT, json={
-            "path": "/", "password": _field(form, "ALIST_PATH_PASSWORD"), "page": 1, "per_page": 0, "refresh": False,
-        }).json()
-        entries = (listing.get("data") or {}).get("content") or []
-        details.append(f"根目录有 {len(entries)} 个存储或文件夹" if entries else "根目录是空的")
-        if not entries:
-            warnings.append("这个账号在根目录看不到任何存储，请检查账号的基本路径和权限。")
-    except (requests.RequestException, ValueError):
-        warnings.append("登录成功，但读取根目录失败。")
-    sign = None
-    try:
-        setting = requests.get(origin + "/api/admin/setting/get", headers=headers, params={"key": "sign_all"},
-                               timeout=TIMEOUT).json()
-        if setting.get("code") == 200:
-            sign = str((setting.get("data") or {}).get("value")).lower() == "true"
-    except (requests.RequestException, ValueError):
-        pass
-    if sign is False:
-        warnings.append("“签名所有”未开启：导入时拿不到带签名的播放链接。请在 AList 后台“设置 → 全局”中打开。")
-    elif sign is None:
-        warnings.append("当前账号不是管理员，无法检查“签名所有”；导入前请确认 AList 后台“设置 → 全局”中已开启。")
-    return {"ok": True, "message": "已连接", "details": details, "warnings": warnings, "sign_all": sign}
 
 
 def _tmdb_origins() -> tuple[str, ...]:
@@ -427,7 +369,7 @@ def test_player(form: dict) -> dict:
     return {"ok": True, "message": "可以播放", "details": details, "warnings": warnings}
 
 
-TESTS = {"alist": test_alist, "tmdb": test_tmdb, "llm": test_llm, "mdblist": test_mdblist,
+TESTS = {"tmdb": test_tmdb, "llm": test_llm, "mdblist": test_mdblist,
          "ffprobe": test_ffprobe, "player": test_player}
 
 
@@ -460,15 +402,10 @@ def save(form: dict, database: Path) -> dict:
     """写入 .env、立即生效，并在首次使用时建好空媒体库。"""
     if not isinstance(form, dict):
         raise SetupError("提交的数据格式不正确。")
+    from models import drive_store
+    if not any(row["enabled"] for row in drive_store.list_drives()):
+        raise SetupError("请至少添加一个网盘。")
     updates: dict[str, str | None] = {}
-    origin = _field(form, "ALIST_ORIGIN") or "http://127.0.0.1:5244"
-    updates["ALIST_ORIGIN"] = _url(origin, "AList 地址")
-    for name in ("ALIST_USERNAME", "ALIST_PASSWORD"):
-        value = _field(form, name)
-        if not value:
-            raise SetupError("AList 账号和密码是必填项。")
-        updates[name] = value
-    updates["ALIST_PATH_PASSWORD"] = _field(form, "ALIST_PATH_PASSWORD") or None
     token = _field(form, "TMDB_TOKEN")
     if not token and not tmdb.BUILTIN_TOKEN:
         raise SetupError("这个版本没有内置 TMDB 密钥，请填写你自己的。")
@@ -503,6 +440,6 @@ def save(form: dict, database: Path) -> dict:
             os.environ.pop(name, None)
         else:
             os.environ[name] = value
-    alist.forget_token()
+    media_source.forget()
     throttle.reset()
     return {"ok": True, "library_created": created, "secret_key": updates.get("FLASK_SECRET_KEY")}

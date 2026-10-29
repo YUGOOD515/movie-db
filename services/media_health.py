@@ -6,17 +6,16 @@
 
 from __future__ import annotations
 
-import os
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from pathlib import PurePosixPath
 
 import requests
 
-from connectors import alist
-from models import discovery_store as store
+from models import local_store as store
 from models.database import connect_database
 from queries.association import get_associated_paths
+from services import media_source
 
 MAX_DIRECTORIES = 300
 
@@ -26,16 +25,15 @@ def _missing_error(error: Exception) -> bool:
     return "not found" in text or "不存在" in text or "object not found" in text
 
 
-def check_paths(database, token, paths: dict[str, str]) -> list[tuple[str, str, str]]:
+def check_paths(database, paths: dict[str, str]) -> list[tuple[str, str, str]]:
     """paths: {alist_path: title_id} → [(path, title_id, status)]。"""
     parents = {}
     for path, title_id in paths.items():
         parents.setdefault(str(PurePosixPath(path).parent), []).append((path, title_id))
-    password = os.environ.get("ALIST_PATH_PASSWORD", "")
 
     def check(parent):
         try:
-            names = {item.get("name") for item in alist.list_directory(parent, token, path_password=password)}
+            names = {item.get("name") for item in media_source.list_directory(parent)}
         except (requests.RequestException, RuntimeError, ValueError) as error:
             if isinstance(error, RuntimeError) and _missing_error(error):
                 return [(path, title_id, "missing") for path, title_id in parents[parent]]
@@ -50,12 +48,12 @@ def check_paths(database, token, paths: dict[str, str]) -> list[tuple[str, str, 
     return rows
 
 
-def check_outside(database, token, roots: list[str]):
+def check_outside(database, roots: list[str]):
     with closing(connect_database(database)) as db:
         associated = get_associated_paths(db)
     outside = {path: info["title_id"] for path, info in associated.items()
                if path and not any(path.startswith(root + "/") for root in roots)}
-    rows = check_paths(database, token, outside)
+    rows = check_paths(database, outside)
     if rows:
         store.save_health(database, rows)
     return rows

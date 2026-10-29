@@ -4,25 +4,25 @@
 
 当前项目是一个本地影视资源管理网页，遵循 MVC 架构原则，即Model、Connector、View原则。
 
-录入时以 TMDB 作为影视主数据（标题、年份、分类、季集、简介、演员和图片），IMDb ID 仍是主键；IMDb 评分来自官方 `title.ratings.tsv.gz`，MDBList 提供多平台评分；AList 保存本地媒体来源。电影和剧集的共用查询、图片及数据库写入流程已经合并整理。标题图片目录以 Title ID（IMDb ID）命名存放在 static/images 目录。
+录入时以 TMDB 作为影视主数据（标题、年份、分类、季集、简介、演员和图片），IMDb ID 仍是主键；IMDb 评分来自官方 `title.ratings.tsv.gz`，MDBList 提供多平台评分；内置网盘层与 AList / OpenList 透传保存本地媒体来源。电影和剧集的共用查询、图片及数据库写入流程已经合并整理。标题图片目录以 Title ID（IMDb ID）命名存放在 static/images 目录。
 
 ## Model
 
-业务数据只存 `library.db`，共八表（`title_basic` / `title_relation` / `title_artwork` / `title_cast` / `media_file` / `playback_progress` / `collection` / `collection_item`）。`title_basic` 保存 TMDB 字段及 IMDb 评分（`average_rating`、`num_votes`），`title_cast` 保存电影和剧集的主要演员。单集直接保存季号与集号，不设置 season 和 collection 实体。读操作集中在 @queries/，写操作集中在 @models/library.py；@connectors/ 对接 TMDB、IMDb 评分文件、MDBList、AList、ffprobe 与本机播放器（MPC-HC / IINA / mpv / VLC），@services/ 编排录入和播放业务。
+媒体展示数据只存 `library.db`，共八表（`title_basic` / `title_relation` / `title_artwork` / `title_cast` / `media_file` / `playback_progress` / `collection` / `collection_item`）。`title_basic` 保存 TMDB 字段及 IMDb 评分（`average_rating`、`num_votes`），`title_cast` 保存电影和剧集的主要演员。单集直接保存季号与集号，不设置 season 和 collection 实体。读操作集中在 @queries/，写操作集中在 @models/library.py；@connectors/ 对接 TMDB、IMDb 评分文件、MDBList、网盘、ffprobe 与本机播放器（MPC-HC / IINA / mpv / VLC），@services/ 编排录入和播放业务。
 
 SQL 代码书写准则：https://www.sqlstyle.guide/zh/
 
 录入规则：中文名按 TMDB zh-CN → TW → HK 回退；分类按 `tmdb.GENRE_NAMES` 转成 IMDb 英文分类；没有 IMDb ID 的单集不录入。重新录入时库内已有的名称、分类和季集关系保持不变，评分缺失时保留旧值。评分文件缓存在 `imdb/`（Git 忽略），超过一天自动重新下载。
 
-待关联识别的本机状态（扫描目录、扫描快照、识别缓存、忽略列表、已确认别名、源文件健康、TMDB 查询缓存）单独存于 `discovery.db`（@models/discovery_store.py），不写入 `library.db`，以免触发云端同步。识别流程在 @services/recognition.py（名称清洗在 @services/name_cleaning.py），只产出建议，入库仍走 `media_association.complete`；AI 通过 @connectors/llm.py 调用 OpenAI 兼容接口，结果必须经 TMDB 校验。批量识别 `recognize_many` 是规则 / AI / 核对三段流水线，外部请求的速率与并发统一由 @connectors/throttle.py 控制（429 时并发自动减半），不要在调用方另加限速。
+其余本机状态（扫描目录、扫描快照、识别缓存、忽略列表、已确认别名、源文件健康、TMDB 查询缓存、关联任务、网盘配置与凭据、API 用量与评分缓存）单独存于 `local.db`（@models/local_store.py），不写入 `library.db`，以免触发云端同步。识别流程在 @services/recognition.py（名称清洗在 @services/name_cleaning.py），只产出建议，入库仍走 `media_association.complete`；AI 通过 @connectors/llm.py 调用 OpenAI 兼容接口，结果必须经 TMDB 校验。批量识别 `recognize_many` 是规则 / AI / 核对三段流水线，外部请求的速率与并发统一由 @connectors/throttle.py 控制（429 时并发自动减半），不要在调用方另加限速。
 
-关联任务由 @services/import_jobs.py 按根 Title ID 调度，通过 @models/import_store.py 持久化到 `discovery.db`；探测、图片与派生处理共用 @services/import_runtime.py 的有界资源池。核心关联提交后继续补齐资料，恢复时复用探测检查点；签名链接与令牌不存入任务。MDBList 请求预算及评分缓存存于 `api-usage.db`（@models/api_usage.py），重试也消耗预算，不进入云端快照。
+关联任务由 @services/import_jobs.py 按根 Title ID 调度，通过 @models/import_store.py 持久化到 `local.db`；探测、图片与派生处理共用 @services/import_runtime.py 的有界资源池。核心关联提交后继续补齐资料，恢复时复用探测检查点；签名链接与令牌不存入任务。MDBList 请求预算及评分缓存也存于 `local.db`（@models/api_usage.py），重试也消耗预算，不进入云端快照。
 
-豆瓣评分走 @connectors/douban.py 与独立单并发评分队列，核心导入不等待它；IMDb → 豆瓣 ID 优先由 Wikidata 批量映射。豆瓣与 Wikidata 请求仍统一走 throttle，豆瓣被拒绝时暂停 30 分钟；评分缓存复用 `api-usage.db`。旧库的豆瓣字段在本机启动时由 `upgrade_library` 补齐，只读云端不执行迁移。
+豆瓣评分走 @connectors/douban.py 与独立单并发评分队列，核心导入不等待它；IMDb → 豆瓣 ID 优先由 Wikidata 批量映射。豆瓣与 Wikidata 请求仍统一走 throttle，豆瓣被拒绝时暂停 30 分钟；评分缓存复用 `local.db`。旧库的豆瓣字段在本机启动时由 `upgrade_library` 补齐，只读云端不执行迁移。
 
 ## Connector
 
-采用 Flask + Jinja 三层结构：@app.py 路由只做"查询 → 整理 → 渲染"编排；@queries/ 只查数据库，@viewmodels/ 把查询结果整理成页面形状（poster/backdrop 卡片、进度、徽章、播放文案），Jinja 只负责 HTML 显示，不做业务判断。
+采用 Flask + Jinja 三层结构：@app.py 路由只做"查询 → 整理 → 渲染"编排；@queries/ 只查数据库，@viewmodels/ 把查询结果整理成页面形状（poster/backdrop 卡片、进度、徽章、播放文案），Jinja 只负责 HTML 显示，不做业务判断。媒体数据流为 @services/* → @services/media_source.py → @connectors/drives/；播放器与 ffprobe 只使用 MovieDB 的 `/stream` 地址，转发逻辑在 @services/media_stream.py。
 
 ## View
 
@@ -40,7 +40,7 @@ SQL 代码书写准则：https://www.sqlstyle.guide/zh/
 
 TMDB 密钥：用户填写的 `TMDB_TOKEN` 优先，留空时用安装包内置的 `connectors/tmdb_builtin.py`（Git 忽略，CI 构建时由仓库 Secret `TMDB_BUILTIN_TOKEN` 经 `packaging/build_windows.py` 的 `write_builtin_token` 写入；源码运行没有内置密钥）。`tmdb.auth()` 按格式区分 v3 API Key（查询参数）与读访问令牌（Bearer）；接口地址是官方域名时，连不上会在 `api.themoviedb.org` 与 `api.tmdb.org` 之间自动切换（`tmdb.use_origin`）。图片可能走第三方 CDN（wsrv.nl），下载图片时不要带上密钥。
 
-文件位置统一从 @services/paths.py 取：程序文件在 `paths.APP_DIR`，用户数据（`library.db`、`discovery.db`、`.env`、`static/images`、`static/thumbnails`、`imdb/`、`logs/`）在 `paths.DATA_DIR`（源码运行时两者相同，安装版分开）；不要再用 `Path(__file__)` 拼数据路径。代码要同时能在 Windows 与 macOS 上运行，平台差异集中处理（如 `desktop.py`、`desktop_window.py`、`connectors/player.py`）；桌面版界面是 pywebview 原生窗口，页面里通过 `window.pywebview.api` 调用的接口在 `desktop_window.Api`。
+文件位置统一从 @services/paths.py 取：程序文件在 `paths.APP_DIR`，用户数据（`library.db`、`local.db`、`.env`、`static/images`、`static/thumbnails`、`imdb/`、`logs/`）在 `paths.DATA_DIR`（源码运行时两者相同，安装版分开）；不要再用 `Path(__file__)` 拼数据路径。代码要同时能在 Windows 与 macOS 上运行，平台差异集中处理（如 `desktop.py`、`desktop_window.py`、`connectors/player.py`）；桌面版界面是 pywebview 原生窗口，页面里通过 `window.pywebview.api` 调用的接口在 `desktop_window.Api`。
 
 ## 云端只读快照
 

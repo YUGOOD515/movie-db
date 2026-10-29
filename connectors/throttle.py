@@ -57,8 +57,13 @@ class RateLimitError(requests.RequestException):
         super().__init__(f"{label}{gap}{description}{wait}。")
 
 
-LABELS = {"tmdb": "TMDB", "tmdb-image": "TMDB 图片", "alist": "AList", "llm": "AI 接口", "mdblist": "MDBList",
-          "douban": "豆瓣", "wikidata": "Wikidata"}
+LABELS = {
+    "tmdb": "TMDB", "tmdb-image": "TMDB 图片", "alist": "AList", "drive": "网盘",
+    "quark": "夸克 / UC", "baidu": "百度网盘", "aliyun-list": "阿里云盘列目录",
+    "aliyun-link": "阿里云盘取链", "aliyun": "阿里云盘", "pan123-list": "123 云盘列目录",
+    "pan123-link": "123 云盘取链", "pan123": "123 云盘", "llm": "AI 接口",
+    "mdblist": "MDBList", "douban": "豆瓣", "wikidata": "Wikidata",
+}
 
 
 def _env_float(name: str, default: float) -> float:
@@ -97,17 +102,22 @@ def _llm_policy() -> Policy:
 
 
 def _policies() -> dict[str, Policy]:
+    drive = Policy(
+        rate=_env_float("DRIVE_RATE", 20), burst=1,
+        concurrency=max(1, min(16, int(_env_float("DRIVE_CONCURRENCY", 4)))), max_wait=30,
+    )
     return {
         # Conservative pacing without stored burst tokens; all application paths share it.
         "tmdb": Policy(rate=min(30, _env_float("TMDB_RATE", 25)), burst=1, concurrency=16, max_wait=30),
         "tmdb-image": Policy(rate=20, burst=1, concurrency=6, max_wait=30),
-        "alist": Policy(
-            # 目录读取多数命中 AList 自身缓存，速率不是网盘风控的关键；同时在途数才是，保持 4。
-            rate=_env_float("ALIST_RATE", 20),
-            burst=1,
-            concurrency=max(1, min(16, int(_env_float("ALIST_CONCURRENCY", 4)))),
-            max_wait=30,
-        ),
+        "alist": drive,
+        "drive": drive, "quark": drive, "baidu": drive,
+        "aliyun-list": Policy(rate=3.9, burst=1, concurrency=2, max_wait=30),
+        "aliyun-link": Policy(rate=0.9, burst=1, concurrency=1, max_wait=30),
+        "aliyun": Policy(rate=14.9, burst=1, concurrency=2, max_wait=30),
+        "pan123-list": Policy(rate=3, burst=1, concurrency=2, max_wait=30),
+        "pan123-link": Policy(rate=5, burst=1, concurrency=2, max_wait=30),
+        "pan123": Policy(rate=1, burst=1, concurrency=1, max_wait=30),
         "llm": _llm_policy(),
         "mdblist": Policy(rate=min(2, _env_float("MDBLIST_RATE", 2)), burst=1, concurrency=2, max_wait=60),
         # 豆瓣被拦截时由 connectors/douban.py 直接暂停 30 分钟（超过 max_wait 即熔断）。
