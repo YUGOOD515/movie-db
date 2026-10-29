@@ -13,6 +13,7 @@
         drive: [],
         tmdb: ["TMDB_TOKEN", "TMDB_PROXY", "image_proxy"],
     };
+    const useExistingButton = root.querySelector("[data-drive-use-existing]");
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
     const field = name => form.elements.namedItem(name);
     const tests = {};
@@ -211,9 +212,16 @@
         item.querySelector("[data-check-text]").textContent = text;
     }
 
+    // 已经有启用的网盘时，网盘步骤给出“直接使用”的入口（旧数据迁移后常遇到）
+    function syncExistingDrive() {
+        if (!useExistingButton) return;
+        useExistingButton.hidden = !(state && (state.drives || []).some(drive => drive.enabled));
+    }
+
     function renderChecks() {
         const count = (state.drives || []).filter(drive => drive.enabled).length;
         check("drive", count ? "ok" : "warn", count ? `已添加 ${count} 个网盘` : "下一步添加一个本机目录或网盘");
+        syncExistingDrive();
         const probe = state.ffprobe;
         check("ffprobe", probe.ok ? "ok" : "warn", probe.ok
             ? `ffprobe ${probe.bundled ? "随安装包提供" : "已就绪"}${probe.version ? ` · ${probe.version}` : ""}`
@@ -293,9 +301,15 @@
         go(button.dataset.go);
     }));
     root.querySelectorAll("[data-connect]").forEach(button => button.addEventListener("click", () => connect(button.dataset.connect)));
+    useExistingButton?.addEventListener("click", () => {
+        tests.drive = { ok: true };
+        setLevel(1);
+        afterDrive(useExistingButton);
+    });
     document.addEventListener("drive-saved", () => {
         tests.drive = { ok: true };
         setLevel(1);
+        if (useExistingButton) useExistingButton.hidden = false;
         afterDrive(root.querySelector("[data-drive-save]"));
     });
 

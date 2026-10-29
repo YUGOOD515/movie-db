@@ -103,6 +103,8 @@
     <div class="{{ 'onboard-actions' if setup else 'd-flex flex-wrap gap-2 pt-3' }}">
         {% if setup %}
             {{ action('data-drive-save', '检测并保存', '正在检测…') }}
+            {# 已经有启用的网盘时（例如迁移的旧数据），由 setup.js 显示，直接进入下一步 #}
+            {{ action('data-drive-use-existing hidden', '使用已添加的网盘继续', '正在保存…', cls="btn onboard-link onboard-btn") }}
         {% else %}
             <button class="btn btn-sm chip-btn" type="button" data-drive-save>{{ ui_icon('plug', '') }}<span>检测并保存</span></button>
             <button class="btn btn-sm chip-btn" type="button" data-drive-cancel-edit hidden>{{ ui_icon('x', '') }}<span>取消编辑</span></button>

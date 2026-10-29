@@ -128,6 +128,18 @@ def test_create_rejects_existing_mount_without_overwriting(env):
     drive_store.delete_drive("duplicate")
 
 
+def test_without_create_same_mount_updates_instead_of_failing(env):
+    """网盘页的编辑路径不带 create：同名按更新处理，与添加路径的拦截形成对比。"""
+    root = str(env["tmp"])
+    assert save(env["client"], "duplicate", config={"root": root}, create=True).get_json()["ok"]
+    moved = env["tmp"] / "moved"
+    moved.mkdir()
+    response = save(env["client"], "duplicate", config={"root": str(moved)}, create=False)
+    assert response.status_code == 200 and response.get_json()["ok"]
+    assert drive_store.get_drive("duplicate")["config"]["root"] == str(moved)
+    drive_store.delete_drive("duplicate")
+
+
 def test_edit_preserves_disabled_state(env):
     assert save(env["client"], "disabled", config={"root": str(env["tmp"])}, create=True).get_json()["ok"]
     assert env["client"].post("/manager/drives/disabled/toggle", headers=ORIGIN).get_json()["enabled"] is False
@@ -157,7 +169,7 @@ def test_drive_editor_responsive_markup_and_script_contract(env):
     assert 'col-12 col-xl-7 order-1 order-xl-2' in text
     assert 'vstack drive-list' in text and 'data-drive-editor-icon' in text
     script = (Path(movie_app.app.static_folder) / "drives.js").read_text(encoding="utf-8")
-    assert "create: !editingMount" in script
+    assert "create: !editingMount && !setup" in script
     assert ': input.dataset.drivePlaceholder || ""' in script
     assert "mountInput.disabled = true" in script
     assert 'replaceChildren(icon("pencil"))' in script

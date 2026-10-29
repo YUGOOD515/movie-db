@@ -108,7 +108,8 @@
         fields.querySelectorAll("[data-drive-config]").forEach(input => {
             config[input.dataset.driveConfig] = input.type === "checkbox" ? (input.checked ? "1" : "") : input.value;
         });
-        const result = await post("/manager/drives/save", { mount: mountInput.value.trim(), kind, config, create: !editingMount });
+        // 首次引导不做重名拦截：同名按更新处理，重名校验只用于网盘页的“添加”
+        const result = await post("/manager/drives/save", { mount: mountInput.value.trim(), kind, config, create: !editingMount && !setup });
         saveButton.disabled = false;
         saveButton.removeAttribute("aria-busy");
         if (result.ok && page) {
