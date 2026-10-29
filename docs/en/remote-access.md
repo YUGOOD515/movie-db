@@ -61,7 +61,7 @@ When your computer is offline (shut down, or MovieDB / the tunnel not running), 
 | `scripts/publish_snapshot.py` | Backs up `library.db`, crawls every page in read-only mode and uploads changed files incrementally |
 | `services/cloud_sync.py` | With `MOVIEDB_SYNC_TOKEN` set, syncs once at startup and then whenever `library.db` changes and stays unchanged for a minute (at least 2 minutes between syncs) |
 
-`discovery.db`, `.env` and similar files are never uploaded. Playback is unavailable while offline because it relies on your local AList.
+`local.db`, `.env`, drive credentials and stream signing keys are never uploaded. Playback is unavailable while offline because it relies on the local `/stream` endpoint.
 
 ### Deploying
 

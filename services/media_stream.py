@@ -4,8 +4,11 @@ import mimetypes
 import re
 from concurrent.futures import ThreadPoolExecutor
 
+import requests
 from flask import Response, abort, redirect, send_file, stream_with_context
+from werkzeug.exceptions import NotFound
 
+from connectors.drives.base import DriveError
 from services import media_source
 
 CHUNK_SIZE = 1024 * 1024
@@ -101,16 +104,21 @@ def _segmented(path, drive, link, entry):
     part_size = link.part_size or 8 * 1024 * 1024
     parts = list(range(start, end + 1, part_size))
     state = {"link": link}
+    unsupported = object()
 
     def fetch(part_start):
-        import requests
         part_end = min(part_start + part_size - 1, end)
+        expected = f"bytes {part_start}-{part_end}/{entry.size}"
         for attempt in range(2):
             try:
                 response = _request(drive, state["link"], {"Range": f"bytes={part_start}-{part_end}"})
                 try:
-                    if response.status_code in (200, 206):
-                        return response.content
+                    if response.status_code == 200:
+                        return unsupported
+                    if response.status_code == 206 and response.headers.get("Content-Range") == expected:
+                        data = response.content
+                        if len(data) == part_end - part_start + 1:
+                            return data
                 finally:
                     response.close()
             except (requests.RequestException, OSError, RuntimeError, ValueError):
@@ -131,6 +139,14 @@ def _segmented(path, drive, link, entry):
                 futures[index] = executor.submit(fetch, parts[index])
             for index in range(len(parts)):
                 data = futures.pop(index).result()
+                if data is unsupported:
+                    if index:
+                        return
+                    for future in futures.values():
+                        future.cancel()
+                    single = _single(path, drive, state["link"])
+                    yield from single.response
+                    return
                 if not data:
                     return
                 yield data
@@ -153,7 +169,7 @@ def _segmented(path, drive, link, entry):
     return Response(body(), status=206 if ranged else 200, headers=headers)
 
 
-def response(token):
+def _response(token):
     try:
         path = media_source.parse_stream_token(token)
     except ValueError:
@@ -170,3 +186,16 @@ def response(token):
     if link.concurrency == 0 and link.part_size == 0:
         return _single(path, drive, link)
     return _segmented(path, drive, link, entry)
+
+
+def response(token):
+    try:
+        return _response(token)
+    except (FileNotFoundError, NotFound):
+        return Response("找不到挂载或文件", status=404)
+    except DriveError as error:
+        if "找不到" in str(error):
+            return Response("找不到挂载或文件", status=404)
+        return Response("网盘暂时无法访问，请稍后重试", status=502)
+    except requests.RequestException:
+        return Response("网盘暂时无法访问，请稍后重试", status=502)

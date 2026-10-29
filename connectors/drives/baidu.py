@@ -124,6 +124,9 @@ class BaiduDrive(Drive):
             dlink, params={"access_token": self.config["access_token"]},
             headers={"User-Agent": "pan.baidu.com"}, allow_redirects=False, timeout=20,
         ))
-        url = response.headers.get("Location") or dlink
+        url = response.headers.get("Location")
+        if not url:
+            from urllib.parse import urlencode
+            url = dlink + ("&" if "?" in dlink else "?") + urlencode({"access_token": self.config["access_token"]})
         return Link(url=url, headers={"User-Agent": "pan.baidu.com"}, proxy=True,
                     concurrency=0, part_size=0, expires_in=3600)

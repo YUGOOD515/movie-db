@@ -89,11 +89,11 @@ class AliyunDrive(Drive):
             return payload
         raise DriveError("阿里云盘请求失败，请检查配置")
 
-    def _initialize(self):
-        if self.drive_id:
+    def _initialize(self, force=False):
+        if self.drive_id and not force:
             return
         with self._init_lock:
-            if self.drive_id:
+            if self.drive_id and not force:
                 return
             payload = self._request("/adrive/v1.0/user/getDriveInfo", {})
             drive_type = self.config.get("drive_type") or "resource"
@@ -106,7 +106,7 @@ class AliyunDrive(Drive):
             self.save(self.config)
 
     def check(self):
-        self._initialize()
+        self._initialize(force=True)
         return f"已连接：{self.name}"
 
     def list(self, directory):

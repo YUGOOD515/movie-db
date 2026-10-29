@@ -125,7 +125,7 @@ def test_segmented_proxy_honours_open_range_and_retries_part(client, monkeypatch
         if len(attempts) == 1:
             raise ConnectionError("offline")
         start, end = map(int, re.fullmatch(r"bytes=(\d+)-(\d+)", value).groups())
-        return FakeResponse(206, data[start:end + 1])
+        return FakeResponse(206, data[start:end + 1], {"Content-Range": f"bytes {start}-{end}/{len(data)}"})
 
     session = FakeSession(handler=upstream)
     calls = install(monkeypatch, Link("https://offline.invalid/video", proxy=True, concurrency=2, part_size=2),

@@ -6,6 +6,7 @@
     const resultBox = form.querySelector("[data-drive-result]");
     const saveButton = form.querySelector("[data-drive-save]");
     const page = document.querySelector("[data-drive-page]");
+    let originalMount = "";
 
     function syncKind() {
         const kind = kindInput.value;
@@ -42,7 +43,9 @@
         fields.querySelectorAll("[data-drive-config]").forEach(input => {
             config[input.dataset.driveConfig] = input.type === "checkbox" ? (input.checked ? "1" : "") : input.value;
         });
-        const result = await post("/manager/drives/save", { mount: mountInput.value.trim(), kind, config });
+        const result = await post("/manager/drives/save", {
+            mount: mountInput.value.trim(), original_mount: originalMount, kind, config,
+        });
         saveButton.disabled = false;
         showResult(result);
         if (result.ok) {
@@ -62,6 +65,7 @@
             const mount = button.dataset.mount;
             if (action === "edit") {
                 const drive = JSON.parse(button.dataset.drive);
+                originalMount = mount;
                 kindInput.value = drive.kind;
                 syncKind();
                 mountInput.value = drive.mount;

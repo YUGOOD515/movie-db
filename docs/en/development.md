@@ -24,7 +24,7 @@ uv run flask --app app run                # or the plain Flask development serve
 
 `desktop.py` accepts `--port`, `--browser` (use the system browser, same as `MOVIEDB_UI=browser`), `--no-browser` (server only), `--no-tray` and `--self-test` (open the window, check the page and bridge, then quit; used by CI). Without a `library.db` the first-run walkthrough opens; you can also write `.env` by hand following `.env.example`.
 
-**macOS**: `brew install uv ffmpeg`, then a player (we recommend [IINA](https://iina.io): `brew install --cask iina`, or `brew install mpv`); everything else works as on Windows. Run the macOS build of AList yourself, or put its folder in `ALIST_DIR` and MovieDB will start it.
+**macOS**: `brew install uv ffmpeg`, then a player (we recommend [IINA](https://iina.io): `brew install --cask iina`, or `brew install mpv`); everything else works as on Windows. Built-in drive drivers do not need AList; run the macOS service yourself when using AList / OpenList passthrough.
 
 ## Project layout
 
@@ -34,10 +34,10 @@ uv run flask --app app run                # or the plain Flask development serve
 | `desktop.py` | Desktop entry point: server, tray / menu bar, single instance, restart |
 | `desktop_window.py` | Native window (pywebview): hide on close, remembered geometry, light / dark title bar, external links and file pickers, macOS menus |
 | `queries/` | Read-only queries (pages only read `library.db`) |
-| `models/` | Writes: `library.py` (library) and `discovery_store.py` (`discovery.db`) |
+| `models/` | Writes: `library.py` (library), `local_store.py` and `drive_store.py` (`local.db`) |
 | `viewmodels/` | Page view models |
-| `services/` | Import, linking, recognition, playback, deletion, settings, data folder… |
-| `connectors/` | External services: TMDB, AList, MDBList, IMDb ratings, AI, ffprobe, players, throttling |
+| `services/` | Import, linking, recognition, playback, deletion, settings and data folders; `media_source.py` resolves mounts and `media_stream.py` handles `/stream` |
+| `connectors/` | External services: TMDB, MDBList, IMDb ratings, AI, ffprobe, players and throttling; `drives/` contains built-in and AList / OpenList drivers |
 | `templates/`, `static/` | Jinja templates, styles and per-page scripts; third-party libraries in `static/vendor/` |
 | `migrations/` | Database schema; `library_schema.sql` is the current one |
 | `scripts/` | Command-line tools: thumbnails, ratings, snapshot publishing, `.env` check… |

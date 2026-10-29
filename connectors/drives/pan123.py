@@ -147,9 +147,10 @@ class Pan123Drive(Drive):
                 ))
             if len(result) > 10000:
                 raise DriveError("目录文件过多")
-            last_id = data.get("lastFileId")
-            if last_id == -1:
+            next_id = data.get("lastFileId")
+            if next_id in (None, -1, "-1") or next_id == last_id:
                 return result
+            last_id = next_id
 
     def link(self, file):
         data = self._request("/api/v1/file/download_info", {"fileId": file.id}, service="pan123-link")

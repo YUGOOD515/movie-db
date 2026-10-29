@@ -559,8 +559,9 @@ def resume_title(title_id: str):
 
 @app.get("/manager/drives")
 def drives_page():
-    if app.config["READ_ONLY"]:
-        abort(404)
+    denied = _setup_guard()
+    if denied:
+        return denied
     return render_template(
         "drives.html",
         drive_types=_drives.types(),
@@ -578,7 +579,7 @@ def save_drive():
     try:
         result = _drives.save(
             payload.get("mount"), payload.get("kind"), payload.get("config") or {},
-            enabled=payload.get("enabled", True),
+            enabled=payload.get("enabled", True), original_mount=payload.get("original_mount"),
         )
     except (RuntimeError, ValueError) as error:
         return jsonify(ok=False, message=str(error)), 400

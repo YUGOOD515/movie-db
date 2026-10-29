@@ -61,7 +61,7 @@ MovieDB 默认只监听本机 `127.0.0.1`。需要在其他设备上使用时，
 | `scripts/publish_snapshot.py` | 备份 `library.db`，以只读模式抓取全部页面，增量上传有变化的文件 |
 | `services/cloud_sync.py` | 设置 `MOVIEDB_SYNC_TOKEN` 后，应用启动时同步一次，之后 `library.db` 变化并稳定 1 分钟后自动同步（两次至少间隔 2 分钟） |
 
-`discovery.db`、`.env` 等不会上传。离线时视频播放依赖本机 AList，因此不可用。
+`local.db`、`.env`、网盘凭据和播放签名密钥不会上传。离线时视频播放依赖本机 `/stream`，因此不可用。
 
 ### 部署
 

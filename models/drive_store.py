@@ -62,7 +62,7 @@ def get_drive(mount, database=None):
 
 
 def save_drive(mount, kind, config, enabled, database=None):
-    if not mount or "/" in mount or mount in (".", ".."):
+    if not mount or "/" in mount or mount in (".", "..") or (mount == "*") != (kind == "alist"):
         raise ValueError("挂载名无效。")
     with _lock, closing(_connect(database)) as db, db:
         db.execute("""
@@ -94,4 +94,7 @@ def rename_mount(old, new, database=None):
     if not new or "/" in new or new in (".", ".."):
         raise ValueError("挂载名无效。")
     with _lock, closing(_connect(database)) as db, db:
+        kind = db.execute("SELECT kind FROM drive WHERE mount = ?", (old,)).fetchone()
+        if kind and (new == "*") != (kind[0] == "alist"):
+            raise ValueError("挂载名无效。")
         db.execute("UPDATE drive SET mount = ? WHERE mount = ?", (new, old))

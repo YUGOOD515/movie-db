@@ -76,7 +76,11 @@ class QuarkDrive(Drive):
         except ValueError:
             raise DriveError(f"{self.label}返回了无法识别的响应") from None
         message = str(payload.get("message") or "")
-        if response.status_code >= 400 or payload.get("status", 0) >= 400 or payload.get("code") != 0:
+        try:
+            status = int(payload.get("status") or 0)
+        except (TypeError, ValueError):
+            status = 0
+        if response.status_code >= 400 or status >= 400 or payload.get("code") != 0:
             if re.search(r"登录|login|token", message, re.IGNORECASE):
                 raise AuthError(f"{self.label} Cookie 已失效，请重新复制")
             raise DriveError(f"{self.label}请求失败，请检查配置")
