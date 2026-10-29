@@ -125,4 +125,4 @@ On macOS, install the tools with `brew install uv ffmpeg` and a player such as `
 
 ## License
 
-The author has not chosen a license for MovieDB's own code yet. Bundled third-party code and assets keep their original licenses (for example the libraries in `static/vendor/` and the LGPL build of ffprobe in the installers). Movie data and images come from [TMDB](https://www.themoviedb.org); this product uses the TMDB API but is not endorsed or certified by TMDB.
+MovieDB's own code is licensed under the **GNU Affero General Public License v3.0 or later** (full text in [LICENSE](LICENSE)); third-party attribution is listed in [NOTICE](NOTICE). Bundled third-party code and assets keep their original licenses (for example the libraries in `static/vendor/` and the LGPL build of ffprobe in the installers). Movie data and images come from [TMDB](https://www.themoviedb.org); this product uses the TMDB API but is not endorsed or certified by TMDB.

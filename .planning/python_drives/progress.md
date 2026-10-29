@@ -4,7 +4,7 @@
 
 | 阶段 | 状态 | PR | 备注 |
 |---|---|---|---|
-| P0 许可证 | 待开始 | | |
+| P0 许可证 | 已完成 | 已合并 `chore/agpl-license` | 2026-10-29：新增 AGPL-3.0 全文 `LICENSE` 与 OpenList 改写说明 `NOTICE`，`pyproject.toml` 声明 `AGPL-3.0-or-later`，README 中英文许可段改为 AGPL。偏差：保留原许可段改写；`license-files` 未显式声明，PEP 639 默认收录。安装包随附情况待实机验证。 |
 | P1 存储分层 | 已完成 | 待创建 | 2026-10-29：完成 local.db 改名、旧库与 API 缓存迁移、按表清空；阶段完整测试 279 passed、1 skipped、31 subtests passed。偏差：未创建提交或 PR；P9 文档留待后续。 |
 | P2 核心层 + 本机驱动 + 播放转发 | 已完成 | 待创建 | 2026-10-29：完成 base/store、本机驱动、media_source、media_stream 与限流；阶段完整测试 296 passed、1 skipped、31 subtests passed。偏差：未创建提交或 PR。 |
 | P3 切换调用点 + AList 透传驱动 | 已完成 | 待创建 | 2026-10-29：完成透传驱动、旧配置迁移、调用点切换与旧模块删除；最终完整测试 291 passed、1 skipped、31 subtests passed。偏差：P3/P4 在设置与首次引导有交叉，仅做必要后端调整，未提前实现 P4 网盘页和表单，故 UI、文档、CI 与旧测试中仍有计划后续处理的 AList 字样；未创建提交或 PR；真实播放验证待人工。 |
@@ -13,7 +13,7 @@
 | P6 阿里云盘 Open | 已完成 | 待创建 | 2026-10-29：完成初始化、分页、取链、两种续期与令牌回写；阶段完整测试 307 passed、1 skipped、31 subtests passed。未创建提交或 PR；真实账号验证待人工。 |
 | P7 百度网盘 | 已完成 | 待创建 | 2026-10-29：完成路径分页、官方 dlink + HEAD、UA 转发与令牌回写；阶段完整测试 313 passed、1 skipped、31 subtests passed。未创建提交或 PR；errno 31034 仅用构造响应验证，真实频控值仍需账号实测。 |
 | P8 123 云盘 Open | 已完成 | 待创建 | 2026-10-29：完成三种凭据、提前续期、分页与单连接取链；最终完整测试 321 passed、1 skipped、31 subtests passed。未创建提交或 PR；真实账号验证待人工。 |
-| P9 文档 | 待开始 | | |
+| P9 文档 | 已完成 | 待创建 | 2026-10-29：完成中英文 README、配置、添加媒体、开发与远程文档、CHANGELOG 和七组人工测试清单。 |
 
 ## 工作记录
 
@@ -22,6 +22,8 @@
 - P1 首轮 1 项失败：旧环境变量兼容测试未清除 autouse 的新变量；修正隔离后通过。P2 首轮 1 项失败：Werkzeug 将 HEAD 空响应长度改为 0；改为建响应后写上游总大小，并补充网络异常重试与 401 非 JSON 重登覆盖。
 - P3 首轮 2 项失败：JSON 模板预期未加入 `path`、空白密钥无变化时不创建 `.env`；同步测试预期后通过。一次测试编辑因旧匹配块漏掉 import 行未命中，重读文件后修正。
 - P4 首轮 1 项失败：本机挂载还列出测试生成的 local.db，改为断言视频可被发现。P6 首轮 1 项失败：续期失败用例预设了 drive_id，改为未初始化后通过。最终 321 passed、1 skipped、31 subtests passed，git diff --check 无错误。
+- 审查修复：新增回归测试修复前 16 failed、1 passed，逐项修复后 17 项全部通过；完整测试 338 passed、1 skipped、31 subtests passed。第 7 项首次引导强制网盘校验原已实现并通过，无行为改动；第 8 项为测试自身的路径转义问题，复现失败后改为检查 JSON 键白名单，Windows/macOS/Linux 通用。旧分段测试补齐真实 206 所需的 Content-Range。
+- P0 合并：先提交审查修复与 P9，再合并 `chore/agpl-license`；仅 progress.md 冲突，保留各阶段记录并标记 P0/P9 完成，README 许可段自动合并。
 - 手动验证待办：① 旧数据目录启动后核对扫描记录、关联任务、评分缓存及旧文件删除；② 本机挂载完成扫描 → 关联 → ffprobe → 播放与拖动；③ 原 AList 配置自动迁移后播放；④ 夸克/UC、阿里、百度、123 各自真实账号完成添加 → 扫描 → 播放与拖动，并与 OpenList 对照；⑤ 检查实际播放器、桌面安装版与 macOS 行为。
 
 ## 人工测试清单
