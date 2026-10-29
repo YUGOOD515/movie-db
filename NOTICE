@@ -1,0 +1,25 @@
+MovieDB
+Copyright (C) 2026 YUGOOD515
+
+本程序为自由软件：你可以依据自由软件基金会发布的 GNU Affero 通用公共许可证
+（第 3 版或，由你选择，任何更新版本）的条款重新发布或修改它。完整条款见随附的
+LICENSE 文件，或 <https://www.gnu.org/licenses/agpl-3.0.html>。
+
+第三方代码
+----------
+
+connectors/drives/ 中的网盘驱动（夸克 / UC、阿里云盘 Open、百度网盘、123 云盘 Open、
+本机目录、AList / OpenList 透传）参照 OpenList 的对应驱动用 Python 改写：
+
+    OpenList
+    https://github.com/OpenListTeam/OpenList
+    Copyright (C) OpenList Team 及贡献者
+    License: GNU Affero General Public License v3.0
+
+改写部分同样遵循 GNU AGPL-3.0-or-later。两者同为 AGPL-3.0，因此可以合法引用。
+
+第三方服务
+----------
+
+首次引导与设置界面提到的网盘令牌获取工具 <https://api.oplist.org/> 由 OpenList 团队
+提供，不属于本项目，使用条款以其页面说明为准。

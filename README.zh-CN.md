@@ -122,4 +122,4 @@ macOS 上先 `brew install uv ffmpeg`，再装一个播放器，例如 `brew ins
 
 ## 许可
 
-MovieDB 自有代码尚未选择开源许可证。随附的第三方代码与资源沿用各自的许可（例如 `static/vendor/` 中的库，以及安装包内 LGPL 版的 ffprobe）。影视资料与图片来自 [TMDB](https://www.themoviedb.org)；本产品使用 TMDB API，但未获 TMDB 认可或认证。
+MovieDB 自有代码采用 **GNU Affero 通用公共许可证第 3 版或更新版本**（全文见 [LICENSE](LICENSE)），第三方代码说明见 [NOTICE](NOTICE)。随附的第三方代码与资源沿用各自的许可（例如 `static/vendor/` 中的库，以及安装包内 LGPL 版的 ffprobe）。影视资料与图片来自 [TMDB](https://www.themoviedb.org)；本产品使用 TMDB API，但未获 TMDB 认可或认证。
