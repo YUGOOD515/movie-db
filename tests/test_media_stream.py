@@ -1,5 +1,6 @@
 import os
 import re
+import threading
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -8,7 +9,7 @@ import pytest
 with patch.dict(os.environ, {"ALIST_AUTOSTART": "0", "MOVIEDB_AUTOSCAN_DISABLED": "1"}):
     import app as movie_app
 from connectors.drives.base import Entry, Link
-from services import media_source
+from services import media_source, media_stream, stream_buffer
 
 
 class FakeResponse:
@@ -156,3 +157,120 @@ def test_segmented_stops_if_later_part_loses_range_support(client, monkeypatch):
     response = client.get("/stream/good/a.mkv")
     assert response.status_code == 200 and response.data == b"0123"
     assert len(session.calls) == 2
+
+
+def buffered_source(monkeypatch, data, handler=None):
+    def upstream(url, kwargs):
+        start, end = map(int, re.fullmatch(r"bytes=(\d+)-(\d+)", kwargs["headers"]["Range"]).groups())
+        assert kwargs["headers"]["Accept-Encoding"] == "identity"
+        return FakeResponse(206, data[start:end + 1], {"Content-Range": f"bytes {start}-{end}/{len(data)}"})
+
+    session = FakeSession(handler=handler or upstream)
+    link = Link("https://offline.invalid/video", proxy=True, concurrency=3, part_size=4, prefetch_size=16)
+    calls = install(monkeypatch, link, session, Entry("a.mkv", False, "a", size=len(data)))
+    return session, calls
+
+
+@pytest.mark.parametrize(("value", "status", "expected", "content_range"), [
+    (None, 200, b"0123456789abcdef", None),
+    ("bytes=5-10", 206, b"56789a", "bytes 5-10/16"),
+    ("bytes=5-", 206, b"56789abcdef", "bytes 5-15/16"),
+    ("bytes=-3", 206, b"def", "bytes 13-15/16"),
+    ("bytes=16-", 416, b"", "bytes */16"),
+    ("bytes=4-2", 416, b"", "bytes */16"),
+    ("bytes=0-1,4-5", 416, b"", "bytes */16"),
+])
+def test_buffered_http_ranges(client, monkeypatch, value, status, expected, content_range):
+    buffered_source(monkeypatch, b"0123456789abcdef")
+    result = client.get("/stream/good/a.mkv", headers={"Range": value} if value else {})
+    assert result.status_code == status and result.data == expected
+    assert result.headers.get("Content-Range") == content_range
+    result.close()
+
+
+def test_buffered_prefetch_continues_after_short_request_and_is_reused(client, monkeypatch):
+    full = threading.Event()
+    data = b"0123456789abcdef"
+    fetched = set()
+
+    def upstream(url, kwargs):
+        start, end = map(int, re.fullmatch(r"bytes=(\d+)-(\d+)", kwargs["headers"]["Range"]).groups())
+        fetched.add(start)
+        if len(fetched) == 4:
+            full.set()
+        return FakeResponse(206, data[start:end + 1], {"Content-Range": f"bytes {start}-{end}/{len(data)}"})
+
+    session, _ = buffered_source(monkeypatch, data, upstream)
+    first = client.get("/stream/good/a.mkv", headers={"Range": "bytes=0-1"})
+    assert first.data == b"01"
+    first.close()
+    assert full.wait(2), "prefetch stopped at the end of a short player request"
+    second = client.get("/stream/good/a.mkv", headers={"Range": "bytes=2-11"})
+    assert second.data == data[2:12]
+    second.close()
+    assert len(session.calls) == 4
+    assert all(buffer.users == 0 for buffer in stream_buffer._buffers.values())
+
+
+def test_buffered_auth_refresh_is_shared_by_parallel_workers(client, monkeypatch):
+    barrier = threading.Barrier(3)
+    data = b"0123456789ab"
+
+    def upstream(url, kwargs):
+        if url.endswith("old"):
+            barrier.wait(2)
+            return FakeResponse(403)
+        start, end = map(int, re.fullmatch(r"bytes=(\d+)-(\d+)", kwargs["headers"]["Range"]).groups())
+        return FakeResponse(206, data[start:end + 1], {"Content-Range": f"bytes {start}-{end}/{len(data)}"})
+
+    session = FakeSession(handler=upstream)
+    initial = Link("https://offline.invalid/old", proxy=True, concurrency=3, part_size=4, prefetch_size=16)
+    fresh = Link("https://offline.invalid/new", proxy=True, concurrency=3, part_size=4, prefetch_size=16)
+    calls = install(monkeypatch, initial, session, Entry("a.mkv", False, "a", size=len(data)), fresh)
+    result = client.get("/stream/good/a.mkv")
+    assert result.status_code == 200 and result.data == data
+    result.close()
+    assert calls == [False, True]
+
+
+def test_buffered_falls_back_when_upstream_ignores_ranges(client, monkeypatch):
+    data = b"0123456789abcdef"
+    session, _ = buffered_source(monkeypatch, data, lambda *args: FakeResponse(200, data))
+    result = client.get("/stream/good/a.mkv")
+    assert result.status_code == 200 and result.data == data
+    result.close()
+    assert not stream_buffer._buffers
+    assert "Range" not in session.calls[-1][1]["headers"]
+
+
+@pytest.mark.parametrize("headers", [{"Range": "bytes=2-5", "If-Range": '"etag"'},
+                                  {"Range": "bytes=2-5", "User-Agent": "MovieDB-Probe"}])
+def test_buffered_passes_conditionals_and_probes_through(client, monkeypatch, headers):
+    session, _ = buffered_source(monkeypatch, b"0123456789abcdef",
+                                 lambda *args: FakeResponse(206, b"2345"))
+    result = client.get("/stream/good/a.mkv", headers=headers)
+    assert result.data == b"2345" and len(session.calls) == 1
+    assert session.calls[0][1]["headers"]["Range"] == "bytes=2-5"
+    assert not stream_buffer._buffers
+
+
+@pytest.mark.parametrize("mode", ["truncated", "wrong-range", "offline"])
+def test_buffered_rejects_bad_first_part(client, monkeypatch, mode):
+    def upstream(url, kwargs):
+        if mode == "offline":
+            raise ConnectionError("offline")
+        value = "bytes 0-3/16" if mode == "truncated" else "bytes 1-4/16"
+        return FakeResponse(206, b"bad" if mode == "truncated" else b"0123", {"Content-Range": value})
+
+    buffered_source(monkeypatch, b"0123456789abcdef", upstream)
+    result = client.get("/stream/good/a.mkv")
+    assert result.status_code == 502 and not stream_buffer._buffers
+
+
+def test_buffer_lease_released_when_response_closed_without_iteration(client, monkeypatch):
+    buffered_source(monkeypatch, b"0123456789abcdef")
+    with movie_app.app.test_request_context("/stream/good/a.mkv"):
+        result = media_stream.response("good")
+        assert next(iter(stream_buffer._buffers.values())).users == 1
+        result.close()
+        assert next(iter(stream_buffer._buffers.values())).users == 0

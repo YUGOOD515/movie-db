@@ -48,8 +48,14 @@ def test_link_with_and_without_sign():
     driver = drive(session)
     driver._token, driver._token_at = "token", time.monotonic()
     file = Entry("A.mkv", False, "/Movies/A.mkv")
-    assert driver.link(file).url == "http://alist.invalid/d/Movies/A.mkv?sign=a+b"
-    assert driver.link(file).url == "http://alist.invalid/d/Movies/A.mkv"
+    link = driver.link(file)
+    assert link.url == "http://alist.invalid/d/Movies/A.mkv?sign=a+b"
+    assert link.proxy and link.concurrency == 3 and link.part_size == 4 * 1024 * 1024
+    assert link.prefetch_size == 128 * 1024 * 1024
+    driver.config["stream_mode"] = "direct"
+    link = driver.link(file)
+    assert not link.proxy and link.prefetch_size == 0
+    assert link.url == "http://alist.invalid/d/Movies/A.mkv"
 
 
 def test_invalid_credentials_do_not_leak_secrets():

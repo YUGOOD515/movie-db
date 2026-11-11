@@ -57,6 +57,7 @@ def probe_video(video_url: str) -> dict:
         "-show_streams",
         "-of",
         "json",
+        *(["-user_agent", "MovieDB-Probe"] if video_url.startswith(("http://", "https://")) else []),
         video_url,
     ]
     run_options = {

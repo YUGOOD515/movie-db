@@ -142,6 +142,12 @@ After updating the code, `uv run python scripts/check_env.py` compares `.env` wi
 
 If no player is found, the page points you to the settings instead of failing.
 
+AList / OpenList, Quark and UC use MovieDB read-ahead by default: 4 MiB parts, up to three download connections and 128 MiB of cached video per file. Completed downloads immediately refill the window independently of the player's reading pace. Successive Range requests share cached parts; seeking moves the window and retains a small amount of nearby history. At most two files are cached (256 MiB of cached video in total, plus in-flight transfers and response overhead). Buffers expire 60 seconds after the last request ends and never touch disk. The first read waits for its first part to finish downloading. Network activity may still pause when the cache is full and resume as playback consumes it.
+
+To restore player-managed buffering, choose **Direct** under **Manage → Drives → Edit AList / OpenList → Advanced → Playback reading**, then reopen the video. Metadata probes use single-connection forwarding without read-ahead; upstreams that ignore Range requests also fall back to single-connection forwarding.
+
+Run `uv run python scripts/benchmark_stream_buffer.py` for a reproducible local HTTP comparison. Defaults: 24 MiB payload, 4 MiB/s per upstream connection and an 8 MiB/s consumer, with full-file SHA-256 verification. The script uses no library or drive credentials. This simulation measures a per-connection bottleneck; real drive and player performance still needs playback verification.
+
 ## Rate limits
 
 Free API tiers are limited, so every external request goes through `connectors/throttle.py`: one token bucket per service (average rate) plus an adaptive concurrency cap (halved on 429/503, restored step by step after consecutive successes). On 429/503 the whole service pauses according to the server's `Retry-After`, `X-RateLimit-Reset` or Gemini's `retryDelay`, otherwise exponential backoff with jitter. If the required wait exceeds the cap (usually a daily quota), requests stop queueing: the service is paused until it recovers and requests degrade gracefully in the meantime.

@@ -152,6 +152,9 @@ def open_link(path, *, fresh=False):
 
 
 def forget(mount=None):
+    from services import stream_buffer
+
+    stream_buffer.clear(mount)
     with _lock:
         if mount is None:
             _drives.clear()

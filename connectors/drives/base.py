@@ -27,6 +27,7 @@ class Link:
     concurrency: int = 0
     part_size: int = 0
     local_path: str = ""
+    prefetch_size: int = 0
 
 
 @dataclass(frozen=True)

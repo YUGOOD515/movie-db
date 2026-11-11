@@ -49,14 +49,16 @@ def test_pagination_mapping_and_puus_persistence():
     assert session.request.call_args_list[1].kwargs["params"]["_page"] == 2
 
 
-def test_link_shape_and_uc_constants():
+@pytest.mark.parametrize("cls", [QuarkDrive, UCDrive])
+def test_link_shape_and_uc_constants(cls):
     session = Mock()
     session.request.return_value = response({"code": 0, "status": 200, "data": [{"download_url": "https://video.invalid/a"}]})
-    link = drive(session, cls=UCDrive).link(Entry("A", False, "fid"))
+    link = drive(session, cls=cls).link(Entry("A", False, "fid"))
     assert link.url == "https://video.invalid/a" and link.proxy
-    assert link.concurrency == 3 and link.part_size == 10 * 1024 * 1024 and link.expires_in is None
-    assert link.headers["Referer"] == "https://drive.uc.cn"
-    assert "uc-cloud-drive" in link.headers["User-Agent"]
+    assert link.concurrency == 3 and link.part_size == 4 * 1024 * 1024 and link.expires_in is None
+    assert link.prefetch_size == 128 * 1024 * 1024
+    assert link.headers["Referer"] == cls.referer
+    assert ("uc-cloud-drive" if cls is UCDrive else "quark-cloud-drive") in link.headers["User-Agent"]
     assert session.request.call_args.kwargs["json"] == {"fids": ["fid"]}
 
 

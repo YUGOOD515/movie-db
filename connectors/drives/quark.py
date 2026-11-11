@@ -120,7 +120,8 @@ class QuarkDrive(Drive):
         if not url:
             raise DriveError("无法获取播放链接")
         return Link(url=url, headers={"Cookie": self.cookie, "Referer": self.referer, "User-Agent": self.ua},
-                    proxy=True, concurrency=3, part_size=10 * 1024 * 1024, expires_in=None)
+                    proxy=True, concurrency=3, part_size=4 * 1024 * 1024,
+                    prefetch_size=128 * 1024 * 1024, expires_in=None)
 
 
 class UCDrive(QuarkDrive):

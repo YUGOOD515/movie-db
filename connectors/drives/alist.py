@@ -20,6 +20,9 @@ class AListDrive(Drive):
         Field("username", "用户名", required=True),
         Field("password", "密码", "secret", required=True),
         Field("path_password", "路径密码", "secret", advanced=True),
+        Field("stream_mode", "播放读取", "select", default="buffered", advanced=True,
+              options=(("buffered", "后台预读（推荐）"), ("direct", "直连")),
+              hint="后台预读使用内存缓存，提前读取后续视频；直连由播放器自行缓冲。"),
     )
 
     def __init__(self, config, save, session=None):
@@ -132,4 +135,7 @@ class AListDrive(Drive):
         url = self.origin + "/d" + quote(file.id, safe="/")
         if data.get("sign"):
             url += "?" + urlencode({"sign": data["sign"]})
-        return Link(url=url, proxy=False, expires_in=None)
+        if self.config.get("stream_mode") == "direct":
+            return Link(url=url, proxy=False, expires_in=None)
+        return Link(url=url, proxy=True, concurrency=3, part_size=4 * 1024 * 1024,
+                    prefetch_size=128 * 1024 * 1024, expires_in=None)
