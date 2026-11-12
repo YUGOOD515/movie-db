@@ -30,7 +30,7 @@ SQL 代码书写准则：https://www.sqlstyle.guide/zh/
 
 前端优先使用 Bootstrap 原生组件和工具类，仅为媒体展示与必要交互保留少量自定义 CSS；本项目不使用 `design-taste-frontend` skill。
 
-布局沿用 12 栏网格：`style.css` 顶部定义圆角等令牌与 `--grid-col` / `--grid-gap`，跨栏尺寸写成 `--grid-col` 的倍数。通用模板片段在 `templates/_ui.html`；`site.js` 只放全站行为，页面脚本按页拆分（`detail.js`、`manager.js` 等）。
+布局沿用 12 栏网格：`style.css` 顶部定义圆角等令牌与 `--grid-col` / `--grid-gap`，跨栏尺寸写成 `--grid-col` 的倍数。设置页、网盘页与任务详情抽屉共用 `style.css` 的 Design system 段（`ui-*` 分组卡片、12 栏行、按分区上色的图标块、状态标签、高级选项按钮行、`btn-tonal` / `btn-ghost`），对齐线与层级规则写在该段注释里；分区色登记在 `settings.SECTIONS` 的 `hue`。导入任务详情由 `viewmodels/tasks.py` 整理，`/manager/tasks/detail` 只在打开抽屉时读取文件与探测结果。通用模板片段在 `templates/_ui.html`；`site.js` 只放全站行为，页面脚本按页拆分（`detail.js`、`manager.js` 等）。
 
 动效集中在 `effects.js`（BlurHash 占位、海报倾斜、入场动画、页面共享元素转场），首页轮播在 `home.js`；第三方库放在 `static/vendor/`（见其 README），不走 CDN；评分图标放在 `static/icons/ratings/` 随仓库提交（安装包只打包 git 跟踪的文件）。海报 / 背景图的环境色与 BlurHash 存于 `static/thumbnails/tones.json`，录入时生成、启动时补齐，模板用 `image_tone` 过滤器读取。
 

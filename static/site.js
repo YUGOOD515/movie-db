@@ -101,6 +101,18 @@ window.appIcon = (name, classes = '') => {
         const message = document.createElement("span");
         message.textContent = notification.message;
         toast.replaceChildren(icon, message);
+        // 可选的操作按钮，例如“查看进度”打开任务详情
+        if (notification.action) {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.className = "btn btn-sm chip-btn save-toast-action";
+            button.textContent = notification.action.label;
+            button.addEventListener("click", () => {
+                toast.classList.remove("save-toast--show");
+                notification.action.run();
+            }, { once: true });
+            toast.append(button);
+        }
         toast.setAttribute("role", isError ? "alert" : "status");
         toast.setAttribute("aria-live", isError ? "assertive" : "polite");
         toast.classList.toggle("save-toast--error", isError);
@@ -109,11 +121,11 @@ window.appIcon = (name, classes = '') => {
         toast.classList.add("save-toast--show");
     }
 
-    function showAppToast(message, category = "success") {
+    function showAppToast(message, category = "success", action = null) {
         if (!message) {
             return;
         }
-        if (!appToastQueue.some(item => item.message === message && item.category === category)) appToastQueue.push({ message, category });
+        if (!appToastQueue.some(item => item.message === message && item.category === category)) appToastQueue.push({ message, category, action });
         if (!appToastActive) {
             showNextAppToast();
         }
@@ -139,7 +151,7 @@ window.appIcon = (name, classes = '') => {
                 appToastActive = false;
                 showNextAppToast();
             }, 220);
-        }, isUrgent ? 4000 : 2200);
+        }, isUrgent || notification.action ? 5000 : 2200);
     }
 
     window.showAppToast = showAppToast;

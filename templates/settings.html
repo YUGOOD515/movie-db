@@ -37,14 +37,33 @@
 {% endmacro %}
 
 {% macro row(item) %}
-    <div class="settings-row{% if item.kind == 'bool' %} is-switch{% endif %}" data-row="{{ item.name }}">
-        <div class="settings-row-label">
+    <div class="ui-row{% if item.kind == 'bool' %} is-switch{% endif %}" data-row="{{ item.name }}">
+        <div class="ui-row-label">
             <label for="set-{{ item.name }}">{{ item.label }}</label>
             {% if item.restart %}<span class="settings-badge">重启后生效</span>{% endif %}
-            {% if item.hint %}<p class="settings-row-hint">{{ item.hint }}</p>{% endif %}
+            {% if item.hint %}<p class="ui-row-hint">{{ item.hint }}</p>{% endif %}
         </div>
-        <div class="settings-row-control">{{ control(item) }}</div>
+        <div class="ui-row-control">{{ control(item) }}</div>
     </div>
+{% endmacro %}
+
+{# 卡片底部的按钮行：展开后高级项接在同一张卡片里，沿用同一组对齐线 #}
+{% macro disclosure(items) %}
+    <details class="ui-disclosure" data-advanced>
+        <summary>{{ ui_icon('sliders-horizontal', '') }}<span>高级选项</span><span class="ui-disclosure-count">{{ items|length }} 项</span>{{ ui_icon('chevron-right', 'ui-disclosure-chevron') }}</summary>
+        {% for item in items %}{{ row(item) }}{% endfor %}
+    </details>
+{% endmacro %}
+
+{% macro group_head(id, title, description, icon) %}
+    <header class="ui-group-head">
+        {% if icon %}<span class="ui-tile" aria-hidden="true">{{ ui_icon(icon, '') }}</span>{% endif %}
+        <div class="ui-group-text">
+            <h2 class="ui-group-title" id="group-{{ id }}">{{ title }}</h2>
+            <p class="ui-group-desc">{{ description }}</p>
+        </div>
+        {% if caller %}<div class="ui-group-side">{{ caller() }}</div>{% endif %}
+    </header>
 {% endmacro %}
 
 {% block main %}
@@ -65,52 +84,40 @@
 
     <form class="settings-form" data-settings-form autocomplete="off" novalidate>
         {% for section in sections if section.id != "data" %}
-            <section class="settings-section" id="section-{{ section.id }}" role="tabpanel" aria-labelledby="tab-{{ section.id }}" data-section="{{ section.id }}" hidden>
+            <section class="settings-section ui-stack" id="section-{{ section.id }}" role="tabpanel" aria-labelledby="tab-{{ section.id }}" data-section="{{ section.id }}" data-hue="{{ section.hue }}" hidden>
                 {% for group in section.groups %}
-                    <section class="settings-group" data-group="{{ group.id }}" aria-labelledby="group-{{ group.id }}">
-                        <header class="settings-group-head">
-                            {% if group.icon %}<span class="settings-group-icon" aria-hidden="true">{{ ui_icon(group.icon, '') }}</span>{% endif %}
-                            <div class="min-w-0 flex-grow-1">
-                                <h2 class="settings-group-title" id="group-{{ group.id }}">{{ group.title }}</h2>
-                                <p class="settings-group-desc">{{ group.description }}</p>
-                            </div>
-                            <div class="settings-group-side">
-                                <span class="settings-status" data-status="{{ group.id }}"><span class="settings-dot" aria-hidden="true"></span><span data-status-text></span></span>
-                                {% if group.id == "llm" %}
-                                    <div class="form-check form-switch m-0" title="开启 AI 识别">
-                                        <input class="form-check-input" id="set-ai-enabled" name="ai_enabled" type="checkbox" role="switch" aria-label="开启 AI 识别">
-                                    </div>
-                                {% endif %}
-                                {% if group.test %}
-                                    <button class="btn btn-sm chip-btn" type="button" data-test="{{ group.test }}"><span>检测</span></button>
-                                {% endif %}
-                            </div>
-                        </header>
+                    <section class="ui-group" data-group="{{ group.id }}" aria-labelledby="group-{{ group.id }}">
+                        {% call group_head(group.id, group.title, group.description, group.icon) %}
+                            <span class="ui-pill" data-status="{{ group.id }}"><span data-status-text></span></span>
+                            {% if group.id == "llm" %}
+                                <div class="form-check form-switch m-0" title="开启 AI 识别">
+                                    <input class="form-check-input" id="set-ai-enabled" name="ai_enabled" type="checkbox" role="switch" aria-label="开启 AI 识别">
+                                </div>
+                            {% endif %}
+                            {% if group.test %}
+                                <button class="btn btn-sm chip-btn" type="button" data-test="{{ group.test }}"><span>检测</span></button>
+                            {% endif %}
+                        {% endcall %}
                         {% if group.test %}<div class="settings-result" data-result="{{ group.test }}" role="status" aria-live="polite"></div>{% endif %}
 
-                        <div class="settings-body"{% if group.id == "llm" %} data-ai-body{% endif %}>
-                            {% if group.id == "drive" %}
-                                <div class="settings-row">
-                                    <div class="settings-row-label"><label>挂载管理</label><p class="settings-row-hint">添加、检测、停用或删除网盘与凭据。</p></div>
-                                    <div class="settings-row-control"><a class="btn btn-sm chip-btn" href="{{ url_for('media', tab='drives') }}">打开网盘页</a></div>
+                        <div class="ui-card"{% if group.id == "llm" %} data-ai-body{% endif %}>
+                            {%- if group.id == "drive" -%}
+                                <div class="ui-row is-action">
+                                    <div class="ui-row-label"><p class="ui-row-title">挂载管理</p><p class="ui-row-hint">添加、检测、停用或删除网盘与凭据。</p></div>
+                                    <div class="ui-row-control"><a class="btn btn-sm chip-btn" href="{{ url_for('media', tab='drives') }}"><span>打开网盘页</span>{{ ui_icon('chevron-right', '') }}</a></div>
                                 </div>
-                            {% endif %}
-                            {% if group.id == "llm" %}
-                                <div class="settings-row">
-                                    <div class="settings-row-label">
+                            {%- endif -%}
+                            {%- if group.id == "llm" -%}
+                                <div class="ui-row">
+                                    <div class="ui-row-label">
                                         <label for="set-preset">平台</label>
-                                        <p class="settings-row-hint"><a href="#" target="_blank" rel="noopener" data-key-link hidden>获取 API Key</a></p>
+                                        <p class="ui-row-hint"><a href="#" target="_blank" rel="noopener" data-key-link hidden>获取 API Key</a></p>
                                     </div>
-                                    <div class="settings-row-control"><select class="form-select" id="set-preset" data-preset></select></div>
+                                    <div class="ui-row-control"><select class="form-select" id="set-preset" data-preset></select></div>
                                 </div>
-                            {% endif %}
-                            {% for item in group.basic %}{{ row(item) }}{% endfor %}
-                            {% if group.advanced %}
-                                <details class="settings-advanced" data-advanced>
-                                    <summary>高级</summary>
-                                    {% for item in group.advanced %}{{ row(item) }}{% endfor %}
-                                </details>
-                            {% endif %}
+                            {%- endif -%}
+                            {%- for item in group.basic %}{{ row(item) }}{% endfor -%}
+                            {%- if group.advanced %}{{ disclosure(group.advanced) }}{% endif -%}
                         </div>
                     </section>
                 {% endfor %}
@@ -119,24 +126,18 @@
         {% endfor %}
     </form>
 
-    <section class="settings-section" id="section-data" role="tabpanel" aria-labelledby="tab-data" data-section="data" hidden>
-        <form class="settings-group settings-danger" data-reset aria-labelledby="group-reset" autocomplete="off" novalidate>
-            <header class="settings-group-head">
-                <span class="settings-group-icon" aria-hidden="true">{{ ui_icon('trash-2', '') }}</span>
-                <div class="min-w-0 flex-grow-1">
-                    <h2 class="settings-group-title" id="group-reset">清除数据</h2>
-                    <p class="settings-group-desc">彻底删除所选数据，不做备份、无法恢复。清除媒体库或连接设置后会回到首次使用引导。</p>
-                </div>
-            </header>
-            <div class="settings-body">
-                <div data-reset-parts></div>
+    <section class="settings-section ui-stack" id="section-data" role="tabpanel" aria-labelledby="tab-data" data-section="data" data-hue="red" hidden>
+        <form class="ui-group" data-reset aria-labelledby="group-reset" autocomplete="off" novalidate>
+            {{ group_head("reset", "清除数据", "彻底删除所选数据，不做备份、无法恢复。清除媒体库或连接设置后会回到首次使用引导。", "trash-2") }}
+            <div class="ui-card">
+                <div class="settings-reset-parts" data-reset-parts></div>
                 <p class="settings-reset-note" data-reset-cloud hidden>{{ ui_icon('cloud-off', '') }}<span>已开启云端只读快照：清除媒体库时，云端快照会同步清空。</span></p>
-                <div class="settings-row settings-reset-confirm">
-                    <div class="settings-row-label">
+                <div class="ui-row settings-reset-confirm">
+                    <div class="ui-row-label">
                         <label for="reset-confirm">确认</label>
-                        <p class="settings-row-hint">输入“清除”后才能执行。</p>
+                        <p class="ui-row-hint">输入“清除”后才能执行。</p>
                     </div>
-                    <div class="settings-row-control">
+                    <div class="ui-row-control">
                         <input class="form-control" id="reset-confirm" type="text" placeholder="清除" spellcheck="false" autocomplete="off" data-reset-confirm>
                     </div>
                 </div>

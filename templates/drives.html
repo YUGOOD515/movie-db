@@ -1,61 +1,69 @@
 {% from "_ui.html" import icon as ui_icon, empty_state %}
 {% from "_drive_form.html" import drive_form with context %}
 
-<div data-drive-page>
-    {% if missing_mounts %}
-        <div class="settings-banner mb-3">{{ ui_icon('triangle-alert', '') }}<span>尚未添加网盘的挂载名：{{ missing_mounts|join('、') }}。添加时使用相同名称即可继续播放。</span></div>
-    {% endif %}
-    <div class="row g-4">
-        <div class="col-12 col-xl-5 order-2 order-xl-1">
-            <section class="settings-group" aria-labelledby="drive-editor-heading">
-                <header class="settings-group-head">
-                    <span class="settings-group-icon" aria-hidden="true" data-drive-editor-icon>{{ ui_icon('plus', '') }}</span>
-                    <div class="min-w-0 flex-grow-1">
-                        <h2 class="settings-group-title" id="drive-editor-heading" data-drive-editor-title>添加网盘</h2>
-                        <p class="settings-group-desc">保存前先检测目录与凭据是否可用。</p>
-                    </div>
-                </header>
-                <div class="settings-body">{{ drive_form('drive') }}</div>
-            </section>
+{# 网盘页：居中的 8 栏列，一张卡片列出全部挂载；添加与编辑在弹窗里完成。网盘属于“连接”分区，沿用蓝色图标块。 #}
+<div class="row justify-content-center" data-drive-page data-hue="blue">
+    <div class="col-12 col-xl-8 drive-list">
+        {% if missing_mounts %}
+            <div class="settings-banner mt-0 mb-3">{{ ui_icon('triangle-alert', '') }}<span>尚未添加网盘的挂载名：{{ missing_mounts|join('、') }}。添加时使用相同名称即可继续播放。</span></div>
+        {% endif %}
+        <div class="drive-toolbar">
+            <span class="drive-toolbar-meta">{{ drives|length }} 个网盘</span>
+            <button class="btn btn-sm media-primary-action is-compact" type="button" data-drive-add>{{ ui_icon('plus', '') }}<span>添加网盘</span></button>
         </div>
-        <div class="col-12 col-xl-7 order-1 order-xl-2">
-            <div class="vstack drive-list" data-drive-list>
-                {% for drive in drives %}
-                    <section class="settings-group" data-drive-card="{{ drive.mount }}">
-                        <header class="settings-group-head">
-                            <span class="settings-group-icon" aria-hidden="true">{{ ui_icon('network', '') }}</span>
-                            <div class="min-w-0 flex-grow-1">
-                                <h2 class="settings-group-title">{{ drive.mount }}</h2>
-                                <p class="settings-group-desc">{{ drive.label }}</p>
-                            </div>
-                            <div class="settings-group-side">
-                                <span class="settings-status" data-drive-status data-state="{{ drive.status_state }}">
-                                    <span class="settings-dot" aria-hidden="true"></span><span data-drive-status-text>{{ drive.status_text }}</span>
-                                </span>
-                            </div>
-                        </header>
-                        <div class="settings-body">
-                            <p class="small text-body-secondary text-break mb-0 pt-3" data-drive-status-detail{% if not drive.status %} hidden{% endif %}>{{ drive.status }}</p>
-                            <div class="d-flex flex-wrap gap-2 pt-3">
-                                <button class="btn btn-sm chip-btn" type="button" data-drive-action="test" data-mount="{{ drive.mount }}">{{ ui_icon('refresh-cw', '') }}<span>检测</span></button>
-                                <button class="btn btn-sm chip-btn" type="button" data-drive-action="edit" data-mount="{{ drive.mount }}" data-drive='{{ drive|tojson }}'>{{ ui_icon('pencil', '') }}<span>编辑</span></button>
-                                <button class="btn btn-sm chip-btn" type="button" data-drive-action="toggle" data-mount="{{ drive.mount }}">{{ ui_icon('ban' if drive.enabled else 'play', '') }}<span>{{ '停用' if drive.enabled else '启用' }}</span></button>
-                                <button class="btn btn-sm chip-btn text-danger" type="button" data-drive-action="delete" data-mount="{{ drive.mount }}">{{ ui_icon('trash-2', '') }}<span>删除</span></button>
-                            </div>
-                            <div class="settings-result mt-3" data-drive-card-result role="status" aria-live="polite"></div>
-                            <div class="settings-result is-fail mt-3" data-drive-delete-confirm hidden>
-                                <p class="settings-result-head">{{ ui_icon('triangle-alert', '') }}<strong>确定删除挂载“{{ drive.mount }}”吗？</strong></p>
-                                <p class="settings-result-note">媒体库记录不会删除。</p>
-                                <div class="d-flex flex-wrap gap-2 mt-3">
-                                    <button class="btn btn-sm chip-btn text-danger" type="button" data-drive-confirm-delete>{{ ui_icon('trash-2', '') }}<span>确认删除</span></button>
-                                    <button class="btn btn-sm chip-btn" type="button" data-drive-cancel-delete>{{ ui_icon('x', '') }}<span>取消</span></button>
-                                </div>
+        <div class="ui-card" data-drive-list>
+            {% for drive in drives %}
+                <div class="drive-item{% if not drive.enabled %} is-disabled{% endif %}" data-drive-card="{{ drive.mount }}">
+                    <div class="drive-item-main">
+                        <span class="ui-tile"{% if not drive.enabled %} data-hue="gray"{% endif %} aria-hidden="true">{{ ui_icon(drive.icon, '') }}</span>
+                        <div class="ui-group-text">
+                            <h2 class="ui-row-title">{{ drive.display_name }}</h2>
+                            <p class="ui-row-hint text-truncate">{{ drive.label }} · {{ drive.scope }}</p>
+                            <p class="ui-row-hint drive-item-detail" data-drive-status-detail{% if not drive.status_detail %} hidden{% endif %}>{{ drive.status_detail }}</p>
+                        </div>
+                        <span class="ui-pill" data-drive-status data-state="{{ drive.status_state }}"><span data-drive-status-text>{{ drive.status_text }}</span></span>
+                        <div class="drive-item-actions">
+                            <button class="btn btn-sm chip-btn" type="button" data-drive-action="test" data-mount="{{ drive.mount }}">{{ ui_icon('refresh-cw', '') }}<span>检测</span></button>
+                            <div class="dropdown">
+                                <button class="btn icon-btn discovery-icon-btn" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="{{ drive.display_name }} 的更多操作" title="更多操作">{{ ui_icon('ellipsis', '') }}</button>
+                                <ul class="dropdown-menu dropdown-menu-end media-menu">
+                                    <li><button class="dropdown-item d-flex align-items-center gap-2" type="button" data-drive-action="edit" data-mount="{{ drive.mount }}" data-drive='{{ drive|tojson }}'>{{ ui_icon('pencil', '') }}<span>编辑</span></button></li>
+                                    <li><button class="dropdown-item d-flex align-items-center gap-2" type="button" data-drive-action="toggle" data-mount="{{ drive.mount }}">{{ ui_icon('ban' if drive.enabled else 'play', '') }}<span>{{ '停用' if drive.enabled else '启用' }}</span></button></li>
+                                    <li><hr class="dropdown-divider"></li>
+                                    <li><button class="dropdown-item d-flex align-items-center gap-2 is-danger" type="button" data-drive-action="delete" data-mount="{{ drive.mount }}">{{ ui_icon('trash-2', '') }}<span>删除</span></button></li>
+                                </ul>
                             </div>
                         </div>
-                    </section>
-                {% else %}
-                    {{ empty_state("尚未添加网盘。", "network") }}
-                {% endfor %}
+                    </div>
+                    <div class="drive-item-extra">
+                        <div class="settings-result" data-drive-card-result role="status" aria-live="polite"></div>
+                        <div class="drive-confirm" data-drive-delete-confirm hidden>
+                            <p class="drive-confirm-text m-0"><strong>删除挂载“{{ drive.display_name }}”？</strong><small>媒体库记录不会删除，之后重新添加同名挂载即可继续播放。</small></p>
+                            <div class="drive-item-actions">
+                                <button class="btn btn-sm chip-btn" type="button" data-drive-cancel-delete><span>取消</span></button>
+                                <button class="btn btn-sm chip-btn text-danger" type="button" data-drive-confirm-delete>{{ ui_icon('trash-2', '') }}<span>删除</span></button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            {% else %}
+                {{ empty_state("尚未添加网盘。", "network") }}
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="modal fade drive-modal" id="drive-editor" tabindex="-1" aria-labelledby="drive-editor-heading" data-hue="blue" data-drive-modal>
+        <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
+            <div class="modal-content">
+                <div class="modal-header align-items-center">
+                    <span class="ui-tile" aria-hidden="true" data-drive-editor-icon>{{ ui_icon('plus', '') }}</span>
+                    <div class="ui-group-text">
+                        <h2 class="ui-group-title" id="drive-editor-heading" data-drive-editor-title>添加网盘</h2>
+                        <p class="ui-group-desc">保存前先检测目录与凭据是否可用。</p>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+                </div>
+                <div class="modal-body">{{ drive_form('drive') }}</div>
             </div>
         </div>
     </div>

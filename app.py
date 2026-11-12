@@ -846,6 +846,20 @@ def background_tasks():
     return response.make_conditional(request)
 
 
+@app.get("/manager/tasks/detail")
+def background_task_detail():
+    from services.task_status import detail
+    result = detail(app.config["DATABASE"], request.args.get("id"),
+                    title_url=lambda title_id: url_for("title_detail", title_id=title_id))
+    if result is None:
+        return jsonify(error="任务已结束或已移除。"), 404
+    response = jsonify(result)
+    response.set_etag(hashlib.sha256(response.get_data()).hexdigest())
+    response.cache_control.private = True
+    response.cache_control.no_cache = True
+    return response.make_conditional(request)
+
+
 @app.route("/manager/association/jobs", methods=["GET", "POST"])
 def association_jobs():
     from services import import_jobs

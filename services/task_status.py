@@ -108,3 +108,27 @@ def snapshot(database):
             services.setdefault(key, {"service": key, "name": throttle.LABELS.get(key, key), **value})
     active = any(entry["state"] in ("running", "waiting", "queued") for entry in entries)
     return {"tasks": entries, "services": list(services.values()), "active": active}
+
+
+def detail(database, task_id, title_url=None):
+    """侧栏任务的详情（只在打开详情抽屉时读取文件列表与探测检查点）。"""
+    from viewmodels.tasks import import_detail
+
+    kind, _, rest = str(task_id or "").partition(":")
+    title_id, _, batch = rest.partition(":")
+    if kind != "import" or not title_id or not batch:
+        return None
+    rows = tasks.import_task_detail(database, title_id, batch)
+    if not rows:
+        return None
+    live = task_progress.snapshots()
+    for row in rows:
+        row["payload"] = json.loads(row["payload"])
+        row["probes"] = json.loads(row["probes"] or "{}")
+        row["result"] = json.loads(row["result"]) if row["result"] else None
+        row["progress"] = live.get(row["job_id"]) or json.loads(row["progress"])
+        row.update(total=len(row["payload"]["items"]), name=row["payload"].get("name"), batch=batch,
+                   warning=(row["result"] or {}).get("warning"), updated_at=0)
+    summary = _group(rows, time.time(), tasks.title_names(database, {title_id}))
+    brief = tasks.title_brief(database, title_id)
+    return import_detail(summary, rows, brief, title_url(title_id) if title_url and brief else "")

@@ -6,8 +6,11 @@
     const mountInput = form.querySelector("[data-drive-mount-input]");
     const resultBox = form.querySelector("[data-drive-result]");
     const saveButton = form.querySelector("[data-drive-save]");
-    const cancelEditButton = form.querySelector("[data-drive-cancel-edit]");
     const page = document.querySelector("[data-drive-page]");
+    // 弹窗挪到 body 下：页面容器的层叠上下文会把它压在内容后面
+    const modalNode = page?.querySelector("[data-drive-modal]");
+    if (modalNode) document.body.append(modalNode);
+    const modal = modalNode ? bootstrap.Modal.getOrCreateInstance(modalNode) : null;
     const defaultMounts = { local: "本机", quark: "夸克", uc: "UC", aliyun: "阿里", baidu: "百度", pan123: "123", alist: "*" };
     let editingMount = "";
 
@@ -67,10 +70,9 @@
             input.placeholder = input.dataset.drivePlaceholder || "";
         });
         if (page) {
-            page.querySelector("[data-drive-editor-title]").textContent = "添加网盘";
-            page.querySelector("[data-drive-editor-icon]").replaceChildren(icon("plus"));
+            modalNode.querySelector("[data-drive-editor-title]").textContent = "添加网盘";
+            modalNode.querySelector("[data-drive-editor-icon]").replaceChildren(icon("plus"));
         }
-        if (cancelEditButton) cancelEditButton.hidden = true;
         renderResult(resultBox, null);
         syncKind(true);
     }
@@ -114,7 +116,9 @@
         saveButton.removeAttribute("aria-busy");
         if (result.ok && page) {
             try { await refreshDrives(); } catch {}
-            resetEditor();
+            modal?.hide();
+            window.showAppToast?.(editingMount ? `已更新 ${editingMount}` : "网盘已添加");
+            return result;
         }
         showResult(result);
         if (result.ok) document.dispatchEvent(new CustomEvent("drive-saved", { detail: result }));
@@ -146,10 +150,9 @@
             } else if (input.type === "checkbox") input.checked = Boolean(drive.config[name]);
             else input.value = drive.config[name] || "";
         });
-        page.querySelector("[data-drive-editor-title]").textContent = `编辑 ${mount}`;
-        page.querySelector("[data-drive-editor-icon]").replaceChildren(icon("pencil"));
-        cancelEditButton.hidden = false;
-        form.scrollIntoView({ behavior: "smooth", block: "start" });
+        modalNode.querySelector("[data-drive-editor-title]").textContent = `编辑 ${mount}`;
+        modalNode.querySelector("[data-drive-editor-icon]").replaceChildren(icon("pencil"));
+        modal?.show();
     }
 
     function cardResult(card, result, pending = false) {
@@ -158,10 +161,11 @@
             const status = card.querySelector("[data-drive-status]");
             status.dataset.state = result.ok ? "ok" : "fail";
             card.querySelector("[data-drive-status-text]").textContent = result.ok ? "已连接" : "检测失败";
-            const detail = result.ok ? (result.status || "已连接") : result.message;
+            // 详情只在比状态标签多出信息时显示
+            const detail = result.ok ? (result.status || "") : (result.message || "操作失败");
             const detailBox = card.querySelector("[data-drive-status-detail]");
-            detailBox.textContent = detail || "操作失败";
-            detailBox.hidden = false;
+            detailBox.textContent = detail;
+            detailBox.hidden = !detail || detail === "已连接" || card.classList.contains("is-disabled");
         }
     }
 
@@ -185,7 +189,10 @@
 
     kindInput.addEventListener("change", () => syncKind(true));
     saveButton.addEventListener("click", save);
-    cancelEditButton?.addEventListener("click", resetEditor);
+    page?.querySelector("[data-drive-add]")?.addEventListener("click", () => { resetEditor(); modal?.show(); });
+    // 关闭弹窗即放弃编辑；下次打开从干净的表单开始
+    modalNode?.addEventListener("hidden.bs.modal", resetEditor);
+    modalNode?.addEventListener("shown.bs.modal", () => (editingMount ? form.querySelector(`[data-drive-fields="${kindInput.value}"] [data-drive-config]`) : kindInput)?.focus());
     syncKind(true);
 
     function bindDriveActions() {
@@ -212,7 +219,7 @@
                 button.disabled = false;
                 if (!result.ok) { cardResult(card, result); return; }
                 try { await refreshDrives(); } catch {}
-                if (editingMount === card.dataset.driveCard) resetEditor();
+                window.showAppToast?.(`已删除 ${card.querySelector(".ui-row-title")?.textContent || card.dataset.driveCard}`);
             });
         });
     }

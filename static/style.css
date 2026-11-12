@@ -4595,6 +4595,352 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
 }
 
 /* ==========================================================================
+   Design system（设置页、网盘页共用）
+
+   对齐线（从左到右）：
+   A  页面内容左缘：页头标题、分组卡片外缘；
+   B  A + --ui-inset：分组图标块、行标签、分隔线、按钮行文字共用这一条；
+   C  12 栏中的第 6 栏起点：所有输入控件左缘；
+   D  A 的镜像：状态标签、检测按钮、开关、输入框右缘。
+   层级：页头（h3）→ 分组标题（1rem / 600）→ 行标签（0.9375rem / 500）→ 说明（0.8125rem / 次要色）。
+   分组之间靠留白（--ui-group-gap），组内行之间才用缩进细线；卡片靠底色区分，不描边。
+   ========================================================================== */
+
+:root {
+    --ui-inset: 20px;
+    --ui-row-y: 14px;
+    --ui-tile: 32px;
+    --ui-tile-gap: 12px;
+    --ui-group-gap: 40px;
+    --radius-panel: 16px;
+    --ui-surface: rgba(var(--bs-emphasis-color-rgb), 0.04);
+    --ui-line: rgba(var(--bs-emphasis-color-rgb), 0.08);
+    --ui-fill: rgba(var(--bs-emphasis-color-rgb), 0.08);
+    --ui-fill-hover: rgba(var(--bs-emphasis-color-rgb), 0.14);
+    --ui-hover: rgba(var(--bs-emphasis-color-rgb), 0.04);
+
+    /* 分区色：只给图标块用，不表达状态 */
+    --hue-blue: 74, 144, 226;
+    --hue-amber: 224, 155, 50;
+    --hue-violet: 146, 112, 230;
+    --hue-red: 226, 92, 92;
+    --hue-gray: 140, 146, 156;
+}
+
+[data-bs-theme="light"] {
+    --ui-surface: rgba(var(--bs-emphasis-color-rgb), 0.035);
+    --ui-line: rgba(var(--bs-emphasis-color-rgb), 0.09);
+}
+
+[data-hue="blue"] { --ui-hue: var(--hue-blue); }
+[data-hue="amber"] { --ui-hue: var(--hue-amber); }
+[data-hue="violet"] { --ui-hue: var(--hue-violet); }
+[data-hue="red"] { --ui-hue: var(--hue-red); }
+[data-hue="gray"] { --ui-hue: var(--hue-gray); }
+
+/* ---------- 分组 ---------- */
+
+.ui-stack {
+    display: grid;
+    gap: var(--ui-group-gap);
+}
+
+.ui-group-head {
+    display: flex;
+    align-items: center;
+    gap: var(--ui-tile-gap);
+    min-height: var(--ui-tile);
+    padding: 0 var(--ui-inset) 12px;
+}
+
+.ui-group-text {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.ui-group-title {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+    line-height: 1.4;
+}
+
+.ui-group-desc {
+    margin: 2px 0 0;
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    color: var(--bs-secondary-color);
+}
+
+.ui-group-side {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+}
+
+/* 分组下方的检测结果：与行标签同一条对齐线 */
+.ui-group > .settings-result {
+    margin: 0 var(--ui-inset) 12px;
+}
+
+/* ---------- 图标块 ---------- */
+
+.ui-tile {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: var(--ui-tile);
+    height: var(--ui-tile);
+    border-radius: 9px;
+    corner-shape: squircle;
+    background: rgba(var(--ui-hue, var(--hue-gray)), 0.18);
+    font-size: 1rem;
+    color: rgb(var(--ui-hue, var(--hue-gray)));
+}
+
+[data-bs-theme="light"] .ui-tile {
+    background: rgba(var(--ui-hue, var(--hue-gray)), 0.14);
+    color: color-mix(in srgb, rgb(var(--ui-hue, var(--hue-gray))) 78%, #000);
+}
+
+.ui-tile .app-icon {
+    width: 18px;
+    height: 18px;
+}
+
+/* ---------- 状态标签 ---------- */
+
+.ui-pill {
+    --pill-rgb: var(--bs-secondary-color-rgb, 140, 146, 156);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 24px;
+    padding: 0 10px;
+    border-radius: var(--radius-pill);
+    background: var(--ui-fill);
+    font-size: 0.75rem;
+    line-height: 1;
+    color: var(--bs-secondary-color);
+    white-space: nowrap;
+}
+
+.ui-pill:not([data-state]) {
+    display: none;
+}
+
+.ui-pill::before {
+    content: "";
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+    opacity: 0.7;
+}
+
+.ui-pill[data-state="ok"] {
+    background: rgba(var(--bs-success-rgb), 0.14);
+    color: var(--bs-success-text-emphasis);
+}
+
+.ui-pill[data-state="warn"] {
+    background: rgba(var(--bs-warning-rgb), 0.14);
+    color: var(--bs-warning-text-emphasis);
+}
+
+.ui-pill[data-state="fail"] {
+    background: rgba(var(--bs-danger-rgb), 0.14);
+    color: var(--bs-danger-text-emphasis);
+}
+
+.ui-pill[data-state="busy"] {
+    background: rgba(var(--hue-blue), 0.16);
+    color: rgb(var(--hue-blue));
+}
+
+/* ---------- 卡片与行 ---------- */
+
+.ui-card {
+    border-radius: var(--radius-panel);
+    background: var(--ui-surface);
+}
+
+.ui-card:empty {
+    display: none;
+}
+
+/* 12 栏：标签 5 栏、控件 7 栏，所有卡片的控件都从对齐线 C 开始 */
+.ui-row {
+    position: relative;
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    align-items: center;
+    gap: 8px var(--grid-gap);
+    margin: 0 var(--ui-inset);
+    padding: var(--ui-row-y) 0;
+    border-top: 1px solid var(--ui-line);
+}
+
+.ui-card > .ui-row:first-child,
+.ui-card > .ui-disclosure:first-child > summary {
+    border-top: 0;
+}
+
+.ui-row-label {
+    grid-column: span 5;
+    min-width: 0;
+}
+
+.ui-row-control {
+    grid-column: span 7;
+    min-width: 0;
+}
+
+.ui-row.is-switch .ui-row-label,
+.ui-row.is-action .ui-row-label {
+    grid-column: span 9;
+}
+
+.ui-row.is-switch .ui-row-control,
+.ui-row.is-action .ui-row-control {
+    display: flex;
+    grid-column: span 3;
+    justify-content: flex-end;
+}
+
+.ui-row-label label,
+.ui-row-title {
+    margin: 0;
+    font-size: 0.9375rem;
+    font-weight: 500;
+    line-height: 1.5;
+}
+
+.ui-row-hint {
+    margin: 2px 0 0;
+    font-size: 0.8125rem;
+    line-height: 1.55;
+    color: var(--bs-secondary-color);
+}
+
+.ui-row-control .form-control::placeholder {
+    color: var(--bs-secondary-color);
+    opacity: 0.6;
+}
+
+/* 未保存的修改：落在卡片内边距里的强调色小点 */
+.ui-row.is-dirty::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: calc(var(--ui-inset) / -2 - 3px);
+    width: 6px;
+    height: 6px;
+    margin-top: -3px;
+    border-radius: 50%;
+    background: var(--media-accent);
+}
+
+/* ---------- 高级选项：卡片底部的按钮行 ---------- */
+
+.ui-disclosure > summary {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0;
+    padding: 12px var(--ui-inset);
+    /* 分隔线与行标签同一缩进，悬停底色铺满卡片宽度 */
+    background: linear-gradient(var(--ui-line), var(--ui-line)) no-repeat var(--ui-inset) 0 / calc(100% - 2 * var(--ui-inset)) 1px;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--bs-body-color);
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+    transition: background-color 0.15s var(--ease-out);
+}
+
+.ui-card > .ui-disclosure:first-child > summary {
+    background-image: none;
+}
+
+.ui-disclosure > summary::-webkit-details-marker {
+    display: none;
+}
+
+.ui-disclosure > summary:hover {
+    background-color: var(--ui-hover);
+}
+
+.ui-disclosure > summary:focus-visible {
+    outline: 2px solid rgba(var(--media-accent-rgb), 0.6);
+    outline-offset: -2px;
+}
+
+.ui-disclosure:last-child:not([open]) > summary {
+    border-radius: 0 0 var(--radius-panel) var(--radius-panel);
+}
+
+.ui-disclosure > summary .app-icon {
+    color: var(--bs-secondary-color);
+}
+
+.ui-disclosure-count {
+    padding: 2px 8px;
+    border-radius: var(--radius-pill);
+    background: var(--ui-fill);
+    font-size: 0.75rem;
+    font-weight: 400;
+    color: var(--bs-secondary-color);
+}
+
+.ui-disclosure-chevron {
+    margin-left: auto;
+    transition: transform 0.2s var(--ease-out);
+}
+
+.ui-disclosure[open] > summary .ui-disclosure-chevron {
+    transform: rotate(90deg);
+}
+
+/* ---------- 按钮与菜单：沿用全站的 chip-btn（描边胶囊）、icon-btn、media-menu ---------- */
+
+.media-menu .dropdown-item.is-danger {
+    color: var(--bs-danger-text-emphasis);
+}
+
+.media-menu .dropdown-item.is-danger:hover,
+.media-menu .dropdown-item.is-danger:focus-visible {
+    background-color: rgba(var(--bs-danger-rgb), 0.12);
+    color: var(--bs-danger-text-emphasis);
+}
+
+/* 实心主按钮的紧凑尺寸，与 chip-btn 同高 */
+.media-primary-action.is-compact {
+    --bs-btn-padding-y: 0;
+    --bs-btn-padding-x: 0.875rem;
+    --bs-btn-font-size: 0.8125rem;
+    --bs-btn-font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 2rem;
+    border-radius: var(--radius-pill);
+}
+
+.ui-actions,
+.drive-item-actions {
+    display: flex;
+    flex: 0 0 auto;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+
+/* ==========================================================================
    Settings（设置页）
    ========================================================================== */
 
@@ -4625,18 +4971,15 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
     align-items: center;
     gap: 8px;
     margin: 24px 0 0;
-    padding: 12px 16px;
-    border: 1px solid rgba(var(--bs-warning-rgb), 0.35);
-    border-radius: var(--radius-item);
-    background: rgba(var(--bs-warning-rgb), 0.08);
+    padding: 12px var(--ui-inset);
+    border-radius: var(--radius-panel);
+    background: rgba(var(--bs-warning-rgb), 0.1);
     font-size: 0.875rem;
     color: var(--bs-warning-text-emphasis);
 }
 
 .settings-section {
-    display: grid;
-    gap: 48px;
-    margin-top: 48px;
+    margin-top: 40px;
     padding-bottom: 96px; /* 给底部状态栏留位置 */
 }
 
@@ -4644,122 +4987,11 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
     display: none;
 }
 
-.drive-list {
-    gap: 48px;
-}
-
-.settings-group-head {
-    display: flex;
-    align-items: flex-start;
-    gap: 16px;
-    padding-bottom: 12px;
-}
-
-.settings-group-title {
-    margin: 0 0 4px;
-    font-size: 1.125rem;
-    font-weight: 700;
-    letter-spacing: -0.02em;
-}
-
-.settings-group-desc {
-    margin: 0;
-    font-size: 0.875rem;
-    line-height: 1.6;
-    color: var(--bs-secondary-color);
-}
-
-.settings-group-side {
-    display: flex;
-    flex: 0 0 auto;
-    align-items: center;
-    gap: 12px;
-    margin-left: auto;
-}
-
-.settings-status {
+.settings-header .segmented-control .btn {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
-    font-size: 0.8125rem;
-    color: var(--bs-secondary-color);
-    white-space: nowrap;
-}
-
-.settings-dot {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--bs-secondary-color);
-    opacity: 0.5;
-}
-
-.settings-status:not([data-state]) {
-    visibility: hidden;
-}
-
-.settings-status[data-state="ok"] .settings-dot { background: var(--bs-success); opacity: 1; }
-.settings-status[data-state="warn"] .settings-dot { background: var(--bs-warning); opacity: 1; }
-.settings-status[data-state="fail"] .settings-dot { background: var(--bs-danger); opacity: 1; }
-
-.settings-result {
-    margin-bottom: 12px;
-}
-
-.settings-body {
-    border-top: 1px solid var(--media-card-border);
-}
-
-.settings-body[hidden] {
-    display: none;
-}
-
-.settings-row {
-    position: relative;
-    display: grid;
-    grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
-    align-items: center;
-    gap: 8px 24px;
-    padding: 16px 0;
-    border-bottom: 1px solid var(--media-card-border);
-}
-
-.settings-row.is-switch {
-    grid-template-columns: minmax(0, 1fr) auto;
-}
-
-.settings-row.is-switch .settings-row-control {
-    display: flex;
-    justify-content: flex-end;
-}
-
-/* 有未保存修改的行：左侧一枚强调色小点 */
-.settings-row.is-dirty::before {
-    content: "";
-    position: absolute;
-    top: 50%;
-    left: -16px;
-    width: 6px;
-    height: 6px;
-    margin-top: -3px;
-    border-radius: 50%;
-    background: var(--media-accent);
-}
-
-.settings-row-label {
-    min-width: 0;
-}
-
-.settings-row-label label {
-    font-size: 0.9375rem;
-    font-weight: 500;
-}
-
-.settings-row-hint {
-    margin: 4px 0 0;
-    font-size: 0.8125rem;
-    line-height: 1.6;
-    color: var(--bs-secondary-color);
+    justify-content: center;
+    gap: 4px;
 }
 
 .settings-badge {
@@ -4767,23 +4999,16 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
     margin-left: 8px;
     padding: 0 8px;
     border-radius: var(--radius-pill);
-    background: var(--media-selected-bg);
+    background: var(--ui-fill);
     font-size: 0.75rem;
     line-height: 1.6;
+    font-weight: 400;
     color: var(--bs-secondary-color);
     vertical-align: 1px;
 }
 
-.settings-row-control {
-    min-width: 0;
-}
-
-.settings-row-control .form-control::placeholder {
-    color: var(--bs-secondary-color);
-    opacity: 0.6;
-}
-
 .settings-secret {
+    position: relative;
     display: flex;
     align-items: center;
 }
@@ -4848,44 +5073,9 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
     display: none;
 }
 
-.settings-advanced {
-    padding: 16px 0 0;
-}
-
-.settings-advanced[open] summary {
-    margin-bottom: 4px;
-}
-
-.settings-advanced > .settings-row:last-child {
-    border-bottom: 0;
-}
-
-/* 分区与分组图标：中性底的小方块，图标用强调色，只做导航提示，不抢标题 */
-.settings-header .segmented-control .btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 4px;
-}
-
-.settings-group-icon {
-    display: inline-flex;
-    flex: 0 0 auto;
-    align-items: center;
-    justify-content: center;
-    width: 32px;
-    height: 32px;
-    border-radius: var(--radius-thumb);
-    corner-shape: squircle;
-    background: rgba(var(--media-accent-rgb), 0.12);
-    font-size: 1rem;
-    color: var(--media-accent);
-}
-
 /* 数据：清除 */
-.settings-danger .settings-group-icon {
-    background: rgba(var(--bs-danger-rgb), 0.12);
-    color: var(--bs-danger-text-emphasis);
+.settings-reset-parts > .ui-row:first-child {
+    border-top: 0;
 }
 
 .settings-reset-part label {
@@ -4902,9 +5092,9 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
     display: flex;
     align-items: center;
     gap: 8px;
-    margin: 0;
+    margin: 0 var(--ui-inset);
     padding: 12px 0;
-    border-bottom: 1px solid var(--media-card-border);
+    border-top: 1px solid var(--ui-line);
     font-size: 0.8125rem;
     color: var(--bs-secondary-color);
 }
@@ -4919,7 +5109,9 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
     align-items: center;
     justify-content: flex-end;
     gap: 12px 16px;
-    padding-top: 16px;
+    margin: 0 var(--ui-inset);
+    padding: var(--ui-row-y) 0;
+    border-top: 1px solid var(--ui-line);
 }
 
 .settings-reset-actions .settings-result {
@@ -4933,7 +5125,153 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
     gap: 8px;
 }
 
+/* ==========================================================================
+   Drives（网盘页）
+   ========================================================================== */
+
+.drive-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 16px;
+    padding-inline: var(--ui-inset);
+}
+
+.drive-toolbar-meta {
+    font-size: 0.875rem;
+    color: var(--bs-secondary-color);
+}
+
+.drive-item {
+    margin: 0 var(--ui-inset);
+    padding: var(--ui-row-y) 0;
+    border-top: 1px solid var(--ui-line);
+}
+
+.ui-card > .drive-item:first-child {
+    border-top: 0;
+}
+
+.drive-item-main {
+    display: flex;
+    align-items: center;
+    gap: var(--ui-tile-gap);
+}
+
+.drive-item.is-disabled .ui-row-title,
+.drive-item.is-disabled .ui-tile {
+    opacity: 0.6;
+}
+
+/* 详情、检测结果与删除确认：从标题文字的对齐线开始 */
+.drive-item-extra {
+    padding-left: calc(var(--ui-tile) + var(--ui-tile-gap));
+}
+
+.drive-item-extra > :first-child {
+    margin-top: 8px;
+}
+
+.drive-item-extra .settings-result:not(:empty) {
+    margin-top: 8px;
+}
+
+.drive-item-detail {
+    overflow-wrap: anywhere;
+}
+
+.drive-item-detail[hidden] {
+    display: none;
+}
+
+.drive-confirm {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 12px;
+    margin-top: 12px;
+    padding: 12px 16px;
+    border-radius: var(--radius-item);
+    background: rgba(var(--bs-danger-rgb), 0.08);
+    font-size: 0.875rem;
+}
+
+.drive-confirm[hidden] {
+    display: none;
+}
+
+.drive-confirm-text {
+    flex: 1 1 14rem;
+    min-width: 0;
+}
+
+.drive-confirm-text small {
+    display: block;
+    color: var(--bs-secondary-color);
+}
+
+.drive-modal .modal-content {
+    border: 0;
+    border-radius: var(--radius-card);
+    background: var(--bs-body-bg);
+}
+
+/* 弹窗：卡片缩进 --ui-inset，标题与按钮再缩进一档，落在卡片内的标签线 B 与控件右缘 D 上 */
+.drive-modal {
+    --ui-modal-edge: calc(var(--ui-inset) * 2);
+}
+
+.drive-modal .modal-header {
+    gap: var(--ui-tile-gap);
+    padding: var(--ui-inset) var(--ui-modal-edge) 12px;
+    border: 0;
+}
+
+.drive-modal .modal-header .btn-close {
+    margin: 0 calc(var(--ui-inset) / -2) 0 auto;
+}
+
+.drive-modal .modal-body {
+    padding: 8px 0 var(--ui-inset);
+}
+
+.drive-modal .drive-form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin: 0 var(--ui-modal-edge);
+    padding-top: 16px;
+}
+
+.drive-modal [data-drive-result]:not(:empty) {
+    margin: 12px var(--ui-modal-edge) 0;
+}
+
+.drive-modal .ui-card {
+    margin: 0 var(--ui-inset);
+}
+
+/* 弹窗里的卡片更窄：标签 4 栏、控件 8 栏 */
+.drive-modal .ui-row-label { grid-column: span 4; }
+.drive-modal .ui-row-control { grid-column: span 8; }
+.drive-modal .ui-row.is-switch .ui-row-label { grid-column: span 9; }
+.drive-modal .ui-row.is-switch .ui-row-control { grid-column: span 3; }
+
+.drive-note {
+    margin: 0 var(--ui-inset);
+    padding: var(--ui-row-y) 0;
+    border-top: 1px solid var(--ui-line);
+    font-size: 0.8125rem;
+    color: var(--bs-secondary-color);
+}
+
 @media (max-width: 767.98px) {
+    :root {
+        --ui-inset: 16px;
+        --ui-group-gap: 32px;
+    }
+
     .settings-shell {
         padding-inline: 16px;
     }
@@ -4951,53 +5289,52 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
     }
 
     .settings-section {
-        gap: 40px;
         margin-top: 32px;
     }
 
-    .drive-list {
-        gap: 40px;
-    }
-
-    .settings-group-head {
+    .ui-group-head {
         flex-wrap: wrap;
     }
 
-    .settings-group-side {
-        width: 100%;
-        margin-left: 0;
+    /* 窄屏：状态与按钮换到标题下方，仍从标题文字的对齐线开始 */
+    .ui-group-side {
+        width: calc(100% - var(--ui-tile) - var(--ui-tile-gap));
+        margin-left: calc(var(--ui-tile) + var(--ui-tile-gap));
     }
 
-    .settings-status {
-        min-width: 0;
-        white-space: normal;
-        overflow-wrap: anywhere;
-    }
-
-    /* 有图标时标题不换到图标下方，状态与检测按钮对齐标题 */
-    .settings-group-icon + .min-w-0 {
-        flex-basis: calc(100% - 48px);
-    }
-
-    .settings-group-icon ~ .settings-group-side {
-        width: calc(100% - 48px);
-        margin-left: 48px;
-    }
-
-    .settings-group-side .chip-btn {
+    .ui-group-side > .btn {
         margin-left: auto;
     }
 
-    .settings-row {
-        grid-template-columns: minmax(0, 1fr);
+    .ui-row-label,
+    .ui-row-control,
+    .drive-modal .ui-row-label,
+    .drive-modal .ui-row-control {
+        grid-column: 1 / -1;
     }
 
-    .settings-row.is-switch {
-        grid-template-columns: minmax(0, 1fr) auto;
+    .ui-row.is-switch .ui-row-label,
+    .ui-row.is-action .ui-row-label {
+        grid-column: span 8;
     }
 
-    .settings-row.is-dirty::before {
-        left: -10px;
+    .ui-row.is-switch .ui-row-control,
+    .ui-row.is-action .ui-row-control {
+        grid-column: span 4;
+    }
+
+    .drive-item-main {
+        flex-wrap: wrap;
+    }
+
+    /* 窄屏：操作换到下一行，从标题文字的对齐线开始，菜单按钮推到右缘 */
+    .drive-item-main .drive-item-actions {
+        width: 100%;
+        padding-left: calc(var(--ui-tile) + var(--ui-tile-gap));
+    }
+
+    .drive-item-main .drive-item-actions .dropdown {
+        margin-left: auto;
     }
 }
 
@@ -5071,4 +5408,306 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
 .tmdb-credit img {
     flex: 0 0 auto;
     display: block;
+}
+
+/* ==========================================================================
+   Task drawer（任务详情抽屉）与关联队列
+   左对齐线：抽屉内边距 --ui-inset；海报、步骤条、卡片外缘、小节标题都从这里开始，
+   卡片里的行再缩进一档 —— 与设置页同一套规则。
+   ========================================================================== */
+
+.task-drawer {
+    --bs-offcanvas-width: min(28rem, 100vw);
+    --bs-offcanvas-bg: var(--bs-body-bg);
+    border-left: 0 !important;
+}
+
+.task-drawer-head {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    padding: var(--ui-inset) var(--ui-inset) 16px;
+}
+
+.task-drawer-head .btn-close {
+    flex: 0 0 auto;
+    margin-left: auto;
+}
+
+.task-drawer-poster {
+    position: relative;
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: 56px;
+    aspect-ratio: 2 / 3;
+    overflow: hidden;
+    border-radius: var(--radius-thumb);
+    background: var(--ui-fill);
+    color: var(--bs-secondary-color);
+}
+
+.task-drawer-poster[hidden] {
+    display: none;
+}
+
+.task-drawer-poster img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.task-drawer-title {
+    margin: 0;
+    font-size: 1.125rem;
+    font-weight: 600;
+    line-height: 1.35;
+}
+
+.task-drawer-pill {
+    margin-top: 10px;
+}
+
+.task-drawer-body {
+    padding: 0 var(--ui-inset) var(--ui-inset);
+}
+
+.task-drawer-foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px var(--ui-inset) var(--ui-inset);
+    border-top: 1px solid var(--ui-line);
+}
+
+.task-drawer-foot[hidden] {
+    display: none;
+}
+
+/* 四段进度：每段一条细条，标签与条左对齐 */
+.task-steps {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+    margin: 0 0 8px;
+    padding: 0;
+    list-style: none;
+}
+
+.task-step {
+    display: grid;
+    gap: 8px;
+    min-width: 0;
+    font-size: 0.75rem;
+    color: var(--bs-secondary-color);
+}
+
+.task-step-bar {
+    height: 4px;
+    border-radius: var(--radius-pill);
+    background: var(--ui-fill);
+}
+
+.task-step[data-state="done"] .task-step-bar { background: var(--bs-success); }
+.task-step[data-state="failed"] .task-step-bar { background: var(--bs-danger); }
+.task-step[data-state="active"] .task-step-bar {
+    background: linear-gradient(90deg, rgb(var(--hue-blue)) 0 40%, var(--ui-fill) 40% 100%);
+    background-size: 250% 100%;
+    animation: task-step-flow 1.4s linear infinite;
+}
+
+.task-step[data-state="active"],
+.task-step[data-state="failed"] {
+    color: var(--bs-body-color);
+    font-weight: 500;
+}
+
+.task-step-label {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0 4px;
+    line-height: 1.4;
+}
+
+.task-step-count {
+    font-weight: 400;
+    color: var(--bs-secondary-color);
+    font-variant-numeric: tabular-nums;
+}
+
+@keyframes task-step-flow {
+    from { background-position: 100% 0; }
+    to { background-position: 0 0; }
+}
+
+.task-section {
+    margin-top: 24px;
+}
+
+.task-section-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 8px;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--bs-secondary-color);
+}
+
+.task-section-count {
+    padding: 0 6px;
+    border-radius: var(--radius-pill);
+    background: var(--ui-fill);
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
+}
+
+.task-section-hint {
+    margin: -4px 0 8px;
+    font-size: 0.75rem;
+    color: var(--bs-secondary-color);
+}
+
+.task-rows {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.task-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    margin: 0 16px;
+    padding: 12px 0;
+    border-top: 1px solid var(--ui-line);
+}
+
+.task-row:first-child {
+    border-top: 0;
+}
+
+.task-row.is-compact {
+    align-items: center;
+    padding: 10px 0;
+}
+
+.task-row-text {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.task-row-title {
+    margin: 0;
+    overflow: hidden;
+    font-size: 0.875rem;
+    font-weight: 500;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.task-row-hint {
+    margin: 2px 0 0;
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    color: var(--bs-secondary-color);
+    overflow-wrap: anywhere;
+}
+
+.task-row-title + .task-row-hint {
+    margin-top: 2px;
+}
+
+.task-row-text > .task-row-hint:first-child {
+    margin-top: 0;
+}
+
+.task-row[data-state="failed"] .task-row-hint {
+    color: var(--bs-danger-text-emphasis);
+}
+
+.task-row-meta {
+    flex: 0 0 auto;
+    max-width: 60%;
+    font-size: 0.8125rem;
+    color: var(--bs-secondary-color);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.task-state-icon {
+    display: inline-flex;
+    flex: 0 0 auto;
+    padding-top: 2px;
+    color: var(--bs-secondary-color);
+}
+
+.task-row.is-compact .task-state-icon {
+    padding-top: 0;
+}
+
+.task-state-icon[data-state="done"] { color: var(--bs-success); }
+.task-state-icon[data-state="active"] { color: rgb(var(--hue-blue)); }
+.task-state-icon[data-state="failed"] { color: var(--bs-danger); }
+.task-state-icon[data-state="active"] .app-icon { animation: task-spin 1s linear infinite; }
+
+.task-note {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 16px 0 0;
+    padding: 10px 16px;
+    border-radius: var(--radius-item);
+    background: rgba(var(--bs-warning-rgb), 0.1);
+    font-size: 0.8125rem;
+    color: var(--bs-warning-text-emphasis);
+}
+
+/* 关联页顶部的队列：确认后立刻能看到提交去了哪里 */
+.association-queue {
+    margin-bottom: 24px;
+}
+
+.association-queue[hidden] {
+    display: none;
+}
+
+.association-queue-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin: 0 0 8px;
+    padding-inline: var(--ui-inset);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--bs-secondary-color);
+}
+
+.association-queue .task-row {
+    align-items: center;
+    margin: 0 var(--ui-inset);
+}
+
+.association-queue .task-row-meta {
+    max-width: none;
+}
+
+/* 提示条里的操作按钮 */
+.save-toast {
+    align-items: center;
+}
+
+.save-toast-action {
+    margin-left: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .task-step[data-state="active"] .task-step-bar,
+    .task-state-icon[data-state="active"] .app-icon {
+        animation: none;
+    }
 }

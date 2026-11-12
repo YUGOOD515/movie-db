@@ -125,6 +125,7 @@ class Section:
     description: str
     groups: tuple[Group, ...] = field(default_factory=tuple)
     icon: str = ""
+    hue: str = "gray"  # 分区色，只用于分组图标块（style.css 的 --hue-*）
 
 
 S = Setting
@@ -188,7 +189,7 @@ SECTIONS: tuple[Section, ...] = (
             S("MOVIEDB_ALLOWED_HOSTS", "允许访问的主机名", advanced=True, placeholder="library.example.com",
               hint="通过 Cloudflare Tunnel 等域名访问时填写，多个用逗号分隔；填写后其他主机名的请求一律拒绝。本机地址始终可用。"),
         ), icon="monitor"),
-    ), icon="plug"),
+    ), icon="plug", hue="blue"),
     Section("metadata", "元数据", "海报、简介、演员与评分", (
         Group("tmdb", "TMDB", "海报、简介、演员与季集", (
             S("TMDB_PROXY", "代理", "url", placeholder="http://127.0.0.1:7890", hint="只用于访问 TMDB。"),
@@ -214,7 +215,7 @@ SECTIONS: tuple[Section, ...] = (
             S("DOUBAN_ENABLED", "获取豆瓣评分", "bool", True,
               hint="使用豆瓣 App 的非官方接口，可能随时失效；请求过快时豆瓣会暂时拒绝访问，MovieDB 会自动暂停 30 分钟。"),
         ), icon="message-square-quote"),
-    ), icon="library"),
+    ), icon="library", hue="amber"),
     Section("ai", "AI", "识别文件名拿不准的影片", (
         Group("llm", "AI 识别", "文件名规则拿不准时，让大模型判断片名、年份和季集", (
             S("LLM_BASE_URL", "接口地址", "url", placeholder="https://…/v1"),
@@ -231,8 +232,8 @@ SECTIONS: tuple[Section, ...] = (
             S("LLM_CONCURRENCY", "同时请求数", "int", advanced=True, low=1, high=500, placeholder="自动",
               hint="留空时 DeepSeek 为 64，其他平台为 2；遇到限流会自动减半再逐步恢复。"),
         ), test="llm", icon="sparkles"),
-    ), icon="sparkles"),
-    Section("data", "数据", "清除本机数据，回到首次使用", icon="database"),
+    ), icon="sparkles", hue="violet"),
+    Section("data", "数据", "清除本机数据，回到首次使用", icon="database", hue="red"),
 )
 del S
 

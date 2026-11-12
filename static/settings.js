@@ -311,14 +311,14 @@
         const checked = new Set([...resetParts.querySelectorAll("input:checked")].map(input => input.value));
         const first = !resetParts.childElementCount;
         resetParts.replaceChildren(...data.parts.map(part => {
-            const row = el("div", "settings-row is-switch settings-reset-part");
-            const label = el("div", "settings-row-label");
+            const row = el("div", "ui-row is-switch settings-reset-part");
+            const label = el("div", "ui-row-label");
             const title = el("label", null);
             title.htmlFor = `reset-${part.id}`;
             title.append(icon(part.icon), el("span", null, part.label));
             const size = part.exists ? formatSize(part.size) : "";
-            label.append(title, el("p", "settings-row-hint", part.exists ? (size ? `${part.hint} · ${size}` : part.hint) : `${part.hint} · 暂无数据`));
-            const control = el("div", "settings-row-control");
+            label.append(title, el("p", "ui-row-hint", part.exists ? (size ? `${part.hint} · ${size}` : part.hint) : `${part.hint} · 暂无数据`));
+            const control = el("div", "ui-row-control");
             const check = el("div", "form-check m-0");
             const input = el("input", "form-check-input");
             Object.assign(input, { type: "checkbox", id: `reset-${part.id}`, value: part.id });

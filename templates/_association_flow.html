@@ -35,6 +35,11 @@
             </div>
             <a class="discovery-missing d-none" href="{{ url_for('media', tab='overview', health='missing') }}" data-discovery-missing>{{ ui_icon('triangle-alert', '') }}<span></span>{{ ui_icon('chevron-right', '') }}</a>
         </div>
+        {# 关联队列：确认后的作品立刻出现在这里，点“详情”打开任务抽屉 #}
+        <section class="association-queue" data-association-queue hidden aria-labelledby="association-queue-title">
+            <h3 class="association-queue-head" id="association-queue-title"><span>关联队列</span><span class="fw-normal" data-association-queue-summary></span></h3>
+            <ul class="ui-card task-rows" data-association-queue-list></ul>
+        </section>
         <div class="discovery-tabs d-flex flex-wrap gap-2 mb-3" role="tablist" aria-label="待关联分组" data-discovery-tabs></div>
         <div role="tabpanel" data-discovery-list></div>
         <div class="discovery-empty text-body-secondary d-none" data-discovery-empty role="status">

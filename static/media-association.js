@@ -79,7 +79,46 @@
         finally { jobLoading = false; }
     }
 
+    // ------------------------------------------------------------ 关联队列
+    // 进行中的关联，以及本页提交、已经结束的作品；提交后在汇总轮询到之前先显示占位。
+    const queue = $("[data-association-queue]");
+    const submitted = new Map();
+    let queueTasks = [];
+    const QUEUE_ICON = { running: "loader-circle", queued: "clock", waiting: "hourglass", complete: "circle-check", partial: "triangle-alert", failed: "circle-alert", cancelled: "ban" };
+    const QUEUE_STATE = { running: "active", queued: "pending", waiting: "pending", complete: "done", partial: "failed", failed: "failed", cancelled: "skipped" };
+    const QUEUE_TEXT = { queued: "排队中", waiting: "等待重试", complete: "已完成，可播放", partial: "已关联，部分资料未补齐", failed: "关联失败", cancelled: "已停止" };
+
+    function renderQueue() {
+        if (!queue) return;
+        const known = new Set(queueTasks.map(task => task.id));
+        const tasks = [
+            ...queueTasks.filter(task => task.kind === "import" && (window.TaskCenter?.active(task) || submitted.has(task.id))),
+            ...[...submitted.values()].filter(task => !known.has(task.id)),
+        ];
+        queue.hidden = !tasks.length;
+        const running = tasks.filter(task => ["running", "queued", "waiting"].includes(task.state)).length;
+        $("[data-association-queue-summary]").textContent = running ? `${running} 部进行中` : "全部结束";
+        $("[data-association-queue-list]").replaceChildren(...tasks.map(task => {
+            const row = el("li", "task-row");
+            const state = el("span", "task-state-icon");
+            state.dataset.state = QUEUE_STATE[task.state] || "pending";
+            state.append(icon(QUEUE_ICON[task.state] || "clock"));
+            const text = el("div", "task-row-text");
+            const caption = task.state === "running" ? (window.TaskCenter?.caption(task) || "关联中") : QUEUE_TEXT[task.state] || "";
+            text.append(el("p", "task-row-title", task.name), el("p", "task-row-hint", [caption, task.files ? `${task.files} 个视频` : ""].filter(Boolean).join(" · ")));
+            const open = el("button", "btn btn-sm chip-btn", "详情");
+            open.type = "button";
+            open.setAttribute("aria-label", `查看 ${task.name} 的关联详情`);
+            open.addEventListener("click", () => window.TaskCenter?.open(task.id));
+            row.append(state, text, open);
+            return row;
+        }));
+    }
+
     window.addEventListener('tasks:update', event => {
+        queueTasks = event.detail.tasks;
+        for (const task of queueTasks) if (submitted.has(task.id)) submitted.set(task.id, task);
+        renderQueue();
         const jobs = event.detail.tasks.flatMap(task => task.jobs || []);
         const known = jobs.filter(job => {const previous=importJobs.get(job.id);return previous && (previous.state!==job.state || previous.progress.core!==job.core || previous.error!==job.error);}).map(job => {
             const previous = importJobs.get(job.id);
@@ -94,6 +133,22 @@
         const data = await json(root.dataset.jobsUrl, { selections });
         updateJobs(data.jobs);
         window.TaskCenter?.watchJobs(data.jobs.map(job=>job.id));
+        // 确认后的反馈：队列里先放占位，提示条可直接打开任务详情
+        const groups = new Map();
+        for (const job of data.jobs) {
+            const group = groups.get(job.task_id) || { id: job.task_id, kind: "import", name: job.name || job.title_id, state: "queued", files: 0 };
+            group.files += job.total;
+            groups.set(job.task_id, group);
+        }
+        for (const group of groups.values()) if (!submitted.has(group.id)) submitted.set(group.id, group);
+        renderQueue();
+        const first = [...groups.values()][0];
+        if (first) {
+            const videos = [...groups.values()].reduce((sum, group) => sum + group.files, 0);
+            const titles = groups.size > 1 ? `${first.name} 等 ${groups.size} 部` : first.name;
+            window.showAppToast?.(`已加入关联队列 · ${titles} · ${videos} 个视频`, "success",
+                { label: "查看进度", run: () => window.TaskCenter?.open(first.id) });
+        }
     }
 
     function progressSpec(total) {

@@ -34,6 +34,14 @@ def public(row):
         connected = row["status"].startswith("已连接")
         result["status_state"] = "ok" if connected else "fail"
         result["status_text"] = "已连接" if connected else "检测失败"
+    # 网盘页展示：透传挂载 "*" 没有可读的名字，按用途命名；详情只在比状态标签多出信息时显示。
+    passthrough = row["mount"] == "*"
+    result["display_name"] = "默认（透传）" if passthrough else row["mount"]
+    result["scope"] = "未匹配挂载的路径都走这里" if passthrough else f"/{row['mount']}"
+    result["icon"] = "folder" if row["kind"] == "local" else "network"
+    status = (row["status"] or "").strip()
+    # 停用后旧的检测结果已不代表当前状态，不再显示
+    result["status_detail"] = status if row["enabled"] and status and status != result["status_text"] else ""
     return result
 
 

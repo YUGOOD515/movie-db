@@ -9,7 +9,7 @@
     const toggle = root.querySelector('[data-bs-toggle]');
     const clearButton = root.querySelector('[data-task-clear]');
     const dialog = document.querySelector('[data-task-dialog]');
-    const modal = bootstrap.Modal.getOrCreateInstance(dialog);
+    const drawer = bootstrap.Offcanvas.getOrCreateInstance(dialog);
     const dialogTitle = dialog.querySelector('[data-task-dialog-title]');
     const dialogStatus = dialog.querySelector('[data-task-dialog-status]');
     const dialogProgress = dialog.querySelector('[data-task-dialog-progress]');
@@ -18,6 +18,12 @@
     const dialogAction = dialog.querySelector('[data-task-dialog-action]');
     const dialogError = dialog.querySelector('[data-task-dialog-error]');
     const dialogClose = dialog.querySelector('[data-bs-dismiss]');
+    const dialogPill = dialog.querySelector('[data-task-pill]');
+    const dialogMeta = dialog.querySelector('[data-task-meta]');
+    const dialogPoster = dialog.querySelector('[data-task-poster]');
+    const openTitle = dialog.querySelector('[data-task-open-title]');
+    const details = new Map(), detailEtag = {};
+    let detailLoading = false, detailMissing = false;
     const rows = new Map(), local = new Map(), pending = new Set();
     const active = task => ['running', 'waiting', 'queued'].includes(task.state);
     const problem = task => ['failed', 'partial'].includes(task.state);
@@ -27,7 +33,8 @@
     let round = read('tasks-round'), state = {tasks: [], services: [], active: false};
     let etag = null, timer = null, inFlight = false, requested = false, stopped = false;
     let selectedId = null, detailSignature = null, returnToSidebar = false;
-    const labels = {metadata:'资料', probe:'探测', write:'入库', image:'补图', rating:'评分', derive:'预览',
+    // 与任务详情的步骤名一致（viewmodels/tasks.py）
+    const labels = {metadata:'核对资料', probe:'读取参数', write:'写入媒体库', image:'补海报', rating:'补评分', derive:'生成预览',
         enrich:'补齐资料', retry:'等待重试', queued:'排队', scan:'扫描', recognizing:'识别', complete:'完成', failed:'失败', partial:'需处理', cancelled:'已停止'};
     const el = (tag, className='', text='') => {
         const node = document.createElement(tag); node.className = className; node.textContent = text; return node;
@@ -149,76 +156,199 @@
         return row.node;
     }
 
+    const STATE_ICON = {done:'circle-check', active:'loader-circle', pending:'clock', failed:'circle-alert', skipped:'ban'};
+    const PILL = {running:'busy', waiting:'warn', queued:'warn', complete:'ok', partial:'warn', failed:'fail', cancelled:'off'};
+
+    function stateIcon(stateName) {
+        const node = el('span', 'task-state-icon'); node.dataset.state = stateName;
+        node.append(icon(STATE_ICON[stateName] || 'clock')); node.setAttribute('aria-hidden', 'true');
+        return node;
+    }
+
+    function section(title, count, hint) {
+        const node = el('section', 'task-section');
+        const head = el('h3', 'task-section-title', title);
+        if (count) head.append(el('span', 'task-section-count', String(count)));
+        node.append(head);
+        if (hint) node.append(el('p', 'task-section-hint', hint));
+        return node;
+    }
+
+    // 关联四步：一条分段进度，标签与分段左对齐
+    function renderSteps(steps) {
+        const list = el('ol', 'task-steps');
+        list.setAttribute('aria-label', '关联进度');
+        for (const step of steps) {
+            const item = el('li', 'task-step'); item.dataset.state = step.state;
+            const label = el('span', 'task-step-label', step.label);
+            if (step.count) label.append(el('span', 'task-step-count', step.count));
+            item.append(el('span', 'task-step-bar'), label);
+            item.setAttribute('aria-label', `${step.label}：${{done:'已完成', active:'进行中', failed:'失败', pending:'未开始'}[step.state] || ''}${step.count ? ` ${step.count}` : ''}`);
+            list.append(item);
+        }
+        return list;
+    }
+
+    function renderRows(items, render) {
+        const list = el('ul', 'ui-card task-rows');
+        for (const item of items) list.append(render(item));
+        return list;
+    }
+
+    function renderImport(task, detail) {
+        dialogBody.append(renderSteps(detail.steps));
+        const waits = Object.entries(task?.waits || {});
+        if (task?.retry_at && active(task) || waits.length) {
+            const note = el('p', 'task-note');
+            note.append(icon('hourglass'));
+            const text = el('span', '', waits.map(([service, wait]) => `${state.services.find(item => item.service === service)?.name || service} · ${wait.reason}`).join('；') || '等待重试');
+            note.append(text);
+            const until = task.retry_at || waits[0]?.[1].until;
+            if (until) note.append(countdown(until));
+            dialogBody.append(note);
+        }
+        const files = section('视频', detail.files.length);
+        files.append(renderRows(detail.files, file => {
+            const row = el('li', 'task-row'); row.dataset.state = file.state;
+            const text = el('div', 'task-row-text');
+            const name = el('p', 'task-row-title', file.position ? `${file.position} · ${file.name}` : file.name);
+            name.title = file.name;
+            text.append(name, el('p', 'task-row-hint', file.detail));
+            row.append(stateIcon(file.state), text);
+            return row;
+        }));
+        dialogBody.append(files);
+        if (detail.issues.length) {
+            const issues = section('需要处理');
+            issues.append(renderRows(detail.issues, issue => {
+                const row = el('li', 'task-row'); row.dataset.state = 'failed';
+                const text = el('div', 'task-row-text'); text.append(el('p', 'task-row-hint', issue));
+                row.append(stateIcon('failed'), text); return row;
+            }));
+            dialogBody.append(issues);
+        }
+        const enrich = section('之后补齐', '', '海报、评分与预览图在关联完成后继续获取，不影响播放。');
+        enrich.append(renderRows(detail.enrich, item => {
+            const row = el('li', 'task-row is-compact'); row.dataset.state = item.state;
+            const text = el('div', 'task-row-text'); text.append(el('p', 'task-row-title', item.label));
+            row.append(stateIcon(item.state), text, el('span', 'task-row-meta', item.text));
+            return row;
+        }));
+        dialogBody.append(enrich);
+    }
+
+    function renderGeneric(task) {
+        if (task.state === 'running' || task.state === 'complete') dialogProgress.append(progress(task));
+        const facts = [];
+        if (task.state !== 'running' && task.total > 0) facts.push(['已处理', countLabel(task)]);
+        if (task.current?.length) facts.push(['正在处理', task.current.join('、') + (task.current_more ? ` 等 ${task.current.length + task.current_more} 项` : '')]);
+        if (task.detail) facts.push(['当前详情', task.detail]);
+        if (task.attempts > 1) facts.push(['尝试次数', String(task.attempts)]);
+        if (facts.length) dialogBody.append(renderRows(facts, ([label, value]) => {
+            const row = el('li', 'task-row is-compact');
+            const text = el('div', 'task-row-text'); text.append(el('p', 'task-row-hint', label));
+            row.append(text, el('span', 'task-row-meta text-break', value)); return row;
+        }));
+        for (const [service, wait] of Object.entries(task.waits || {})) {
+            const name = state.services.find(item => item.service === service)?.name || service;
+            const line = el('p', 'task-note', `${name} · ${wait.reason} `);
+            if (wait.until) line.append(countdown(wait.until));
+            dialogBody.append(line);
+        }
+        const issues = (task.issues || []).filter(issue => issue.reason);
+        if (issues.length) {
+            const block = section('需要处理');
+            block.append(renderRows(issues, issue => {
+                const row = el('li', 'task-row'); row.dataset.state = 'failed';
+                const text = el('div', 'task-row-text'); text.append(el('p', 'task-row-hint', [issue.label, issue.service, issue.reason].filter(Boolean).join(' · ')));
+                row.append(stateIcon('failed'), text); return row;
+            }));
+            dialogBody.append(block);
+        }
+    }
+
+    function renderPoster(detail) {
+        const image = detail?.poster;
+        if (dialogPoster.dataset.src === (image || '')) return;
+        dialogPoster.dataset.src = image || '';
+        dialogPoster.replaceChildren(icon(detail?.media_type === 'series' ? 'tv' : 'film'));
+        if (image) {
+            const img = el('img'); img.alt = ''; img.decoding = 'async';
+            img.src = dialog.dataset.imageBase + image; img.addEventListener('error', () => img.remove());
+            dialogPoster.append(img);
+        }
+    }
+
     function renderDetails() {
         if (!selectedId) return;
         const task = selectedTask();
-        const signature = JSON.stringify([task, pending.has(selectedId)]);
+        const detail = details.get(selectedId);
+        const signature = JSON.stringify([task, detail, pending.has(selectedId)]);
         if (signature === detailSignature) return;
         detailSignature = signature;
         const actionFocused = document.activeElement === dialogAction;
         dialogBody.replaceChildren(); dialogProgress.replaceChildren();
-        dialogActions.hidden = !task || !actionType(task);
-        if (!task) {
-            dialogStatus.textContent = '任务已结束或已移除';
+        if (!task && !detail) {
+            dialogStatus.textContent = detailMissing ? '任务已结束或已移除' : '正在读取…';
+            dialogPill.dataset.state = 'off';
+            dialogActions.hidden = true;
             if (actionFocused) dialogClose.focus({preventScroll:true});
             return;
         }
-        dialogTitle.textContent = task.name;
-        dialogStatus.textContent = caption(task);
-        dialogStatus.className = `mb-2${problem(task) ? ' text-warning-emphasis' : ''}`;
-        if (task.retry_at && active(task)) { dialogStatus.append(' · ', countdown(task.retry_at)); }
-        if (task.state === 'running' || task.state === 'complete') dialogProgress.append(progress(task));
-        dialogProgress.hidden = !dialogProgress.childElementCount;
-        const facts = el('dl', 'row gy-2 mb-0');
-        const fact = (label, value) => { facts.append(el('dt', 'col-4 text-body-secondary fw-normal', label), el('dd', 'col-8 text-break mb-0', value)); };
-        if (task.files) fact('已关联', `${task.core}/${task.files}${task.core >= task.files ? '，可播放' : ''}`);
-        if (task.state !== 'running' && task.total > 0 && !task.files) fact('已处理', countLabel(task));
-        if (task.current?.length) fact('正在处理', task.current.join('、') + (task.current_more ? ` 等 ${task.current.length + task.current_more} 项` : ''));
-        if (task.detail) fact('当前详情', task.detail);
-        if (task.attempts > 1) fact('尝试次数', String(task.attempts));
-        if (facts.childElementCount) dialogBody.append(facts);
-        if (task.stages?.length) {
-            const stages = el('ul', 'list-unstyled border-top pt-3 mt-3 mb-0');
-            for (const stage of task.stages) {
-                const line = el('li', 'd-flex justify-content-between gap-3 py-1');
-                line.append(el('span', 'text-body-secondary', stage.name), el('span', 'text-end', `${stage.done}${stage.total ? `/${stage.total}` : ''}${stage.failed ? ` · ${stage.failed} 失败` : ''}`));
-                stages.append(line);
-            }
-            dialogBody.append(stages);
-        }
-        for (const [service, wait] of Object.entries(task.waits || {})) {
-            const name = state.services.find(item => item.service === service)?.name || service;
-            const line = el('p', 'text-warning-emphasis text-break mt-3 mb-0', `${name} · ${wait.reason} `);
-            if (wait.until) line.append(countdown(wait.until));
-            dialogBody.append(line);
-        }
-        for (const issue of task.issues || []) {
-            if (issue.reason) dialogBody.append(el('p', 'text-warning-emphasis text-break mt-3 mb-0', [issue.label, issue.service, issue.reason].filter(Boolean).join(' · ')));
-        }
-        dialogAction.textContent = task.actionLabel || (actionType(task) === 'cancel' ? '停止任务' : '重试');
-        dialogAction.disabled = pending.has(task.id);
-        if (actionFocused && dialogActions.hidden) dialogClose.focus({preventScroll:true});
+        dialogTitle.textContent = detail?.name || task.name;
+        dialogMeta.textContent = detail?.meta || (task ? {scan:'扫描媒体目录', rating:'刷新评分', local:'本页操作'}[task.kind] || '' : '');
+        dialogMeta.hidden = !dialogMeta.textContent;
+        dialogStatus.textContent = detail && (!task || !active(task)) ? detail.state_text : caption(task);
+        dialogPill.dataset.state = detail && (!task || !active(task)) ? detail.pill : PILL[task.state] || 'off';
+        renderPoster(detail);
+        dialogPoster.hidden = !(detail || task?.kind === 'import');
+        if (detail) renderImport(task, detail); else renderGeneric(task);
+        const type = task ? actionType(task) : null;
+        dialogAction.hidden = !type;
+        dialogAction.replaceChildren(el('span', '', task?.actionLabel || (type === 'cancel' ? '停止关联' : '重试')));
+        dialogAction.classList.toggle('media-primary-action', type === 'retry');
+        dialogAction.classList.toggle('chip-btn', type === 'cancel');
+        dialogAction.classList.toggle('text-danger', type === 'cancel');
+        dialogAction.disabled = !!task && pending.has(task.id);
+        openTitle.hidden = !detail?.title_url;
+        if (detail?.title_url) openTitle.href = detail.title_url;
+        dialogActions.hidden = dialogAction.hidden && openTitle.hidden;
+        if (actionFocused && dialogAction.hidden) dialogClose.focus({preventScroll:true});
+    }
+
+    // 只在抽屉打开、且是导入任务时读取详情（文件列表与探测结果不进侧栏轮询）
+    async function loadDetail() {
+        const id = selectedId;
+        if (!id || !id.startsWith('import:') || detailLoading) return;
+        detailLoading = true;
+        try {
+            const url = `${dialog.dataset.detailUrl}?${new URLSearchParams({id})}`;
+            const response = await fetch(url, {headers: detailEtag[id] ? {'If-None-Match': detailEtag[id]} : {}, cache:'no-cache'});
+            if (response.status === 404) { details.delete(id); detailMissing = true; }
+            else if (response.ok) { details.set(id, await response.json()); detailEtag[id] = response.headers.get('ETag'); detailMissing = false; }
+        } catch {}
+        finally { detailLoading = false; if (selectedId === id) renderDetails(); }
     }
 
     function showDetails(id) {
-        selectedId = id; detailSignature = null; dialogError.hidden = true;
-        renderDetails(); updateClocks();
+        selectedId = id; detailSignature = null; dialogError.hidden = true; detailMissing = false;
+        renderDetails(); updateClocks(); loadDetail();
         returnToSidebar = sidebar.classList.contains('show');
         // Bootstrap's two focus traps must not run at the same time.
         if (returnToSidebar) {
-            sidebar.addEventListener('hidden.bs.offcanvas', () => modal.show(), {once:true});
+            sidebar.addEventListener('hidden.bs.offcanvas', () => drawer.show(), {once:true});
             bootstrap.Offcanvas.getOrCreateInstance(sidebar).hide();
-        } else modal.show();
+        } else drawer.show();
     }
 
     dialogAction.addEventListener('click', () => {
         const task = selectedTask();
         if (task && actionType(task)) action(task, actionType(task));
     });
-    dialog.addEventListener('shown.bs.modal', refresh);
-    dialog.addEventListener('hidden.bs.modal', () => {
+    dialog.addEventListener('shown.bs.offcanvas', refresh);
+    dialog.addEventListener('hidden.bs.offcanvas', () => {
         const id = selectedId;
-        selectedId = null; detailSignature = null;
+        selectedId = null; detailSignature = null; details.delete(id);
         if (returnToSidebar) {
             sidebar.addEventListener('shown.bs.offcanvas', () => requestAnimationFrame(() => {
                 (rows.get(id)?.open || toggle).focus({preventScroll:true});
@@ -288,6 +418,7 @@
             if (response.status !== 304) {
                 if (!response.ok) throw new Error('任务状态暂不可用');
                 state=await response.json(); etag=response.headers.get('ETag'); notifications(state.tasks);render();
+                if (selectedId && dialog.classList.contains('show')) loadDetail();
                 window.dispatchEvent(new CustomEvent('tasks:update',{detail:state}));
             }
             root.removeAttribute('data-stale');
@@ -303,6 +434,7 @@
     let clock=setInterval(updateClocks,1000);
     window.TaskCenter = {
         refresh, has:key=>local.has(key), clear:key=>{local.delete(key);render();},
+        open:id=>showDetails(id), caption:task=>caption(task), active,
         watchJobs(ids) {round.jobs=[...new Set([...(round.jobs||[]),...ids])];round.active=true;save('tasks-round',round);refresh();},
         result(key,spec) {const previous=local.get(key);local.set(key,{id:key,kind:'local',name:spec.text,state:spec.tone==='danger'?'failed':spec.tone==='warning'?'partial':'complete',phase:'complete',issues:spec.detail?[{reason:spec.detail}]:[],localAction:spec.action?.run,actionLabel:spec.action?.label});if(!previous || previous.name!==spec.text)window.showAppToast?.(spec.text,spec.tone);render();return key;},
         progress(key,spec) {local.set(key,{id:key,kind:'local',name:spec.text,state:'running',phase:'',done:spec.done||0,total:spec.total||0,detail:spec.detail});render();return key;},

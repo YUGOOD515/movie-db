@@ -1,19 +1,23 @@
-<div class="modal fade" id="task-detail-modal" tabindex="-1" aria-labelledby="task-detail-title" data-task-dialog>
-    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">
-        <div class="modal-content">
-            <div class="modal-header align-items-start">
-                <h2 class="modal-title fs-5 text-break" id="task-detail-title" data-task-dialog-title>任务详情</h2>
-                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭任务详情"></button>
-            </div>
-            <div class="modal-body">
-                <p class="mb-2" data-task-dialog-status></p>
-                <div class="mb-3" data-task-dialog-progress></div>
-                <div class="small" data-task-dialog-body></div>
-                <p class="small text-danger mt-3 mb-0" role="alert" data-task-dialog-error hidden></p>
-            </div>
-            <div class="modal-footer" data-task-dialog-actions hidden>
-                <button type="button" class="btn btn-sm chip-btn" data-task-dialog-action></button>
-            </div>
+{% from "_ui.html" import icon %}
+{# 任务详情：右侧抽屉。导入任务显示关联四步、逐个文件与之后补齐的资料（viewmodels/tasks.py 整理），其余任务显示通用进度。 #}
+<aside class="offcanvas offcanvas-end task-drawer" tabindex="-1" id="task-detail-drawer" aria-labelledby="task-detail-title"
+       data-task-dialog data-detail-url="{{ url_for('background_task_detail') }}" data-image-base="{{ url_for('static', filename='') }}" data-hue="blue">
+    <header class="task-drawer-head">
+        <span class="task-drawer-poster" data-task-poster aria-hidden="true">{{ icon('film') }}</span>
+        <div class="ui-group-text">
+            <h2 class="task-drawer-title text-break" id="task-detail-title" data-task-dialog-title>任务详情</h2>
+            <p class="ui-group-desc" data-task-meta></p>
+            <span class="ui-pill task-drawer-pill" data-task-pill data-state="off"><span data-task-dialog-status></span></span>
         </div>
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="关闭任务详情"></button>
+    </header>
+    <div class="offcanvas-body task-drawer-body">
+        <div data-task-dialog-progress></div>
+        <div data-task-dialog-body></div>
+        <p class="small text-danger-emphasis mt-3 mb-0" role="alert" data-task-dialog-error hidden></p>
     </div>
-</div>
+    <footer class="task-drawer-foot" data-task-dialog-actions hidden>
+        <a class="btn btn-sm chip-btn" href="#" data-task-open-title hidden>{{ icon('external-link') }}<span>打开作品页</span></a>
+        <button type="button" class="btn btn-sm media-primary-action is-compact" data-task-dialog-action></button>
+    </footer>
+</aside>

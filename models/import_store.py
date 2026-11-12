@@ -42,7 +42,8 @@ def _public(row):
     return {"id": row["job_id"], "title_id": row["title_id"], "state": row["state"],
             "total": len(payload["items"]), "paths": [item["path"] for item in payload["items"]],
             "progress": json.loads(row["progress"]), "result": result, "error": row["error"],
-            "next_at": row["next_at"], "attempts": row["attempts"]}
+            "next_at": row["next_at"], "attempts": row["attempts"],
+            "task_id": f'import:{row["title_id"]}:{payload.get("batch") or row["created_at"]}', "name": payload.get("name")}
 
 
 def status(database, ids=None):

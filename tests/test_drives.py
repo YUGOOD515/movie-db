@@ -43,7 +43,7 @@ def test_local_drive_crud_page_and_json_are_safe(env):
     assert page.status_code == 200
     text = page.get_data(as_text=True)
     assert "本机目录" in text and "AList / OpenList（透传）" in text and "local" in text
-    assert "settings-row" in text and "settings-advanced" in text and "settings-status" in text
+    assert "ui-row" in text and "ui-disclosure" in text and "ui-pill" in text
     assert "data-drive-reveal" in text and "data-secret-textarea" in text and 'data-pick-path="folder"' in text
     kinds = ("local", "quark", "uc", "aliyun", "baidu", "pan123", "alist")
     positions = [text.index(f'<option value="{kind}">') for kind in kinds]
@@ -165,9 +165,9 @@ def test_media_source_fields_use_mount_path_guidance(env):
 
 def test_drive_editor_responsive_markup_and_script_contract(env):
     text = env["client"].get("/media?tab=drives", headers=HTML).get_data(as_text=True)
-    assert 'col-12 col-xl-5 order-2 order-xl-1' in text
-    assert 'col-12 col-xl-7 order-1 order-xl-2' in text
-    assert 'vstack drive-list' in text and 'data-drive-editor-icon' in text
+    assert 'col-12 col-xl-8 drive-list' in text and 'data-drive-modal' in text
+    assert 'data-drive-add' in text and 'data-drive-editor-icon' in text
+    assert '默认（透传）' in text or 'data-drive-card="*"' not in text
     script = (Path(movie_app.app.static_folder) / "drives.js").read_text(encoding="utf-8")
     assert "create: !editingMount && !setup" in script
     assert ': input.dataset.drivePlaceholder || ""' in script
