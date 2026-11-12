@@ -49,13 +49,12 @@
    Base & utilities
    ========================================================================== */
 
-/* 全局隐藏滚动条，保留滚动功能且不占用页面空间 */
+/* 全站不显示滚动条；滚轮、触控板、键盘与拖动照常滚动。 */
 * {
-    -ms-overflow-style: none;
     scrollbar-width: none;
 }
 
-::-webkit-scrollbar {
+*::-webkit-scrollbar {
     display: none;
 }
 
@@ -322,8 +321,7 @@ select {
     font-size: 0.875rem;
 }
 .media-version-label-col { width: 9rem; }
-.media-version-scroll { overflow-y: hidden; scrollbar-width: thin; scrollbar-color: var(--bs-border-color) transparent; }
-.media-version-scroll::-webkit-scrollbar { display: block; height: 6px; }
+.media-version-scroll { overflow-y: hidden; }
 .media-version-table > :not(caption) > * > * { padding: 0.85rem 1rem; overflow-wrap: anywhere; }
 .media-version-table thead th { vertical-align: top; }
 .media-version-name { overflow-wrap: anywhere; }
@@ -4025,10 +4023,6 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
 /* 选择作品：固定高度，搜索结果加载时弹窗不会上下跳动。 */
 #title-picker .modal-content {
     height: min(42rem, calc(100vh - 3.5rem));
-}
-
-#title-picker .modal-body {
-    scrollbar-gutter: stable;
 }
 
 @media (prefers-reduced-motion: reduce) {
