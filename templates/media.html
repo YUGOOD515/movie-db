@@ -69,8 +69,8 @@
 {% block main %}
     <div class="container-xl text-start"{% if not read_only %} data-rating-status-url="{{ url_for('manager_rating_refresh_status') }}"{% endif %}>
         <header class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-5">
-            <div class="d-flex align-items-center gap-3">
-                <h1 class="h3 mb-0">媒体资源管理</h1>
+            <div class="d-flex flex-wrap align-items-center gap-3">
+                <h1 class="h3 fw-bold mb-0 text-nowrap">媒体资源管理</h1>
                 <div class="segmented-control text-nowrap" role="group" aria-label="管理页面板块切换">
                     <a class="btn btn-sm{{ ' active' if active_tab == 'overview' }}" href="{{ url_for('media', tab='overview') }}"{% if active_tab == 'overview' %} aria-current="page"{% endif %}>
                         概览

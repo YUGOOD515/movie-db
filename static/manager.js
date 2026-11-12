@@ -42,7 +42,7 @@
                 (field) => {
                     const input = row?.querySelector(`[name="${field}"]`);
                     if (input) {
-                        input.value = item[field] ?? "";
+                        input.value = (field === "alist_url" ? item.path || item.alist_url : item[field]) ?? "";
                     }
                 },
             );

@@ -10,17 +10,24 @@ window.appIcon = (name, classes = '') => {
     function bindMediaFallback(root = document) {
         root.querySelectorAll("[data-media-image]:not([data-fallback-bound])").forEach((image) => {
             image.setAttribute("data-fallback-bound", "");
-            image.addEventListener("error", () => {
+            const failed = () => {
                 image.classList.add("d-none");
                 const fallback = image.parentElement?.querySelector(".image-fallback")
                     || image.closest(".detail-hero")?.querySelector(".detail-backdrop-fallback");
                 fallback?.classList.remove("d-none");
                 fallback?.classList.add("d-flex");
-            });
+            };
+            image.addEventListener("error", failed);
+            if (image.complete && !image.naturalWidth) failed();
         });
         root.querySelectorAll("[data-media-logo]:not([data-fallback-bound])").forEach((logo) => {
             logo.setAttribute("data-fallback-bound", "");
-            logo.addEventListener("error", () => logo.classList.add("d-none"));
+            const failed = () => {
+                logo.classList.add("d-none");
+                logo.parentElement?.querySelector("[data-logo-fallback]")?.classList.remove("visually-hidden");
+            };
+            logo.addEventListener("error", failed);
+            if (logo.complete && !logo.naturalWidth) failed();
         });
     }
 

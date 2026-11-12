@@ -691,7 +691,8 @@ class LibraryIntegrationTest(unittest.TestCase):
             as_text=True
         )
         self.assertIn('data-episode-hero="tt11599999"', rendered)
-        response = self.client.post("/title/tt6226232/resume")
+        with patch.object(movie_app, "build_title_viewmodel", side_effect=AssertionError("Playback must not build a page")):
+            response = self.client.post("/title/tt6226232/resume")
         self.assertEqual(response.status_code, 307)
         self.assertTrue(response.headers["Location"].endswith("/play/15"))
 

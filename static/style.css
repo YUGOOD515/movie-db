@@ -1024,6 +1024,13 @@ select {
     filter: drop-shadow(0 0.25rem 0.75rem rgba(0, 0, 0, 0.48));
 }
 
+/* A subtle backing keeps transparent light logos readable on pale artwork. */
+[data-bs-theme="light"] .detail-logo {
+    background: radial-gradient(ellipse, rgba(33, 37, 41, 0.55), transparent 72%);
+    padding: 0.5rem;
+    border-radius: var(--radius-item);
+}
+
 .detail-action-row {
     --btn-unit-height: calc(var(--grid-col) / 2);
     height: var(--btn-unit-height);
@@ -1093,43 +1100,13 @@ select {
     max-width: 100%;
 }
 
-.detail-overview {
+.detail-overview.is-clamped {
     display: -webkit-box;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
     line-clamp: 2;
     overflow: hidden;
     word-break: break-word;
-}
-
-/* Transparent shield appended to <body> while an overview is expanded, so it
-   sits in the root stacking context and swallows every stray click. */
-.detail-overview-shield {
-    position: fixed;
-    inset: 0;
-    z-index: 1040;
-}
-
-body.detail-overview-open [data-episode-target] {
-    pointer-events: none;
-}
-
-/* The expanded overview overlays following content instead of pushing it. */
-.detail-overview-expanded {
-    position: absolute;
-    top: -0.75rem;
-    left: -1rem;
-    right: -1rem;
-    z-index: 20;
-    padding: 0.75rem 1rem 0.5rem;
-    background-color: var(--bs-body-bg);
-    box-shadow: 0 0.75rem 2rem rgba(0, 0, 0, 0.45);
-}
-
-.detail-overview .detail-overview-more {
-    display: inline;
-    margin-left: 0.25em;
-    white-space: nowrap;
 }
 
 .detail-overview-more:hover {

@@ -56,7 +56,7 @@
                                 <p class="home-hero-eyebrow small text-uppercase fw-semibold mb-3">最新入库 · {{ item.type_label }}</p>
                                 {% if item.logo %}
                                     <img class="home-hero-logo mb-3" src="{{ url_for('static', filename=item.logo|card_image) }}" alt="{{ item.title }}" width="320" height="120" data-media-logo data-transition-logo>
-                                    <h2 class="visually-hidden">{{ item.title }}</h2>
+                                    <h2 class="home-hero-title display-5 fw-bold lh-1 mb-3 visually-hidden" data-logo-fallback>{{ item.title }}</h2>
                                 {% else %}
                                     <h2 class="home-hero-title display-5 fw-bold lh-1 mb-3">{{ item.title }}</h2>
                                 {% endif %}

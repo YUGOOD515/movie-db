@@ -1,112 +1,35 @@
 // Detail page: clamped overviews and the series episode browser.
 (() => {
-    // Detail overview: CSS line-clamp holds 2 lines on first paint; JS then
-    // trims the text so the inline "...更多" toggle lands exactly at the end
-    // of the second line, right after the last visible character.
-    function initOverviewClamp(overviewWrap) {
-        const overviewEl = overviewWrap.querySelector("[data-detail-overview]");
-        const textEl = overviewWrap.querySelector("[data-detail-overview-text]");
-        const overviewToggle = overviewWrap.querySelector("[data-detail-overview-toggle]");
-        if (!overviewEl || !textEl || !overviewToggle) {
-            return;
-        }
-
-        const expandedPanel = overviewWrap.querySelector(
-            "[data-detail-overview-expanded]",
-        );
-        const collapseToggle = overviewWrap.querySelector(
-            "[data-detail-overview-collapse]",
-        );
-        const fullText = (
-            textEl.dataset.fullText || textEl.textContent
-        ).trim();
-
-        // Shield lives directly under <body>: fixed positioning then maps to
-        // the viewport and the z-index compares in the root stacking context,
-        // immune to any ancestor containment/stacking-context traps.
-        let shieldEl = document.querySelector(".detail-overview-shield");
-
-        function setExpanded(expanded) {
-            if (expandedPanel) {
-                expandedPanel.hidden = !expanded;
+    // Keep one copy of the synopsis; CSS clips it and expansion stays in the page flow.
+    let overviewId = 0;
+    function initOverviewClamp(wrap) {
+        const text = wrap.querySelector("[data-detail-overview]");
+        const toggle = wrap.querySelector("[data-detail-overview-toggle]");
+        if (!text || !toggle) return;
+        text.id = `detail-overview-${++overviewId}`;
+        toggle.setAttribute("aria-controls", text.id);
+        let expanded = false;
+        const update = () => {
+            if (!text.clientHeight) return;
+            toggle.hidden = !expanded && text.scrollHeight <= text.clientHeight + 1;
+        };
+        const setExpanded = value => {
+            expanded = value;
+            text.classList.toggle("is-clamped", !value);
+            toggle.setAttribute("aria-expanded", String(value));
+            toggle.textContent = value ? "收起简介" : "展开简介";
+            update();
+        };
+        toggle.addEventListener("click", () => setExpanded(!expanded));
+        wrap.addEventListener("keydown", event => {
+            if (event.key === "Escape" && expanded) {
+                event.preventDefault();
+                setExpanded(false);
+                toggle.focus();
             }
-            document.body.classList.toggle(
-                "detail-overview-open",
-                expanded,
-            );
-            if (expanded) {
-                if (!shieldEl) {
-                    shieldEl = document.createElement("div");
-                    shieldEl.className = "detail-overview-shield";
-                    shieldEl.addEventListener("click", () => setExpanded(false));
-                    document.body.appendChild(shieldEl);
-                }
-                shieldEl.hidden = false;
-            } else if (shieldEl) {
-                shieldEl.hidden = true;
-            }
-            overviewToggle.setAttribute("aria-expanded", String(expanded));
-        }
-
-        function updateClamp() {
-            if (overviewWrap.offsetParent === null) {
-                return;
-            }
-
-            const computed = window.getComputedStyle(overviewEl);
-            let lineHeight = parseFloat(computed.lineHeight);
-            if (isNaN(lineHeight) || lineHeight <= 0) {
-                lineHeight = parseFloat(computed.fontSize) * 1.5;
-            }
-            const maxHeight = lineHeight * 2 + 2;
-
-            // Release the clamp to measure real content height (clamped
-            // lines are not laid out, so scrollHeight would lie otherwise).
-            overviewEl.style.webkitLineClamp = "unset";
-            overviewEl.style.lineClamp = "unset";
-
-            try {
-                textEl.textContent = fullText;
-                if (overviewEl.scrollHeight <= maxHeight) {
-                    overviewToggle.classList.add("d-none");
-                    return;
-                }
-
-                overviewToggle.classList.remove("d-none");
-                let low = 0;
-                let high = fullText.length;
-                let best = 0;
-                while (low <= high) {
-                    const mid = Math.floor((low + high) / 2);
-                    textEl.textContent = fullText.slice(0, mid);
-                    if (overviewEl.scrollHeight <= maxHeight) {
-                        best = mid;
-                        low = mid + 1;
-                    } else {
-                        high = mid - 1;
-                    }
-                }
-                textEl.textContent = fullText.slice(0, best);
-            } finally {
-                overviewEl.style.webkitLineClamp = "";
-                overviewEl.style.lineClamp = "";
-            }
-        }
-
-        overviewToggle.addEventListener("click", () => {
-            setExpanded(true);
         });
-        collapseToggle?.addEventListener("click", (event) => {
-            event.stopPropagation();
-            setExpanded(false);
-        });
-
-        updateClamp();
-        window.addEventListener("resize", updateClamp);
-        overviewWrap.closest("[data-episode-hero]")?.addEventListener(
-            "detail:shown",
-            () => window.requestAnimationFrame(updateClamp),
-        );
+        setExpanded(false);
+        new ResizeObserver(update).observe(text);
     }
 
     document.querySelectorAll("[data-detail-overview-wrap]").forEach(initOverviewClamp);

@@ -96,6 +96,52 @@ class ImportJobsTest(unittest.TestCase):
         with closing(self.connect()) as db:
             self.assertEqual(db.execute("SELECT COUNT(*) FROM media_file WHERE alist_path = ?", (path,)).fetchone()[0], 1)
 
+    def test_completed_job_can_be_submitted_after_deleting_the_title(self):
+        path = "/share/reimport.mkv"
+        self.seed([path])
+        selection = self.selection([path])
+        first = self.submit([selection])[0]
+        self.assertEqual(self.finished([first["id"]])[0]["state"], "complete")
+        import_jobs.stop(self.database_path)
+        # An intact completion must still deduplicate repeat clicks.
+        with patch.object(media_probe, "probe_video") as probe:
+            repeated = self.submit([selection])[0]
+            self.assertEqual(repeated["state"], "complete")
+            probe.assert_not_called()
+        import_jobs.stop(self.database_path)
+        preview = self.client.get("/title/tt9000001/deletion").json
+        removed = self.client.post("/title/tt9000001/deletion", json={"token": preview["token"]})
+        self.assertEqual(removed.status_code, 200)
+        self.seed([path])
+        with patch.object(import_jobs, "start"):
+            queued = self.submit([selection])[0]
+        self.assertEqual(queued["state"], "queued")
+        self.assertEqual(queued["progress"], {})
+        self.assertIsNone(queued["result"])
+        import_jobs.start(self.database_path)
+        self.assertEqual(self.finished([queued["id"]])[0]["state"], "complete")
+        with closing(self.connect()) as db:
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM media_file WHERE alist_path = ?", (path,)).fetchone()[0], 1)
+
+    def test_completed_job_checks_library_after_snapshot_restore(self):
+        path = "/share/restored.mkv"
+        self.seed([path])
+        selection = self.selection([path])
+        first = self.submit([selection])[0]
+        self.assertEqual(self.finished([first["id"]])[0]["state"], "complete")
+        import_jobs.stop(self.database_path)
+        # Simulate library.db rolling back while local.db keeps the completed job.
+        with closing(self.connect()) as db, db:
+            db.execute("DELETE FROM title_basic WHERE title_id = 'tt9000001'")
+        self.seed([path])
+        with patch.object(import_jobs, "start"):
+            queued = self.submit([selection])[0]
+        self.assertEqual(queued["state"], "queued")
+        import_jobs.start(self.database_path)
+        self.assertEqual(self.finished([queued["id"]])[0]["state"], "complete")
+        with closing(self.connect()) as db:
+            self.assertIsNotNone(db.execute("SELECT 1 FROM media_file WHERE alist_path = ?", (path,)).fetchone())
+
     def test_core_commits_while_images_and_ratings_are_still_running(self):
         path = "/share/movie.mkv"
         self.seed([path])

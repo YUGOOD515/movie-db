@@ -383,6 +383,32 @@ def test_llm_check_deepseek_uses_responses_without_thinking(setup_env):
     assert not result["ok"] and "余额不足" in result["message"]
 
 
+@pytest.mark.parametrize("api,thinking,endpoint,effort", [
+    ("responses", "high", "/responses", "high"),
+    ("", "", "/responses", "none"),
+    ("chat", "", "/chat/completions", "none"),
+])
+def test_llm_check_uses_unsaved_protocol_and_thinking(setup_env, monkeypatch, api, thinking, endpoint, effort):
+    monkeypatch.setenv("LLM_API", "chat" if api != "chat" else "responses")
+    monkeypatch.setenv("LLM_THINKING", "max")
+    form = {"LLM_BASE_URL": "https://api.deepseek.com", "LLM_API_KEY": "k",
+            "LLM_MODEL": "test", "LLM_API": api, "LLM_THINKING": thinking}
+    answer = {"output_text": '{"ok": true}', "choices": [{"message": {"content": '{"ok": true}'}}]}
+    with patch.object(requests, "get", return_value=_response(200, {"data": []})), \
+         patch.object(requests, "post", return_value=_response(200, answer)) as post:
+        result = setup_wizard.test_llm(form)
+    assert result["ok"]
+    assert post.call_args.args[0].endswith(endpoint)
+    body = post.call_args.kwargs["json"]
+    if endpoint == "/responses":
+        assert body["reasoning"]["effort"] == effort
+        if effort != "none":
+            assert "max_output_tokens" not in body
+    else:
+        assert body["thinking"] == {"type": "disabled"}
+    assert os.environ["LLM_THINKING"] == "max"
+
+
 def test_unknown_test_service(setup_env):
     response = setup_env["client"].post("/setup/test/nope", json={}, headers=SAME_ORIGIN)
     assert response.get_json() == {"ok": False, "message": "未知的测试项。"}

@@ -9,6 +9,8 @@ from contextlib import closing
 from pathlib import Path
 
 from models import local_store as store
+from models.database import connect_database
+from queries.association import get_file_targets
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS import_job (
@@ -96,6 +98,20 @@ def _checkpoint(database, job_id, owner, path, probe):
             db.execute("UPDATE import_job SET probes = ? WHERE job_id = ?", (json.dumps(probes), job_id))
 
 
+def _still_associated(database, payload):
+    with closing(connect_database(database)) as db:
+        linked = get_file_targets(db, (item["path"] for item in payload["items"]))
+    for item in payload["items"]:
+        target = linked.get(item["path"])
+        if not target or not (target["title_id"] == payload["title_id"] or (
+            target["series_id"] == payload["title_id"]
+            and str(target["season_number"]) == str(item["season_number"])
+            and str(target["episode_number"]) == str(item["episode_number"])
+        )):
+            return False
+    return True
+
+
 def enqueue(database, image_root, groups, scan):
     library = str(Path(database).resolve())
     image_root = str(Path(image_root).resolve())
@@ -129,8 +145,12 @@ def enqueue(database, image_root, groups, scan):
                 existing = db.execute("SELECT * FROM import_job WHERE request_key = ?", (key,)).fetchone()
                 if existing:
                     ids.append(existing["job_id"])
-                    if existing["state"] in ("failed", "cancelled"):
-                        db.execute("UPDATE import_job SET state = 'queued', attempts = 0, error = '', next_at = 0 WHERE job_id = ?", (existing["job_id"],))
+                    stale = existing["state"] == "complete" and not _still_associated(database, payload)
+                    if existing["state"] in ("failed", "cancelled") or stale:
+                        db.execute("""UPDATE import_job
+                            SET state = 'queued', attempts = 0, error = '', next_at = 0,
+                                result = NULL, progress = '{}', payload = ?, updated_at = ?
+                            WHERE job_id = ?""", (json.dumps(payload, ensure_ascii=False), now, existing["job_id"]))
                     else:
                         continue
                     job_id = existing["job_id"]
@@ -150,7 +170,10 @@ def enqueue(database, image_root, groups, scan):
 def cancel_title(database, title_id):
     """Called under the publication lock before deleting a work."""
     with closing(_connect(database)) as db, db:
-        db.execute("UPDATE import_job SET state = 'cancelled', owner = '', error = '作品已删除，关联任务已取消。' WHERE library_path = ? AND title_id = ? AND state IN ('queued', 'running')", (str(Path(database).resolve()), title_id))
+        db.execute("""UPDATE import_job
+            SET state = 'cancelled', owner = '', result = NULL, progress = '{}',
+                error = '作品已删除，关联任务已取消。', updated_at = ?
+            WHERE library_path = ? AND title_id = ?""", (time.time(), str(Path(database).resolve()), title_id))
         db.execute("DELETE FROM import_reservation WHERE job_id IN (SELECT job_id FROM import_job WHERE state = 'cancelled')")
 
 

@@ -268,6 +268,15 @@ def poster(size: str, name: str) -> tuple[bytes, str] | None:
 
 
 def test_llm(form: dict) -> dict:
+    from services.settings import FIELDS
+
+    options = {}
+    for name, argument in (("LLM_API", "api"), ("LLM_THINKING", "thinking")):
+        if name in form:
+            try:
+                options[argument] = FIELDS[name].clean(form[name]) or ""
+            except ValueError as error:
+                raise SetupError(str(error)) from error
     base = _field(form, "LLM_BASE_URL")
     key, model = _field(form, "LLM_API_KEY"), _field(form, "LLM_MODEL")
     if not base:
@@ -292,7 +301,7 @@ def test_llm(form: dict) -> dict:
             warnings.append(f"模型列表里没有“{model}”，请核对名称（区分大小写）。")
     # 真实发一次极小的 JSON 请求：能发现余额不足、模型名错误、不支持 JSON 模式等问题。
     try:
-        result = llm.probe(base, key, model)
+        result = llm.probe(base, key, model, **options)
     except llm.LlmError as error:
         return {"ok": False, "message": str(error), "warnings": warnings}
     except requests.RequestException as error:
@@ -303,7 +312,8 @@ def test_llm(form: dict) -> dict:
     details.append(f"{'Responses API' if result['api'] == 'responses' else 'Chat Completions'} · "
                    f"{result['elapsed']:g} 秒")
     if result["provider"] == "deepseek":
-        details.append("已关闭思考模式，按并发限流")
+        details.append("已关闭思考模式，按并发限流" if result["thinking"] == "none"
+                       else f"思考模式：{result['thinking']}，按并发限流")
     return {"ok": True, "message": "已连接", "details": details, "warnings": warnings}
 
 

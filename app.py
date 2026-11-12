@@ -36,9 +36,11 @@ from queries.home import (
 from queries.manager import get_media_paths, get_rating_title_ids, query_manager
 from queries.title import (
     get_playable_file,
+    get_title,
+    get_series_episode_rows,
     query_title,
 )
-from services.playback import is_effectively_completed
+from services.playback import is_effectively_completed, series_resume_source
 from services.image_tones import load_tones
 from services.thumbnails import get_card_image_path
 from viewmodels.catalog import (
@@ -587,12 +589,10 @@ def episode_panel(title_id: str):
 
 @app.post("/title/<title_id>/resume")
 def resume_title(title_id: str):
-    raw = query_title(get_db(), title_id)
-    if raw is None or raw["root"]["title_type"] != "series":
+    title = get_title(get_db(), title_id)
+    if title is None or title["title_type"] != "series":
         abort(404)
-    media = build_title_viewmodel(raw, select_resume=True)
-    episode = media.get("selected_episode")
-    source = episode.get("featured_source") if episode else None
+    source = series_resume_source(get_series_episode_rows(get_db(), title_id))
     if not source:
         abort(404)
     return redirect(

@@ -260,18 +260,21 @@ def complete_json(system: str, user: str, *, max_tokens: int | None = None, usag
     return parse_json(text)
 
 
-def probe(base_url: str, api_key: str, model: str) -> dict:
+def probe(base_url: str, api_key: str, model: str, *, api: str | None = None,
+          thinking: str | None = None) -> dict:
     """设置页“测试连接”：用表单里的值真实发一次极小的 JSON 请求（不经限速队列）。
 
     返回 {"api", "provider", "elapsed", "usage"}；失败抛 LlmError / requests.RequestException / ValueError。
     """
     import time
 
-    settings = {**_settings({"LLM_BASE_URL": base_url, "LLM_API_KEY": api_key, "LLM_MODEL": model}), "probe": True}
+    settings = {**_settings({"LLM_BASE_URL": base_url, "LLM_API_KEY": api_key, "LLM_MODEL": model,
+                            "LLM_API": api, "LLM_THINKING": thinking}), "probe": True}
     usage: dict = {}
     started = time.monotonic()
-    limit = 50 if settings["provider"] == "deepseek" else None  # 其它平台可能默认开启思考，不设上限以免截断
+    limit = 50 if settings["provider"] == "deepseek" and settings["thinking"] == "none" else None
     text = _send(settings, '只输出 JSON，例如 {"ok": true}。', '测试连接，请回复 json：{"ok": true}', limit, usage)
     answer = parse_json(text)
-    return {"api": settings["api"], "provider": settings["provider"], "ok": answer.get("ok") is True,
+    return {"api": settings["api"], "provider": settings["provider"], "thinking": settings["thinking"],
+            "ok": answer.get("ok") is True,
             "elapsed": round(time.monotonic() - started, 1), "usage": usage}

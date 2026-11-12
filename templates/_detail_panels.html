@@ -52,14 +52,9 @@
 
 {% macro overview_block(text) %}
     <div class="detail-overview-wrapper mb-0" data-detail-overview-wrap>
-        <p class="detail-overview lh-lg mb-0" data-detail-overview><span data-detail-overview-text data-full-text="{{ text or '' }}">{{ text or "暂无简介。" }}</span>{% if text %}<button type="button" class="btn btn-link p-0 text-decoration-none small text-body-secondary fw-semibold detail-overview-more d-none" data-detail-overview-toggle aria-expanded="false">...更多</button>{% endif %}</p>
+        <p class="detail-overview lh-lg mb-0" data-detail-overview>{{ text or "暂无简介。" }}</p>
         {% if text %}
-            <div class="detail-overview-expanded squircle-card" data-detail-overview-expanded hidden>
-                <p class="lh-lg mb-2">{{ text }}</p>
-                <div class="d-flex justify-content-end">
-                    <button type="button" class="btn btn-link p-0 text-decoration-none small text-body-secondary fw-semibold detail-overview-more" data-detail-overview-collapse>收起</button>
-                </div>
-            </div>
+            <button type="button" class="btn btn-link p-0 mt-1 text-decoration-none small text-body-secondary fw-semibold detail-overview-more" data-detail-overview-toggle aria-expanded="false" hidden>展开简介</button>
         {% endif %}
     </div>
 {% endmacro %}

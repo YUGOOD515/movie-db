@@ -65,7 +65,8 @@ def submit(database, image_root, selections):
             group["items"].append({"path": path, "season_number": item.get("season_number"), "episode_number": item.get("episode_number")})
             group["versions"][path] = _signature(discovered[path])
 
-    ids = job_store.enqueue(database, image_root, groups, scan)
+    with runtime.write_lock:
+        ids = job_store.enqueue(database, image_root, groups, scan)
     start(database, wake=True)
     return status(database, ids)
 
