@@ -1,8 +1,10 @@
 import json
 import os
-import subprocess
 import re
+import shutil
+import subprocess
 from fractions import Fraction
+from pathlib import Path
 
 
 class ProbeError(ValueError):
@@ -48,9 +50,31 @@ def _probe_dynamic_range(video_stream: dict):
     return None
 
 
+def candidates() -> list[str]:
+    """按优先级列出 ffprobe：设置里的路径 → 安装包自带 → 系统 PATH。"""
+    from services import paths
+
+    configured = os.environ.get("FFPROBE_PATH", "").strip()
+    found = [configured] if configured and configured != "ffprobe" else []
+    if paths.BUNDLED_FFPROBE.is_file():
+        found.append(str(paths.BUNDLED_FFPROBE))
+    system = shutil.which("ffprobe")
+    if system:
+        found.append(system)
+    return found
+
+
+def executable() -> str:
+    """第一个真实存在的 ffprobe；设置里的路径无效时退回自带或 PATH 中的版本（与设置页状态一致）。"""
+    for candidate in candidates():
+        if shutil.which(candidate) or Path(candidate).is_file():
+            return candidate
+    return os.environ.get("FFPROBE_PATH", "").strip() or "ffprobe"
+
+
 def probe_video(video_url: str) -> dict:
     command = [
-        os.environ.get("FFPROBE_PATH", "ffprobe"),
+        executable(),
         "-v",
         "error",
         "-show_format",

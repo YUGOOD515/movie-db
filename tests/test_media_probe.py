@@ -26,3 +26,26 @@ def test_local_probe_does_not_pass_http_options(monkeypatch):
 
     monkeypatch.setattr(media_probe.subprocess, "run", run)
     media_probe.probe_video("C:/Movies/a.mkv")
+
+
+def test_invalid_configured_path_falls_back_to_system_ffprobe(monkeypatch, tmp_path):
+    # 浏览器曾把用户名自动填进 FFPROBE_PATH；设置页显示“已就绪”，导入也必须能用同一个 ffprobe。
+    system = tmp_path / "ffprobe.exe"
+    system.write_bytes(b"")
+    monkeypatch.setenv("FFPROBE_PATH", "admin")
+    monkeypatch.setattr(media_probe.shutil, "which", lambda name: str(system) if name in ("ffprobe", str(system)) else None)
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append(command)
+        return SimpleNamespace(returncode=0, stdout="{}")
+
+    monkeypatch.setattr(media_probe.subprocess, "run", run)
+    media_probe.probe_video("C:/Movies/a.mkv")
+    assert calls[0][0] == str(system)
+
+
+def test_missing_ffprobe_still_reports_configured_path(monkeypatch):
+    monkeypatch.setenv("FFPROBE_PATH", "admin")
+    monkeypatch.setattr(media_probe.shutil, "which", lambda name: None)
+    assert media_probe.executable() == "admin"

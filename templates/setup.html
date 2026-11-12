@@ -6,7 +6,7 @@
 {% block title %}: 欢迎{% endblock %}
 {% block main_class %}onboard-main{% endblock %}
 
-{% macro secret(name, label, autocomplete="off") %}
+{% macro secret(name, label, autocomplete="new-password") %}
     <div class="onboard-secret">
         <input class="form-control" id="ob-{{ name }}" name="{{ name }}" type="password" autocomplete="{{ autocomplete }}" spellcheck="false" placeholder="{{ label }}" aria-label="{{ label }}" data-secret>
         <button class="onboard-reveal" type="button" data-reveal aria-label="显示{{ label }}" aria-pressed="false" title="显示">{{ ui_icon('eye', '') }}</button>

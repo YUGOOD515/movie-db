@@ -15,7 +15,7 @@
         </select>
     {% elif item.secret %}
         <div class="settings-secret">
-            <input class="form-control" id="{{ id }}" name="{{ item.name }}" type="password" autocomplete="off" spellcheck="false" data-setting data-secret{% if item.required %} data-required{% endif %}>
+            <input class="form-control" id="{{ id }}" name="{{ item.name }}" type="password" autocomplete="new-password" spellcheck="false" data-setting data-secret{% if item.required %} data-required{% endif %}>
             <button class="settings-inline-btn" type="button" data-reveal aria-label="显示{{ item.label }}" aria-pressed="false" title="显示">{{ ui_icon('eye', '') }}</button>
             {% if not item.required %}<button class="settings-inline-btn settings-clear" type="button" data-clear hidden>清除</button>{% endif %}
         </div>

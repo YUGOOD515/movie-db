@@ -8,7 +8,6 @@ from __future__ import annotations
 import os
 import re
 import secrets
-import shutil
 import sqlite3
 import subprocess
 from contextlib import closing
@@ -82,14 +81,9 @@ def ensure_library(database: Path) -> bool:
 
 
 def ffprobe_status() -> dict:
-    configured = os.environ.get("FFPROBE_PATH", "").strip()
-    candidates = [configured] if configured and configured != "ffprobe" else []
-    if BUNDLED_FFPROBE.is_file():
-        candidates.append(str(BUNDLED_FFPROBE))
-    found = shutil.which("ffprobe")
-    if found:
-        candidates.append(found)
-    for candidate in candidates:
+    from connectors import media_probe
+
+    for candidate in media_probe.candidates():
         try:
             result = subprocess.run([candidate, "-version"], capture_output=True, text=True, timeout=8,
                                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
