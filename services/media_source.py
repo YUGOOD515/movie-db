@@ -28,6 +28,7 @@ _links = {}
 _link_locks = {}
 _clock = time.monotonic
 _key_lock = threading.Lock()
+_stream_keys = {}
 
 
 def split(path):
@@ -170,12 +171,16 @@ def forget(mount=None):
 
 
 def _stream_key():
+    # 播放器的每个 Range 请求都要验签：密钥只读一次磁盘。
     path = paths.DATA_DIR / "stream.key"
     with _key_lock:
-        if not path.exists():
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(secrets.token_bytes(32))
-        return path.read_bytes()
+        key = _stream_keys.get(path)
+        if key is None:
+            if not path.exists():
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_bytes(secrets.token_bytes(32))
+            key = _stream_keys[path] = path.read_bytes()
+        return key
 
 
 def _signature(path):

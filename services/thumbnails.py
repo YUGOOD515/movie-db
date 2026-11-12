@@ -25,20 +25,68 @@ STILL_SIZE = (560, 315)        # 16:9 ratio for ~270x152 episode cards
 BACKDROP_CARD_SIZE = (760, 428) # 16:9 ratio for ~380x214 backdrop cards
 LOGO_CARD_SIZE = (320, 180)    # Max width 320 for header/card logos
 
+# TMDB 的 original 常为 4K（单张数 MB），超出页面的显示需要：下载后限宽重存，从不放大。
+ORIGINAL_MAX_WIDTH = {"still": 1920, "backdrop": 2560, "logo": 1000}
 
-def get_target_size_for_path(local_path: str) -> tuple[int, int] | None:
-    """Determine target thumbnail dimensions based on image path and kind."""
+
+def image_kind(local_path: str) -> str | None:
+    """still / backdrop / logo；海报与演员照返回 None。"""
     normalized = local_path.replace("\\", "/").lower()
     parts = PurePosixPath(normalized).parts
     filename = parts[-1] if parts else ""
     if "stills" in parts or "-still." in filename:
-        return STILL_SIZE
+        return "still"
     if "backdrops" in parts:
-        return BACKDROP_CARD_SIZE
+        return "backdrop"
     if "logos" in parts:
-        return LOGO_CARD_SIZE
-    # Posters (500x750) and hero backdrops are not downscaled for cards
+        return "logo"
     return None
+
+
+def get_target_size_for_path(local_path: str) -> tuple[int, int] | None:
+    """Determine target thumbnail dimensions based on image path and kind."""
+    # Posters (500x750) and hero backdrops are not downscaled for cards
+    return {"still": STILL_SIZE, "backdrop": BACKDROP_CARD_SIZE, "logo": LOGO_CARD_SIZE}.get(image_kind(local_path))
+
+
+def shrink_original(path: str | Path, local_path: str, quality: int = 88) -> bool:
+    """把超过 ORIGINAL_MAX_WIDTH 的原图按比例缩小后原地替换；返回是否改写了文件。
+
+    宽度在上限以内的图片保持原样（不重复压缩）；失败时保留原文件。
+    """
+    from PIL import Image, ImageOps
+
+    limit = ORIGINAL_MAX_WIDTH.get(image_kind(local_path))
+    if limit is None:
+        return False
+    path = Path(path)
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex[:8]}.shrink")
+    try:
+        with Image.open(path) as image:
+            if image.width <= limit:
+                return False
+            save_format = image.format
+            if save_format not in ("JPEG", "PNG", "WEBP"):
+                return False
+            options = {"icc_profile": image.info["icc_profile"]} if image.info.get("icc_profile") else {}
+            image = ImageOps.exif_transpose(image)
+            if save_format == "JPEG":
+                if image.mode != "RGB":
+                    image = image.convert("RGB")
+                options.update(quality=quality, optimize=True, progressive=True)
+            else:
+                if image.mode not in ("RGB", "RGBA", "L", "LA"):
+                    image = image.convert("RGBA")
+                options.update({"optimize": True} if save_format == "PNG" else {"quality": quality})
+            size = (limit, max(1, round(image.height * limit / image.width)))
+            image.resize(size, Image.Resampling.LANCZOS).save(temporary, format=save_format, **options)
+        os.replace(temporary, path)
+        return True
+    except Exception as error:
+        logger.warning("Failed to shrink %s: %s", local_path, error)
+        return False
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def normalize_image_path(local_path: str) -> PurePosixPath | None:

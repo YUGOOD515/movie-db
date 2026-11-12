@@ -24,8 +24,9 @@ _lock = RLock()
 
 
 def _connect(database=None):
-    db = local_store._connect(database or paths.database_path())
-    db.executescript(SCHEMA)
+    database = database or paths.database_path()
+    db = local_store._connect(database)
+    local_store.ensure_schema(db, database, "drive", SCHEMA)
     return db
 
 

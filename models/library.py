@@ -322,7 +322,7 @@ def import_media_bundle(
             (alist_path,),
         ).fetchone()
         if existing_file is not None and existing_file["title_id"] != target_title_id:
-            raise ValueError("该 AList 文件已关联其他影视条目。")
+            raise ValueError("该媒体文件已关联其他影视条目。")
 
         for title in titles:
             connection.execute(

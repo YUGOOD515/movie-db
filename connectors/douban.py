@@ -55,8 +55,8 @@ class DoubanBlocked(throttle.RateLimitError):
     """豆瓣拒绝访问（403、需要登录或人机验证）：暂停一段时间。"""
 
     def __init__(self, reason: str):
-        super().__init__("douban", BLOCK_PAUSE)
-        self.reason = reason
+        super().__init__("douban", BLOCK_PAUSE, "blocked")
+        self.detail = reason
 
 
 def enabled() -> bool:

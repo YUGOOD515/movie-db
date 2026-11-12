@@ -30,7 +30,7 @@ CREATE TABLE IF NOT EXISTS import_reservation (
 
 def _connect(database):
     db = store._connect(database)
-    db.executescript(SCHEMA)
+    store.ensure_schema(db, database, "import", SCHEMA)
     return db
 
 

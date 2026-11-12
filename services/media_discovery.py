@@ -1,4 +1,4 @@
-"""Progressive, read-only AList discovery. A failed subtree stays visibly incomplete."""
+"""Progressive, read-only drive discovery. A failed subtree stays visibly incomplete."""
 
 import os
 import re
@@ -24,9 +24,9 @@ _scans = {}
 
 def canonical_path(value):
     if not isinstance(value, str) or not value.startswith("/") or "\\" in value:
-        raise ValueError("AList 文件路径无效。")
+        raise ValueError("文件路径无效。")
     if any(part in (".", "..", "") for part in value.split("/")[1:]):
-        raise ValueError("AList 文件路径无效。")
+        raise ValueError("文件路径无效。")
     return value
 
 
@@ -358,10 +358,10 @@ def _run_scan(key, database, refresh):
     except (OSError, requests.RequestException, RuntimeError, ValueError) as error:
         with _lock:
             _scans[key].update(status="error", error=(str(error) if isinstance(error, ValueError)
-                else "无法读取 AList，请检查服务、账号和目录权限后重试。"))
+                else "无法读取网盘，请检查挂载配置、账号和目录权限后重试。"))
     except Exception:
         with _lock:
-            _scans[key].update(status="error", error="扫描失败，请检查媒体库及 AList 配置后重试。")
+            _scans[key].update(status="error", error="扫描失败，请检查媒体库及网盘配置后重试。")
 
 
 def _empty_state(status):
@@ -408,10 +408,10 @@ def scan_status(database, *, prune=True):
             with closing(connect_database(database)) as db:
                 associated = get_associated_paths(db)
         except Exception:
-            associated = {}
+            associated = None
         records = []
         for record in state["records"]:
-            files = [item for item in record["files"] if item["path"] not in associated]
+            files = [item for item in record["files"] if item["path"] not in (associated or {})]
             if files:
                 records.append({**record, "files": files} if len(files) != len(record["files"]) else record)
     if prune:
@@ -440,7 +440,7 @@ def scan_status(database, *, prune=True):
     state["records"] = sorted(records, key=lambda item: (-item["sort_time"], item["path"]))
     if prune:
         from services.media_health import missing_by_title
-        state["missing"] = sum(missing_by_title(database).values())
+        state["missing"] = sum(missing_by_title(database, associated).values())
         from connectors import llm
         state["ai"] = llm.describe()
     return state

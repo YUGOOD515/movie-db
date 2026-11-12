@@ -95,7 +95,7 @@ def _llm_policy() -> Policy:
     base_url = os.environ.get("LLM_BASE_URL", "")
     deepseek = re.search(r"//([a-z0-9-]+\.)*deepseek\.com(?:[:/]|$)", base_url.strip().lower()) is not None
     if deepseek:
-        # 按并发限流：速率只做防抖（每秒 20 次），真正的约束是同时在途数。
+        # 按并发限流：速率只做防抖（每秒 50 次），真正的约束是同时在途数。
         return Policy(rate=50, burst=1, concurrency=max(1, min(500, int(_env_float("LLM_CONCURRENCY", 64)))), max_wait=90)
     return Policy(rate=_env_float("LLM_RPM", 10) / 60, burst=1,
                   concurrency=max(1, min(500, int(_env_float("LLM_CONCURRENCY", 2)))), max_wait=90)

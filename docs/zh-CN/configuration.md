@@ -65,6 +65,7 @@
 |---|---|
 | `MOVIEDB_PORT` | 本机端口，默认 `5000`，修改后需重启。未设置且 5000 被其他程序占用时（macOS 上通常是“隔空播放接收器”），桌面版自动改用 5050–5059 中第一个空闲端口并保存到这里 |
 | `MOVIEDB_UI` | 桌面版界面打开方式：留空为独立窗口，`browser` 为系统浏览器；修改后需重启 |
+| `MOVIEDB_ALLOWED_HOSTS` | 允许访问的主机名（如 Cloudflare Tunnel 域名），多个用逗号分隔。填写后其他主机名的请求一律拒绝（防 DNS 重绑定）；本机地址（`127.0.0.1` / `localhost`）始终可用。设置页只接受本机地址或这里登记的主机名 |
 | `MOVIEDB_DATA_DIR` | 数据目录，默认见[上表](#数据目录) |
 | `MOVIEDB_LOCAL_DATABASE` | `local.db` 的位置，默认与 `library.db` 同目录 |
 | `FLASK_SECRET_KEY` | 会话密钥，首次引导时自动生成 |

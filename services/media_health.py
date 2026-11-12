@@ -59,16 +59,17 @@ def check_outside(database, roots: list[str]):
     return rows
 
 
-def missing_by_title(database) -> dict[str, int]:
-    """{作品 ID: 失效文件数}，只统计仍在库中的文件。"""
+def missing_by_title(database, associated=None) -> dict[str, int]:
+    """{作品 ID: 失效文件数}，只统计仍在库中的文件；调用方已查过关联路径时传入 associated。"""
     try:
         missing = store.missing_media(database)
     except Exception:
         return {}
     if not missing:
         return {}
-    with closing(connect_database(database)) as db:
-        associated = get_associated_paths(db)
+    if associated is None:
+        with closing(connect_database(database)) as db:
+            associated = get_associated_paths(db)
     counts = {}
     for row in missing:
         info = associated.get(row["alist_path"])

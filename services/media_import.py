@@ -19,7 +19,7 @@ from models.library import import_media_bundle, enrich_media_bundle
 from queries.association import get_douban_id, get_existing_artwork_slots, get_file_targets, get_series_episodes
 from services.rating_sync import fetch_douban_rating, fetch_title_rating
 from services.image_tones import ensure_tones, compute_tone, merge_tones, wants_tone
-from services.thumbnails import ensure_thumbnail, normalize_image_path, generate_thumbnail, get_target_size_for_path
+from services.thumbnails import ensure_thumbnail, normalize_image_path, generate_thumbnail, get_target_size_for_path, shrink_original
 from services import import_runtime as runtime
 from services import media_source
 
@@ -351,6 +351,7 @@ def _stage_context_images(
     def derive_image(row, source):
         from PIL import Image
         local_path = row["local_path"]
+        shrink_original(source, local_path)  # 4K 原图先限宽，再生成缩略图与色调
         size = get_target_size_for_path(local_path)
         with Image.open(source) as image:
             image.draft("RGB", size or (128, 128))

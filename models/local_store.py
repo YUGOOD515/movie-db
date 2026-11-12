@@ -118,6 +118,15 @@ def _connect(library_database) -> sqlite3.Connection:
     return connection
 
 
+def ensure_schema(connection, library_database, name: str, schema: str) -> None:
+    """附属模块（关联任务、网盘配置）的表：每个数据库文件只建一次，不在每次连接时重跑。"""
+    key = (str(store_path(library_database)), name)
+    if key not in _ready:
+        with _lock:
+            connection.executescript(schema)
+            _ready.add(key)
+
+
 def upgrade(library_database) -> None:
     """在本机打开任何存储连接前，迁移旧的本机数据库；可重复执行。"""
     path = store_path(library_database)

@@ -6,7 +6,7 @@ import os
 import secrets
 import sqlite3
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlsplit
 
 from flask import abort, Flask, flash, g, jsonify, redirect, render_template, request, Response, send_from_directory, url_for
 
@@ -189,6 +189,52 @@ def inject_read_only():
     }
 
 
+LOOPBACK_HOSTS = {"127.0.0.1", "localhost", "::1"}
+SOURCE_MESSAGE = "请求来源不正确，请刷新页面后重试。"
+
+
+def _host_allowed() -> bool:
+    """本机地址，或登记在 MOVIEDB_ALLOWED_HOSTS 里的主机名（如 Tunnel 域名）。"""
+    try:
+        host = (urlsplit(f"//{request.host}").hostname or "").lower()
+    except ValueError:
+        return False
+    if host in LOOPBACK_HOSTS or host.endswith(".localhost"):
+        return True
+    allowed = os.environ.get("MOVIEDB_ALLOWED_HOSTS", "").lower().split(",")
+    return bool(host) and host in {item.strip() for item in allowed}
+
+
+def _same_origin(*, required: bool = False) -> bool:
+    """写请求必须来自本站页面；required=False 时放行不带来源的非浏览器客户端（桌面启动器、脚本）。"""
+    if request.headers.get("Sec-Fetch-Site", "same-origin") not in ("same-origin", "none"):
+        return False
+    source = request.headers.get("Origin") or request.headers.get("Referer") or ""
+    if not source:
+        return not required
+    try:
+        # 只比较主机与端口：经 Tunnel 转发时页面是 https，本机收到的是 http。
+        return urlsplit(source).netloc.lower() == request.host.lower()
+    except ValueError:
+        return False
+
+
+def _source_denied(message: str = SOURCE_MESSAGE):
+    return jsonify(ok=False, error=message, message=message), 403
+
+
+@app.before_request
+def guard_request_source():
+    """拦截其他网站发起的写请求（CSRF）；登记了允许的主机名时，同时拒绝其余 Host（DNS 重绑定）。"""
+    if app.config["READ_ONLY"]:
+        return None
+    if os.environ.get("MOVIEDB_ALLOWED_HOSTS", "").strip() and not _host_allowed():
+        return _source_denied("请求的主机名不在允许范围内。")
+    if request.method not in ("GET", "HEAD", "OPTIONS") and not _same_origin():
+        return _source_denied()
+    return None
+
+
 @app.before_request
 def guard_read_only():
     if not app.config["READ_ONLY"]:
@@ -227,16 +273,13 @@ def guide_first_run():
 
 
 def _setup_guard():
-    """设置会写入 .env：只读快照不提供；经 Cloudflare Tunnel 转发的请求不允许修改；写请求必须同源。"""
+    """设置会写入 .env：只读快照不提供；只接受本机地址，经 Cloudflare Tunnel 转发的请求不允许修改；写请求必须同源。"""
     if app.config["READ_ONLY"]:
         abort(404)
-    if request.headers.get("Cf-Connecting-Ip"):
+    if request.headers.get("Cf-Connecting-Ip") or not _host_allowed():
         return jsonify(ok=False, message="出于安全考虑，设置只能在运行 MovieDB 的电脑上修改。"), 403
-    if request.method == "POST":
-        source = request.headers.get("Origin") or request.headers.get("Referer") or ""
-        expected = request.host_url.rstrip("/")
-        if source != expected and not source.startswith(expected + "/"):
-            return jsonify(ok=False, message="请求来源不正确，请刷新页面后重试。"), 403
+    if request.method == "POST" and not _same_origin(required=True):
+        return jsonify(ok=False, message=SOURCE_MESSAGE), 403
     return None
 
 
@@ -707,7 +750,13 @@ def import_title_poster():
 def discover_import_media():
     if request.method == "POST":
         start_scan(app.config["DATABASE"], refresh=request.args.get("refresh") == "1")
-    return jsonify(scan_status(app.config["DATABASE"]))
+        return jsonify(scan_status(app.config["DATABASE"]))
+    # 扫描期间页面每隔一两秒轮询：内容没变时回 304，省去传输与整表重绘。
+    response = jsonify(scan_status(app.config["DATABASE"]))
+    response.set_etag(hashlib.sha256(response.get_data()).hexdigest())
+    response.cache_control.private = True
+    response.cache_control.no_cache = True
+    return response.make_conditional(request)
 
 
 def _discovery_payload():

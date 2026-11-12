@@ -12,6 +12,7 @@ from services.thumbnails import (
     get_card_image_path,
     generate_thumbnail,
     ensure_thumbnail,
+    shrink_original,
 )
 
 
@@ -136,3 +137,45 @@ class ThumbnailServiceTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ShrinkOriginalTest(unittest.TestCase):
+    def setUp(self):
+        self.temp_dir = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp_dir.name)
+
+    def tearDown(self):
+        self.temp_dir.cleanup()
+
+    def _image(self, name, size, mode="RGB", color=(40, 90, 160)):
+        path = self.root / name
+        Image.new(mode, size, color).save(path)
+        return path
+
+    def test_oversized_still_is_capped_and_keeps_ratio(self):
+        path = self._image("tt2-still.jpg", (3840, 2160))
+        self.assertTrue(shrink_original(path, "images/tt1/tt2-still.jpg"))
+        with Image.open(path) as image:
+            self.assertEqual((image.size, image.format), ((1920, 1080), "JPEG"))
+        self.assertEqual([item.name for item in self.root.iterdir()], ["tt2-still.jpg"])
+
+    def test_logo_keeps_transparency(self):
+        path = self._image("1.png", (4000, 1000), "RGBA", (255, 255, 255, 0))
+        self.assertTrue(shrink_original(path, "images/tt1/logos/1.png"))
+        with Image.open(path) as image:
+            self.assertEqual((image.size, image.format, image.mode), ((1000, 250), "PNG", "RGBA"))
+            self.assertEqual(image.getpixel((0, 0))[3], 0)
+
+    def test_images_within_the_limit_and_other_kinds_are_untouched(self):
+        still = self._image("tt3-still.jpg", (1920, 1080))
+        poster = self._image("poster.jpg", (4000, 6000))
+        before = (still.read_bytes(), poster.read_bytes())
+        self.assertFalse(shrink_original(still, "images/tt1/tt3-still.jpg"))
+        self.assertFalse(shrink_original(poster, "images/tt1/posters/1.jpg"))
+        self.assertEqual((still.read_bytes(), poster.read_bytes()), before)
+
+    def test_unreadable_file_is_left_in_place(self):
+        path = self.root / "broken.jpg"
+        path.write_bytes(b"not an image")
+        self.assertFalse(shrink_original(path, "images/tt1/backdrops/1.jpg"))
+        self.assertEqual(path.read_bytes(), b"not an image")

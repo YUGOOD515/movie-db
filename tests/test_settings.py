@@ -199,3 +199,43 @@ def test_relaunch_command_reuses_arguments_and_marks_restart():
     assert command[-4:] == ["--browser", "--restarted", "--open", "/settings?x=1"]
     assert command.count("--open") == 1 and "/manager" not in command
     assert "--open" not in desktop.relaunch_command(["--open=/x"], "https://example.com/")
+
+
+def test_cross_site_writes_are_rejected_on_every_endpoint(env):
+    client = env["client"]
+    with patch.object(movie_app, "start_scan") as start:
+        # 其他网站发起的写请求：Origin 不同，或浏览器标记为跨站。
+        assert client.post("/manager/discovery", headers={"Origin": "https://evil.test"}).status_code == 403
+        assert client.post("/manager/discovery", headers={"Origin": "null"}).status_code == 403
+        assert client.post("/manager/discovery", headers={"Sec-Fetch-Site": "cross-site"}).status_code == 403
+        assert client.post("/play/1", headers={"Referer": "https://evil.test/page"}).status_code == 403
+        start.assert_not_called()
+        # 本站页面（经 Tunnel 时页面是 https、本机收到 http）与不带来源的非浏览器客户端照常放行。
+        assert client.post("/manager/discovery", headers={"Origin": "https://localhost"}).status_code == 200
+        assert client.post("/manager/discovery").status_code == 200
+        assert start.call_count == 2
+    assert client.get("/manager/discovery", headers={"Origin": "https://evil.test"}).status_code == 200
+
+
+def test_allowed_hosts_reject_other_host_names(env, monkeypatch):
+    client = env["client"]
+    rebound = {"Host": "evil.test", "Origin": "http://evil.test"}
+    # 未登记时兼容原有访问方式，但设置只接受本机地址。
+    assert client.get("/manager/tasks", headers=rebound).status_code == 200
+    assert client.get("/settings/state", headers=rebound).status_code == 403
+    assert client.post("/settings/save", json={"values": {"DRIVE_RATE": "10"}}, headers=rebound).status_code == 403
+    assert os.environ.get("DRIVE_RATE") is None
+
+    monkeypatch.setenv("MOVIEDB_ALLOWED_HOSTS", "library.example.com, other.example.com")
+    assert client.get("/manager/tasks", headers=rebound).status_code == 403
+    assert client.get("/manager/tasks", headers={"Host": "library.example.com"}).status_code == 200
+    assert client.get("/manager/tasks", headers={"Host": "127.0.0.1:5000"}).status_code == 200
+    assert client.get("/manager/tasks").status_code == 200
+
+
+def test_discovery_polling_returns_not_modified_when_unchanged(env):
+    client = env["client"]
+    first = client.get("/manager/discovery")
+    assert first.status_code == 200 and first.headers["ETag"]
+    again = client.get("/manager/discovery", headers={"If-None-Match": first.headers["ETag"]})
+    assert again.status_code == 304 and not again.get_data()

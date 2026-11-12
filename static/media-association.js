@@ -348,7 +348,7 @@
         show(empty, !list.childElementCount);
         const missing = $("[data-discovery-missing]");
         missing.querySelector("span").textContent = `${scan.missing || 0} 个源文件失效`;
-        missing.title = "已入库的视频在 AList 中找不到，前往概览查看";
+        missing.title = "已入库的视频在网盘中找不到，前往概览查看";
         show(missing, scan.missing > 0);
         renderBar();
     }
@@ -431,19 +431,36 @@
         refresh.setAttribute("aria-busy", String(running));
     }
 
-    async function discover(start = false, refresh = false) {
+    let discoveryTag = null;
+    const schedulePoll = () => {
+        if (scanning()) pollTimer = setTimeout(() => discover(false, false, true), document.hidden ? 15000 : currentView() === 'list' ? 1500 : 5000);
+    };
+
+    // polling：定时轮询带上次的 ETag，内容没变（304）时不重绘列表。
+    async function discover(start = false, refresh = false, polling = false) {
         clearTimeout(pollTimer);
         if (start) { scan = { ...scan, status: "running", done: 0, total: 0 }; renderList(); scanProgress(); }
         try {
-            const data = await json(root.dataset.discoveryUrl + (refresh ? "?refresh=1" : ""), start ? {} : undefined);
+            const url = root.dataset.discoveryUrl + (refresh ? "?refresh=1" : "");
+            let data;
+            if (start) {
+                data = await json(url, {});
+                discoveryTag = null;
+            } else {
+                const response = await fetch(url, { cache: "no-store", headers: polling && discoveryTag ? { "If-None-Match": discoveryTag } : {} });
+                if (response.status === 304) { schedulePoll(); return scan; }
+                try { data = await response.json(); } catch { throw new Error("服务未返回有效数据，请稍后重试。"); }
+                if (!response.ok) throw new Error(data.error || "请求失败，请重试。");
+                discoveryTag = response.headers.get("ETag");
+            }
             const busyPaths = new Set(records.filter(item => item.busy).map(item => item.path));
             scan = data;
-            // A new scan has no roots until AList responds; retain the last known directories.
+            // A new scan has no roots until the drive responds; retain the last known directories.
             if (data.roots?.length || !scanning() && data.status !== 'error') roots = data.roots || [];
             ignored = data.ignored || [];
             records = data.records.map(item => busyPaths.has(item.path) ? { ...item, busy: true } : item);
             renderRoots(); renderList(); scanProgress();
-            if (scanning()) pollTimer = setTimeout(() => discover(), document.hidden ? 15000 : currentView() === 'list' ? 1500 : 5000);
+            schedulePoll();
             if (start) window.TaskCenter?.refresh();
             return data;
         } catch (error) {

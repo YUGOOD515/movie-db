@@ -28,6 +28,10 @@ flask_session/
 imdb/
 imdb.db
 library.db
+library.db-wal
+library.db-shm
+library.db-journal
+stream.key
 local.db
 local.db-wal
 local.db-shm

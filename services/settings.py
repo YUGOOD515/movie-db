@@ -171,7 +171,7 @@ SECTIONS: tuple[Section, ...] = (
             S("FFPROBE_TIMEOUT", "超时（秒）", "int", 60, advanced=True, low=5, high=600, placeholder="60"),
             S("FFPROBE_CONCURRENCY", "并行进程数", "int", 3, advanced=True, low=1, high=8, placeholder="3"),
             S("FFPROBE_PER_SOURCE", "每个来源的并行数", "int", advanced=True, low=1, high=8, placeholder="跟随总并行数",
-              hint="按 AList 路径的第一级目录区分来源，风控严格时调低。"),
+              hint="按挂载路径的第一级目录区分来源，风控严格时调低。"),
             S("IMAGE_CONCURRENCY", "图片处理并行数", "int", 2, advanced=True, low=1, high=8, placeholder="2"),
         ), test="ffprobe", icon="film"),
         Group("sync", "云端只读快照", "本机离线时，在 Cloudflare 上浏览片库", (
@@ -185,6 +185,8 @@ SECTIONS: tuple[Section, ...] = (
             S("MOVIEDB_UI", "界面打开方式", "select", restart=True,
               options=(("", "独立窗口（默认）"), ("browser", "系统浏览器")),
               hint="桌面版的界面显示在 MovieDB 自己的窗口里，还是用系统浏览器打开。"),
+            S("MOVIEDB_ALLOWED_HOSTS", "允许访问的主机名", advanced=True, placeholder="library.example.com",
+              hint="通过 Cloudflare Tunnel 等域名访问时填写，多个用逗号分隔；填写后其他主机名的请求一律拒绝。本机地址始终可用。"),
         ), icon="monitor"),
     ), icon="plug"),
     Section("metadata", "元数据", "海报、简介、演员与评分", (
