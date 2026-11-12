@@ -22,7 +22,7 @@ SQL 代码书写准则：https://www.sqlstyle.guide/zh/
 
 ## Connector
 
-采用 Flask + Jinja 三层结构：@app.py 路由只做"查询 → 整理 → 渲染"编排；@queries/ 只查数据库，@viewmodels/ 把查询结果整理成页面形状（poster/backdrop 卡片、进度、徽章、播放文案），Jinja 只负责 HTML 显示，不做业务判断。媒体数据流为 @services/* → @services/media_source.py → @connectors/drives/；播放器与 ffprobe 只使用 MovieDB 的 `/stream` 地址，转发逻辑在 @services/media_stream.py。
+采用 Flask + Jinja 三层结构：@app.py 路由只做"查询 → 整理 → 渲染"编排；@queries/ 只查数据库，@viewmodels/ 把查询结果整理成页面形状（poster/backdrop 卡片、进度、徽章、播放文案），Jinja 只负责 HTML 显示，不做业务判断。媒体数据流为 @services/* → @services/media_source.py → @connectors/drives/；播放器与 ffprobe 只使用 MovieDB 的 `/stream` 地址，转发逻辑在 @services/media_stream.py。来源路由是显式的（`media_source.route`）：路径第一级由同名网盘提供，停用后不可用，只有用户选择“改由透传提供”（`local.db` 的 `drive_route`）才交给透传 `*`；改变路由的网盘操作会触发重新扫描。驱动返回的时间统一为 UTC（`drives/base.utc_iso`），版本比较按时刻（`same_instant`）；`/stream` 地址跟随实际监听端口。
 
 ## View
 

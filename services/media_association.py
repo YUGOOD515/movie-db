@@ -6,6 +6,7 @@ from pathlib import PurePosixPath
 
 from connectors import events
 from connectors import tmdb
+from connectors.drives.base import same_instant
 from models.database import connect_database
 from queries.association import get_associated_paths
 from services import media_source
@@ -126,7 +127,7 @@ def complete_association(*, library_database, image_root, payload, on_progress=N
         if expected is not None:
             if expected[0] is not None and link.get("size") is not None and expected[0] != link["size"]:
                 raise ValueError("源文件大小已变化，请重新扫描后确认。")
-            if expected[1] and link.get("modified") and expected[1] != link["modified"]:
+            if not same_instant(expected[1], link.get("modified")):
                 raise ValueError("源文件已修改，请重新扫描后确认。")
         return link
 

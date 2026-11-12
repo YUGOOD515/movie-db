@@ -33,6 +33,16 @@ def _signature(item):
     return [item.get("size"), item.get("modified"), item.get("added")]
 
 
+def same_version(current, expected):
+    """扫描时记下的 [大小, 修改时间, 加入时间] 与当前是否一致；时间按时刻比较，不比较写法。"""
+    from connectors.drives.base import same_instant
+
+    if not isinstance(expected, (list, tuple)) or len(expected) != 3:
+        return False
+    size, modified, added = current
+    return (size == expected[0] or None in (size, expected[0])) and same_instant(modified, expected[1]) and same_instant(added, expected[2])
+
+
 def submit(database, image_root, selections):
     from services.media_discovery import canonical_path, scan_status
 
@@ -105,7 +115,7 @@ def _guard(database, job_id, owner, versions=None, title_id=None, items=()):
             # A new scan legitimately omits committed files. Their actual source
             # signature is still checked when resolving the link, even for cached probes.
             if path in current:
-                valid = _signature(current[path]) == version
+                valid = same_version(_signature(current[path]), version)
             else:
                 valid = path in positions and _same_target(existing.get(path), title_id, positions[path])
             if not valid:
@@ -140,7 +150,7 @@ def _execute_observed(database, row, reporter):
             if linked and not same:
                 raise ValueError("该文件已关联其他影视条目，请核对后重新确认。")
             if item["path"] in current:
-                valid = _signature(current[item["path"]]) == payload["versions"][item["path"]]
+                valid = same_version(_signature(current[item["path"]]), payload["versions"][item["path"]])
             else:
                 valid = same
             if not valid:

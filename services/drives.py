@@ -18,7 +18,8 @@ def _secret_fields(kind):
     return tuple(field.name for field in DRIVERS[kind].fields if field.kind == "secret")
 
 
-def public(row):
+def public(row, *, passthrough_names=frozenset(), passthrough=None):
+    """passthrough_names：透传根目录下的目录名，用来提示“透传里也有同名目录”。"""
     fields = DRIVERS[row["kind"]].fields
     result = {**row, "config": {
         field.name: row["config"].get(field.name, field.default)
@@ -35,18 +36,77 @@ def public(row):
         result["status_state"] = "ok" if connected else "fail"
         result["status_text"] = "已连接" if connected else "检测失败"
     # 网盘页展示：透传挂载 "*" 没有可读的名字，按用途命名；详情只在比状态标签多出信息时显示。
-    passthrough = row["mount"] == "*"
-    result["display_name"] = "默认（透传）" if passthrough else row["mount"]
-    result["scope"] = "未匹配挂载的路径都走这里" if passthrough else f"/{row['mount']}"
+    is_passthrough = row["mount"] == "*"
+    result["display_name"] = media_source.PASSTHROUGH_NAME if is_passthrough else row["mount"]
     result["icon"] = "folder" if row["kind"] == "local" else "network"
+    result.update(_route_view(row, passthrough_names, passthrough))
+    if result["route_state"] == "delegated":
+        # 路径已交给透传：标签说明“谁在提供”，比本网盘的连接状态更重要
+        result["status_state"], result["status_text"] = "off", "已移交透传"
     status = (row["status"] or "").strip()
     # 停用后旧的检测结果已不代表当前状态，不再显示
     result["status_detail"] = status if row["enabled"] and status and status != result["status_text"] else ""
     return result
 
 
+def _route_view(row, passthrough_names, passthrough):
+    """网盘页上的路由说明：这个前缀现在由谁提供、透传里是否也有同名目录、能否移交透传。"""
+    if row["mount"] == "*":
+        delegated = sorted(item["mount"] for item in drive_store.list_drives()
+                           if item.get("delegated") and media_source.route(item["mount"])[0] == "*")
+        scope = "未匹配挂载的路径" + (f"，以及 {'、'.join('/' + mount for mount in delegated)}" if delegated else "")
+        return {"scope": scope, "route_state": "self", "can_delegate": False, "overlap": False}
+    provider, reason = media_source.route(row["mount"])
+    overlap = row["mount"] in passthrough_names
+    if provider == "*":
+        state, text = "delegated", f"由{media_source.PASSTHROUGH_NAME}提供"
+    elif provider is None:
+        state, text = "unavailable", "已停用，文件暂不可用" if not row["enabled"] else reason
+    else:
+        state, text = "self", "由本网盘提供"
+    if overlap and state == "self":
+        text += f"（{media_source.PASSTHROUGH_NAME}里也有同名目录）"
+    return {"scope": f"/{row['mount']} · {text}", "route_state": state, "route_reason": reason,
+            "overlap": overlap, "can_delegate": bool(passthrough) and (overlap or row.get("delegated"))}
+
+
+def _passthrough_names(passthrough):
+    """透传根目录下的目录名（目录缓存 30 分钟）；读不到时不提示重叠。"""
+    if not passthrough or not passthrough["enabled"]:
+        return frozenset()
+    try:
+        drive = media_source.drive_for("*")
+        return frozenset(entry.name for entry in media_source._list(drive, "*", drive.root()) if entry.is_dir)
+    except Exception:
+        return frozenset()
+
+
 def listing():
-    return [public(row) for row in drive_store.list_drives()]
+    rows = drive_store.list_drives()
+    passthrough = next((row for row in rows if row["mount"] == "*"), None)
+    names = _passthrough_names(passthrough)
+    return [public(row, passthrough_names=names, passthrough=passthrough) for row in rows]
+
+
+def routes():
+    """每个已配置挂载名 → 当前提供者（挂载名、"*" 或 None）；"*" 本身记为透传是否可用。"""
+    result = {row["mount"]: media_source.route(row["mount"])[0] for row in drive_store.list_drives() if row["mount"] != "*"}
+    passthrough = drive_store.get_drive("*")
+    result["*"] = "*" if passthrough and passthrough["enabled"] else None
+    return result
+
+
+def rerouted(before):
+    """对比操作前后的路由，返回换了来源的前缀（"*" 表示透传覆盖的其余路径）。"""
+    after = routes()
+    return sorted(key for key in set(before) | set(after) if before.get(key) != after.get(key))
+
+
+def _route_message(changed):
+    if not changed:
+        return ""
+    names = "、".join("其余路径" if key == "*" else f"/{key}" for key in changed)
+    return f"{names} 的来源已变化，已开始重新扫描。"
 
 
 def missing_mounts(paths):
@@ -109,10 +169,12 @@ def save(mount, kind, values, enabled=None, create=False):
         status = driver.check()
     except Exception as error:
         raise DriveError(_error(error)) from None
+    before = routes()
     drive_store.save_drive(mount, kind, candidate, enabled)
     drive_store.set_status(mount, status)
     media_source.forget()
-    return {"ok": True, "status": status}
+    changed = rerouted(before)
+    return {"ok": True, "status": status, "rerouted": changed, "message": _route_message(changed)}
 
 
 def test(mount):
@@ -135,12 +197,33 @@ def toggle(mount):
     row = drive_store.get_drive(mount)
     if not row:
         return {"ok": False, "message": "找不到这个挂载。"}
+    before = routes()
     drive_store.save_drive(mount, row["kind"], row["config"], not row["enabled"])
-    media_source.forget(mount)
-    return {"ok": True, "enabled": not row["enabled"]}
+    media_source.forget()
+    changed = rerouted(before)
+    return {"ok": True, "enabled": not row["enabled"], "rerouted": changed, "message": _route_message(changed)}
+
+
+def delegate(mount, delegated):
+    """同名挂载改由透传提供（True）或改回由本网盘提供（False）。"""
+    row = drive_store.get_drive(mount)
+    if not row or mount == "*":
+        return {"ok": False, "message": "找不到这个挂载。"}
+    if delegated and not drive_store.get_drive("*"):
+        return {"ok": False, "message": f"还没有添加{media_source.PASSTHROUGH_NAME}。"}
+    before = routes()
+    drive_store.set_delegated(mount, delegated)
+    if not delegated and not row["enabled"]:
+        # “改回由本网盘提供”意味着要用它：一并启用，否则路径会直接变成不可用
+        drive_store.save_drive(mount, row["kind"], row["config"], True)
+    media_source.forget()
+    changed = rerouted(before)
+    return {"ok": True, "delegated": delegated, "rerouted": changed, "message": _route_message(changed)}
 
 
 def delete(mount):
+    before = routes()
     drive_store.delete_drive(mount)
-    media_source.forget(mount)
-    return {"ok": True}
+    media_source.forget()
+    changed = rerouted(before)
+    return {"ok": True, "rerouted": changed, "message": _route_message(changed)}

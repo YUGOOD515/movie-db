@@ -45,7 +45,7 @@ def test_list_paginates_filters_trashed_and_maps_time():
     entries = Pan123Drive(config(), Mock(), session).list(Entry("", True, "0"))
     assert [(entry.id, entry.name) for entry in entries] == [("1", "Folder"), ("3", "A.mkv")]
     assert entries[0].is_dir and not entries[1].is_dir and entries[1].size == 42
-    assert entries[0].modified.endswith("+08:00")
+    assert entries[0].modified == "2026-01-01T16:00:00.000+00:00"  # 统一换算为 UTC
     assert session.get.call_args_list[1].kwargs["params"]["lastFileId"] == 10
 
 

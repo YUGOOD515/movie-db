@@ -34,7 +34,7 @@ def save(client, mount="local", kind="local", config=None, create=None):
 def test_local_drive_crud_page_and_json_are_safe(env):
     response = save(env["client"], config={"root": str(env["tmp"])})
     assert response.status_code == 200 and response.get_json()["ok"]
-    assert set(response.get_json()) == {"ok", "status"}
+    assert set(response.get_json()) == {"ok", "status", "rerouted", "message"}
     assert drive_store.get_drive("local")["status"] == f"已连接：{env['tmp']}"
 
     redirect = env["client"].get("/manager/drives", headers=HTML)

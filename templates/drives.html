@@ -13,9 +13,10 @@
         </div>
         <div class="ui-card" data-drive-list>
             {% for drive in drives %}
-                <div class="drive-item{% if not drive.enabled %} is-disabled{% endif %}" data-drive-card="{{ drive.mount }}">
+                {% set inactive = not drive.enabled or drive.route_state != 'self' %}
+                <div class="drive-item{% if inactive %} is-disabled{% endif %}" data-drive-card="{{ drive.mount }}" data-route="{{ drive.route_state }}">
                     <div class="drive-item-main">
-                        <span class="ui-tile"{% if not drive.enabled %} data-hue="gray"{% endif %} aria-hidden="true">{{ ui_icon(drive.icon, '') }}</span>
+                        <span class="ui-tile"{% if inactive %} data-hue="gray"{% endif %} aria-hidden="true">{{ ui_icon(drive.icon, '') }}</span>
                         <div class="ui-group-text">
                             <h2 class="ui-row-title">{{ drive.display_name }}</h2>
                             <p class="ui-row-hint text-truncate">{{ drive.label }} · {{ drive.scope }}</p>
@@ -29,6 +30,13 @@
                                 <ul class="dropdown-menu dropdown-menu-end media-menu">
                                     <li><button class="dropdown-item d-flex align-items-center gap-2" type="button" data-drive-action="edit" data-mount="{{ drive.mount }}" data-drive='{{ drive|tojson }}'>{{ ui_icon('pencil', '') }}<span>编辑</span></button></li>
                                     <li><button class="dropdown-item d-flex align-items-center gap-2" type="button" data-drive-action="toggle" data-mount="{{ drive.mount }}">{{ ui_icon('ban' if drive.enabled else 'play', '') }}<span>{{ '停用' if drive.enabled else '启用' }}</span></button></li>
+                                    {% if drive.can_delegate %}
+                                        {% if drive.route_state == 'delegated' %}
+                                            <li><button class="dropdown-item d-flex align-items-center gap-2" type="button" data-drive-action="reclaim" data-mount="{{ drive.mount }}">{{ ui_icon('undo-2', '') }}<span>改回由本网盘提供</span></button></li>
+                                        {% else %}
+                                            <li><button class="dropdown-item d-flex align-items-center gap-2" type="button" data-drive-action="delegate" data-mount="{{ drive.mount }}">{{ ui_icon('arrow-left-right', '') }}<span>改由默认（透传）提供</span></button></li>
+                                        {% endif %}
+                                    {% endif %}
                                     <li><hr class="dropdown-divider"></li>
                                     <li><button class="dropdown-item d-flex align-items-center gap-2 is-danger" type="button" data-drive-action="delete" data-mount="{{ drive.mount }}">{{ ui_icon('trash-2', '') }}<span>删除</span></button></li>
                                 </ul>

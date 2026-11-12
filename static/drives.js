@@ -118,6 +118,7 @@
             try { await refreshDrives(); } catch {}
             modal?.hide();
             window.showAppToast?.(editingMount ? `已更新 ${editingMount}` : "网盘已添加");
+            if (result.message) window.showAppToast?.(result.message, "warning");
             return result;
         }
         showResult(result);
@@ -185,6 +186,8 @@
         if (!result.ok) { cardResult(card, result); return; }
         if (action === "test") { cardResult(card, result); return; }
         try { await refreshDrives(); } catch { cardResult(card, { ok: false, message: "操作已完成，请刷新页面查看。" }); }
+        // 路由变化（停用、移交透传等）后服务端已开始重新扫描
+        if (result.message) window.showAppToast?.(result.message, "warning");
     }
 
     kindInput.addEventListener("change", () => syncKind(true));
@@ -220,6 +223,7 @@
                 if (!result.ok) { cardResult(card, result); return; }
                 try { await refreshDrives(); } catch {}
                 window.showAppToast?.(`已删除 ${card.querySelector(".ui-row-title")?.textContent || card.dataset.driveCard}`);
+                if (result.message) window.showAppToast?.(result.message, "warning");
             });
         });
     }

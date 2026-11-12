@@ -39,6 +39,7 @@ class FakeDrive:
 @pytest.fixture
 def source(monkeypatch):
     media_source.forget()
+    monkeypatch.setattr(media_source, "_local_port", None)
     clock = [1000.0]
     monkeypatch.setattr(media_source, "_clock", lambda: clock[0])
     rows = {}
@@ -155,3 +156,31 @@ def test_get_file_and_parse_source(source, monkeypatch, tmp_path):
     assert result["size"] == 10 and result["signed_url"] == result["raw_url"]
     assert media_source.parse_source("http://host/d/%E7%94%B5%E5%BD%B1/a.mkv?sign=x") == "/电影/a.mkv"
     assert media_source.parse_source("/quark/a.mkv") == "/quark/a.mkv"
+
+
+def test_disabled_mount_does_not_fall_back_to_passthrough(source):
+    """停用同名挂载后路径不可用，而不是悄悄改由透传提供；只有显式移交才交给透传。"""
+    rows, _ = source
+    add(rows, "quark")
+    add(rows, "*", root_id="/")
+    assert media_source.resolve("/quark/dir/b.mkv")[1].id == "dir/b"
+    rows["quark"]["enabled"] = False
+    media_source.forget()
+    with pytest.raises(media_source.SourceUnavailable, match="已停用"):
+        media_source.resolve("/quark/a.mkv")
+    assert "quark" not in {entry["name"] for entry in media_source.list_directory("/")}
+    rows["quark"]["delegated"] = True
+    assert media_source.route("quark") == ("*", "")
+    assert "quark" in {entry["name"] for entry in media_source.list_directory("/")}
+    rows["*"]["enabled"] = False
+    with pytest.raises(media_source.SourceUnavailable, match="未启用"):
+        media_source.resolve("/quark/a.mkv")
+
+
+def test_stream_url_follows_the_listening_port(source, monkeypatch, tmp_path):
+    monkeypatch.setattr(paths, "DATA_DIR", tmp_path)
+    monkeypatch.setenv("MOVIEDB_PORT", "5000")
+    media_source.remember_local_port({"SERVER_NAME": "8.8.8.8", "SERVER_PORT": "443"})
+    assert urlsplit(media_source.stream_url("/q/a.mkv")).port == 5000
+    media_source.remember_local_port({"SERVER_NAME": "127.0.0.1", "SERVER_PORT": "5055"})
+    assert urlsplit(media_source.stream_url("/q/a.mkv")).port == 5055

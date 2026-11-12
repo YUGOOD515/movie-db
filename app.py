@@ -238,6 +238,14 @@ def guard_request_source():
 
 
 @app.before_request
+def remember_local_port():
+    # /stream 地址要指向本进程实际监听的端口（见 media_source.remember_local_port）
+    if not app.config["READ_ONLY"] and not app.config.get("TESTING"):
+        from services import media_source
+        media_source.remember_local_port(request.environ)
+
+
+@app.before_request
 def guard_read_only():
     if not app.config["READ_ONLY"]:
         return None
@@ -601,6 +609,14 @@ def resume_title(title_id: str):
     )
 
 
+def _after_reroute(result):
+    """网盘操作让某些路径换了来源：旧的扫描结果与签名不再可信，立即在后台重新扫描。"""
+    if result.get("ok") and result.get("rerouted") and not app.config.get("TESTING"):
+        from services.media_discovery import start_scan
+        start_scan(app.config["DATABASE"], refresh=True)
+    return result
+
+
 @app.get("/manager/drives")
 def drives_page():
     denied = _setup_guard()
@@ -622,7 +638,7 @@ def save_drive():
         )
     except (RuntimeError, ValueError) as error:
         return jsonify(ok=False, message=str(error)), 400
-    return jsonify(result)
+    return jsonify(_after_reroute(result))
 
 
 @app.post("/manager/drives/<mount>/test")
@@ -638,7 +654,23 @@ def toggle_drive(mount):
     denied = _setup_guard()
     if denied:
         return denied
-    return jsonify(_drives.toggle(mount))
+    return jsonify(_after_reroute(_drives.toggle(mount)))
+
+
+@app.post("/manager/drives/<mount>/delegate")
+def delegate_drive(mount):
+    denied = _setup_guard()
+    if denied:
+        return denied
+    return jsonify(_after_reroute(_drives.delegate(mount, True)))
+
+
+@app.post("/manager/drives/<mount>/reclaim")
+def reclaim_drive(mount):
+    denied = _setup_guard()
+    if denied:
+        return denied
+    return jsonify(_after_reroute(_drives.delegate(mount, False)))
 
 
 @app.post("/manager/drives/<mount>/delete")
@@ -646,7 +678,7 @@ def delete_drive(mount):
     denied = _setup_guard()
     if denied:
         return denied
-    return jsonify(_drives.delete(mount))
+    return jsonify(_after_reroute(_drives.delete(mount)))
 
 
 @app.get("/media")

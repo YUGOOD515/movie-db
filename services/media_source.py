@@ -29,6 +29,8 @@ _link_locks = {}
 _clock = time.monotonic
 _key_lock = threading.Lock()
 _stream_keys = {}
+_local_port = None
+LOOPBACK_NAMES = frozenset({"127.0.0.1", "localhost", "::1", "0.0.0.0", "::"})
 
 
 def split(path):
@@ -57,16 +59,47 @@ def drive_for(mount):
         return drive
 
 
+class SourceUnavailable(FileNotFoundError):
+    """路径所属的来源当前不可用（挂载已停用、透传未启用等），附带可操作的说明。"""
+
+
+PASSTHROUGH_NAME = "默认（透传）"
+
+
+def route(mount):
+    """路径第一级 mount 由谁提供：返回 (提供者挂载名或 None, 不可用时的说明)。
+
+    规则是显式的：有同名挂载就由它提供；挂载停用时文件不可用，只有用户选择“改由透传提供”
+    才交给透传。没有同名挂载的路径才走透传。这样启用 / 停用一个网盘不会让已有路径悄悄换来源。
+    """
+    row = drive_store.get_drive(mount) if mount and mount != "*" else None
+    passthrough = drive_store.get_drive("*")
+    passthrough_on = bool(passthrough and passthrough["enabled"])
+    if row:
+        if row.get("delegated"):
+            if passthrough_on:
+                return "*", ""
+            return None, f"“{mount}”已改由{PASSTHROUGH_NAME}提供，但{PASSTHROUGH_NAME}未启用。"
+        if row["enabled"]:
+            return mount, ""
+        return None, f"网盘“{mount}”已停用：启用它，或在网盘页改由{PASSTHROUGH_NAME}提供。"
+    if passthrough_on:
+        return "*", ""
+    return None, f"找不到挂载：{mount}"
+
+
+def provider_label(provider):
+    return PASSTHROUGH_NAME if provider == "*" else provider
+
+
 def _select(path):
     mount, parts = split(path)
-    row = drive_store.get_drive(mount) if mount else None
-    if row and row["enabled"]:
-        return row["mount"], drive_for(row["mount"]), parts
-    fallback = drive_store.get_drive("*")
-    if fallback and fallback["enabled"]:
-        full_parts = path.split("/")[1:]
-        return "*", drive_for("*"), full_parts
-    raise FileNotFoundError(f"找不到挂载：{mount}")
+    provider, reason = route(mount)
+    if provider is None:
+        raise SourceUnavailable(reason)
+    if provider == "*":
+        return "*", drive_for("*"), path.split("/")[1:]
+    return provider, drive_for(provider), parts
 
 
 def _list(drive, mount, directory, refresh=False):
@@ -110,7 +143,9 @@ def list_directory(path, *, refresh=False):
         if fallback and fallback["enabled"]:
             drive = drive_for("*")
             for entry in _list(drive, "*", drive.root(), refresh):
-                result.setdefault(entry.name, _public(entry))
+                # 透传里与挂载同名、但该挂载没有交给透传的目录不显示，避免同一路径出现两个来源
+                if entry.name in result or route(entry.name)[0] == "*":
+                    result.setdefault(entry.name, _public(entry))
         return list(result.values())
     drive, entry = resolve(path, refresh=refresh)
     if not entry.is_dir:
@@ -187,12 +222,27 @@ def _signature(path):
     return hmac.new(_stream_key(), path.encode("utf-8"), hashlib.sha256).hexdigest()[:32]
 
 
+def remember_local_port(environ):
+    """记下本进程实际监听的端口（由请求的 WSGI 环境给出）。
+
+    播放器与 ffprobe 通过 127.0.0.1 访问 /stream；只看 MOVIEDB_PORT 时，用 `flask run --port`
+    等方式换了端口，探测会连到不存在的服务，整批导入失败。
+    """
+    global _local_port
+    port = str(environ.get("SERVER_PORT") or "")
+    if environ.get("SERVER_NAME") in LOOPBACK_NAMES and port.isdigit():
+        _local_port = port
+
+
+def local_port():
+    return _local_port or os.environ.get("MOVIEDB_PORT", "").strip() or "5000"
+
+
 def stream_url(path):
     encoded = base64.urlsafe_b64encode(path.encode("utf-8")).decode("ascii").rstrip("=")
     token = f"{encoded}.{_signature(path)}"
     name = PurePosixPath(path).name
-    port = os.environ.get("MOVIEDB_PORT", "5000")
-    return f"http://127.0.0.1:{port}/stream/{token}/{quote(name)}"
+    return f"http://127.0.0.1:{local_port()}/stream/{token}/{quote(name)}"
 
 
 def parse_stream_token(token):

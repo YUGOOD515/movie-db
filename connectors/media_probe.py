@@ -5,6 +5,7 @@ import shutil
 import subprocess
 from fractions import Fraction
 from pathlib import Path
+from urllib.parse import urlparse
 
 
 class ProbeError(ValueError):
@@ -72,6 +73,25 @@ def executable() -> str:
     return os.environ.get("FFPROBE_PATH", "").strip() or "ffprobe"
 
 
+def explain_failure(stderr: str, video_url: str = "") -> tuple[str, str]:
+    """把 ffprobe 的错误输出翻译成可操作的说明（不回显地址里的签名令牌）；返回 (说明, 错误码)。"""
+    if re.search(r"connection refused|failed to connect|actively refused|error number -138|拒绝", stderr, re.I):
+        target = urlparse(video_url)
+        where = f"（{target.hostname}:{target.port}）" if target.hostname and target.port else ""
+        return f"连不上 MovieDB 播放地址{where}，请确认 MovieDB 仍在运行。", "connection"
+    if re.search(r"\b(?:401|403)\b|expired|forbidden", stderr, re.I):
+        return "网盘链接已过期或没有访问权限。", "expired"
+    if re.search(r"\b(?:429|503)\b|too many|频繁", stderr, re.I):
+        return "网盘请求过于频繁，稍后会重试。", "busy"
+    if re.search(r"\b404\b|not found", stderr, re.I):
+        return "网盘上找不到这个文件，可能已被移动或删除。", "missing"
+    if re.search(r"invalid data found|moov atom not found|end of file", stderr, re.I):
+        return "文件无法识别为视频，可能已损坏或不完整。", "invalid"
+    lines = [re.sub(r"\S+://\S+", "", line).strip(" :") for line in stderr.splitlines() if line.strip()]
+    detail = f"：{lines[-1][:120]}" if lines and lines[-1] else ""
+    return f"ffprobe 读取媒体参数失败{detail}。", "invalid"
+
+
 def probe_video(video_url: str) -> dict:
     command = [
         executable(),
@@ -102,9 +122,8 @@ def probe_video(video_url: str) -> dict:
     except subprocess.TimeoutExpired as error:
         raise ProbeError("ffprobe 读取媒体参数超时。", code="timeout", retryable=True) from error
     if result.returncode != 0:
-        detail = result.stderr or ""
-        code = "expired" if re.search(r"\b(?:401|403)\b|expired|forbidden", detail, re.I) else "busy" if re.search(r"\b(?:429|503)\b|too many|频繁", detail, re.I) else "invalid"
-        raise ProbeError("ffprobe 读取媒体参数失败。", code=code, retryable=code == "busy")
+        message, code = explain_failure(result.stderr or "", video_url)
+        raise ProbeError(message, code=code, retryable=code == "busy")
 
     try:
         payload = json.loads(result.stdout)
