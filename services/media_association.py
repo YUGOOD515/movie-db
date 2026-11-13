@@ -23,7 +23,7 @@ def title_metadata(library_database, title_id):
     with closing(connect_database(library_database)) as db:
         catalog = load_title_catalog(db, title_id)
     title, episodes = catalog["root"], catalog["episodes"]
-    return {**build_selection_viewmodel(title), "episodes": [
+    return {**build_selection_viewmodel(title), "catalog_positions": catalog["metadata"].get("episode_catalog", []), "episodes": [
         {"title_id": episode["title_id"], "name": episode["display_title"],
          "season_number": episode["season_number"], "episode_number": episode["episode_number"]}
         for episode in episodes

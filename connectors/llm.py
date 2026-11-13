@@ -19,6 +19,7 @@ DeepSeek（``api.deepseek.com``）按官方文档专门处理：
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 from urllib.parse import urlparse
@@ -82,6 +83,13 @@ def describe() -> dict:
     settings = _settings()
     return {"configured": is_configured(), "model": settings["model"], "api": settings["api"],
             "provider": settings["provider"], "concurrency": concurrency(), "batch_size": batch_size()}
+
+
+def cache_identity() -> str:
+    """只对非凭据配置求指纹；模型、端点或思考参数改变后不复用旧答案。"""
+    settings = _settings()
+    public = {key: settings[key] for key in ("base_url", "model", "api", "thinking")}
+    return hashlib.sha256(json.dumps(public, sort_keys=True).encode()).hexdigest()[:16]
 
 
 def _env_int(name: str, default: int, low: int, high: int) -> int:
@@ -173,7 +181,7 @@ def _post(settings: dict, endpoint: str, body: dict) -> requests.Response:
     # 经 throttle 控制并发 / 速率；429、503 按 Retry-After 退避，额度用尽时抛 RateLimitError 供调用方降级。
     if settings.get("probe"):
         return _request(settings, endpoint, body, timeout=(10, 30))
-    return throttle.call("llm", lambda: _request(settings, endpoint, body))
+    return throttle.call("llm", lambda: _request(settings, endpoint, body, timeout=settings.get("timeout", REQUEST_TIMEOUT)))
 
 
 def _add_usage(usage: dict | None, raw: dict | None) -> None:
@@ -245,17 +253,20 @@ def _send(settings: dict, system: str, user: str, max_tokens: int | None, usage:
     return (choice.get("message") or {}).get("content") or ""
 
 
-def complete_json(system: str, user: str, *, max_tokens: int | None = None, usage: dict | None = None) -> dict:
+def complete_json(system: str, user: str, *, max_tokens: int | None = None, usage: dict | None = None,
+                  timeout: float | None = None) -> dict:
     """发送一次请求并返回 JSON 对象。
 
     固定的 system 放在最前（Responses 的 instructions 会作为第一条 system 消息），批量请求共享同一前缀，
     可以命中 DeepSeek 的上下文硬盘缓存。JSON 模式偶尔返回空内容，空内容时原样重试一次。
     """
     settings = _settings()
+    if timeout is not None:
+        settings["timeout"] = (min(10, max(1, timeout)), max(1, timeout))
     if not is_configured():
         raise RuntimeError("AI 识别尚未配置。")
     text = _send(settings, system, user, max_tokens, usage)
-    if not text.strip():
+    if not text.strip() and timeout is None:
         text = _send(settings, system, user, max_tokens, usage)
     return parse_json(text)
 

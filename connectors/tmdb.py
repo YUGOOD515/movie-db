@@ -183,6 +183,9 @@ def fetch_title_summary(media_type: str, tmdb_id: int) -> dict:
         "title_type": "movie" if media_type == "movie" else "series",
         "display_title": detail.get("title" if media_type == "movie" else "name") or "",
         "start_year": _year(date),
+        "original_name": detail.get("original_title" if media_type == "movie" else "original_name") or "",
+        "origin_country": detail.get("origin_country") or [item["iso_3166_1"] for item in detail.get("production_countries", []) if item.get("iso_3166_1")],
+        "overview": (detail.get("overview") or "")[:1000],
     }
 
 
@@ -674,6 +677,10 @@ def _build_media_metadata(session: requests.Session, imdb_id: str, known: dict) 
     if media_type == "tv":
         seasons = fetch_seasons(session, tmdb_id, detail.get("seasons") or [])
         metadata["episodes"] = _series_episodes(session, tmdb_id, title, seasons, known)
+        metadata["episode_catalog"] = [
+            [episode["season_number"], episode["episode_number"]]
+            for season in seasons for episode in season.get("episodes", [])
+            if episode.get("season_number") is not None and episode.get("episode_number") is not None]
     return metadata
 
 

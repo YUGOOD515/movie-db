@@ -207,7 +207,7 @@
 
     function facts(item) {
         const result = item.recognition || {}, count = item.files.length, list = [];
-        if (result.title?.media_type === "tv") { if (result.coverage == null || result.coverage >= 1) list.push(`${result.episodes ?? count} 集`); }
+        if (result.title?.media_type === "tv") { list.push(result.coverage == null || result.coverage >= 1 ? `${result.episodes ?? count} 集` : `${count} 个视频`); }
         else if (!result.title || count > 1) list.push(`${count} 个视频`);
         if (result.versions > 1) list.push(`${result.versions} 个版本`);
         if (item.kind === "update") list.push("更新");
@@ -218,9 +218,12 @@
     function reasons(item, readyTitles) {
         const result = item.recognition || {}, count = item.files.length, list = [];
         if (item.importError) list.push(item.importError);
+        if (result.issues?.length) list.push(...result.issues);
+        if (result.ai_error) list.push("AI 暂不可用，保留已有结果");
+        else if (result.ai_deferred) list.push("AI 暂缓，可稍后重新识别");
         if (result.not_media && !result.title) list.push("可能不是影视");
         if (!result.title) return list;
-        if (result.coverage != null && result.coverage < 1) list.push(`${Math.round(result.coverage * count)}/${count} 集对上`);
+        if (result.coverage != null && result.coverage < 1 && (!result.missing_episode_ids || result.unmatched_episodes)) list.push(`${Math.round(result.coverage * count)}/${count} 集对上`);
         if (readyTitles.has(result.title.title_id)) list.push("与可确认项重复");
         if (!list.length && result.alternatives?.length && result.confidence < 0.8) list.push("有同名作品");
         if (!list.length && result.confidence < 0.8) list.push("把握不大");

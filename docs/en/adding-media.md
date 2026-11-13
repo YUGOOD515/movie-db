@@ -41,7 +41,7 @@ The pending list (待关联) scans the drive folders you pick (click **+ Add fol
 
 Each row's **⋯** menu offers *Change title*, *Recognize again* and *Ignore*. Ignored items move to the **Ignored** tab and can be restored at any time.
 
-Recognition order: existing links in the library → folder names you confirmed before → same-name titles in the library → TMDB rule-based search → AI. Confirmed folder names are remembered, so the same name is recognized instantly next time. Results are cached by a signature of the folder contents and are not recomputed unless the contents change.
+Nested category folders are first partitioned into works, retaining season and quality-folder context. Country-specific remakes, movie editions and series are checked separately. Recognition order: existing links in the library → folder names you confirmed before → same-name titles in the library → TMDB rule-based search → AI. Confirmed folder names are remembered. Cache signatures include folder contents, model configuration and recognition version; changing them triggers recognition again.
 
 Each scan also checks files that are already linked. A file is marked **missing** only when the drive explicitly says it no longer exists (network errors don't count). The **Overview** tab can filter by missing files; nothing is deleted from your drive.
 
@@ -49,7 +49,11 @@ All of this is stored in `local.db` in the data folder (override with `MOVIEDB_L
 
 ## AI recognition
 
-After you configure `LLM_BASE_URL`, `LLM_API_KEY` and `LLM_MODEL` (or pick a provider under **Settings → AI**), folders whose rule-based score is below 0.75 are sent to the AI. Its candidates are still verified against TMDB, with a maximum confidence of 0.9.
+After you configure `LLM_BASE_URL`, `LLM_API_KEY` and `LLM_MODEL` (or pick a provider under **Settings → AI**), AI can refine groups in multi-work directories. It also helps when the rule score is below 0.75 or subsequent checks find conflicting titles, years or episodes. Scores are heuristic matches, not accuracy probabilities. AI candidates are still verified through TMDB/IMDb, with a maximum score of 0.9.
+
+Inputs include directory context, relative-path samples from different branches and TMDB candidates. Read-only investigation is restricted to the current snapshot, TMDB searches and candidate detail/episode checks. Each phase permits at most three model calls and eight tool calls, and starts no new steps after 90 seconds. Every video must belong to exactly one group; validation errors are returned to AI for correction. Uncertain results retain the rule groups or require review. This never moves drive files or imports automatically. Ignoring a directory also covers its descendants.
+
+Directories clearly containing courses or stock footage remain non-media collections, with every file available for manual linking. **Recognize again** reassesses that label. If a work is identified but its TMDB episodes lack IMDb IDs, the list explains why linking is unavailable; AI never invents episode IDs or repeatedly investigates this missing data.
 
 ### Pipeline
 
@@ -75,7 +79,7 @@ TMDB results are cached in `local.db` (searches 7 days, title summaries 30 days,
 - DeepSeek has no per-minute limit, only a per-account concurrency limit (2500 for deepseek-flash, 500 for deepseek-v4-pro). MovieDB therefore keeps 64 requests in flight by default (`LLM_CONCURRENCY`, up to 500) and ignores `LLM_RPM`; on 429 it halves concurrency and ramps back up after consecutive successes.
 - A trailing `/v1` from older configurations is removed automatically.
 
-Rough cost: 1000 folders that need AI take about 50 requests, ~200k input tokens and ~80k output tokens — about US$0.10–0.20 at deepseek-flash prices (roughly half off-peak).
+Request volume depends on batch size, directory complexity and investigation turns. `scripts/evaluate_recognition.py` replays a scan snapshot: by default it checks grouping only; `--live` uses the existing configuration for real recognition, saving results, investigation traces and token usage in an isolated directory without writing the production library.
 
 ## Link editor
 

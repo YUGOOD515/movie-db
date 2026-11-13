@@ -117,34 +117,37 @@ def collect_folder(path, refresh=False, pool=None):
 
 
 def group_pending(path, entry, files, associated):
-    known = [item for key, item in associated.items() if key.startswith(path + "/")]
-    pending = [item for item in files if item["path"] not in associated]
-    if not pending:
-        return []
-    if entry.get("is_dir") and not known:
-        stamp = max([_file(path, entry), *pending], key=lambda item: item["sort_time"])
-        return [{**stamp, "path": path, "name": entry["name"], "kind": "folder",
-                 "files": pending, "suggestion": None}]
+    from services.media_grouping import partition
+
+    groups = partition(path, files) if entry.get("is_dir") else [
+        {**item, "kind": "file", "files": [item], "suggestion": None} for item in files]
     records = []
-    for item in pending:
-        # Use the closest previously associated ancestor, never a sibling prefix.
-        parent = PurePosixPath(item["path"]).parent
-        context = []
-        while str(parent).startswith(path) and str(parent) != "/":
-            context = [value for key, value in associated.items() if key.startswith(str(parent) + "/")]
-            if context:
-                break
-            parent = parent.parent
-        series = {value["title_id"]: value for value in context}
-        suggestion = None
-        if len(series) == 1 and next(iter(series.values()))["title_type"] == "series":
-            candidate = next(iter(series.values()))
-            seasons = {value["season_number"] for value in context}
-            suggestion = {"title_id": candidate["title_id"], "name": candidate["name"],
-                          "year": candidate["year"], "media_type": "tv",
-                          "season_number": next(iter(seasons)) if len(seasons) == 1 else None}
-        records.append({**item, "kind": "update" if known else "file",
-                        "files": [item], "suggestion": suggestion})
+    for group in groups:
+        pending = [item for item in group["files"] if item["path"] not in associated]
+        if not pending:
+            continue
+        boundary = group["path"]
+        known = [value for key, value in associated.items() if key.startswith(boundary + "/")]
+        if not known:
+            records.append({**group, "files": pending})
+            continue
+        for item in pending:
+            parent, context = PurePosixPath(item["path"]).parent, []
+            while str(parent) == boundary or str(parent).startswith(boundary + "/"):
+                context = [value for key, value in associated.items() if key.startswith(str(parent) + "/")]
+                if context:
+                    break
+                parent = parent.parent
+            series = {value["title_id"]: value for value in context}
+            suggestion = None
+            if len(series) == 1 and next(iter(series.values()))["title_type"] == "series":
+                candidate = next(iter(series.values()))
+                seasons = {value["season_number"] for value in context}
+                suggestion = {"title_id": candidate["title_id"], "name": candidate["name"],
+                              "year": candidate["year"], "media_type": "tv",
+                              "season_number": next(iter(seasons)) if len(seasons) == 1 else None}
+            records.append({**item, "kind": "update", "files": [item], "suggestion": suggestion,
+                            "context_path": boundary})
     return records
 
 
@@ -312,8 +315,20 @@ def _run_scan(key, database, refresh):
             else:
                 files = [_file(path, entry)] if PurePosixPath(path).suffix.lower() in media_source.VIDEO_EXTENSIONS else []
                 warnings = []
-            records = [split for record in group_pending(path, entry, files, associated)
-                       for split in split_collection(record)]
+            visible, hidden = [], {}
+            for item in files:
+                owner = next((ignored_path for ignored_path in sorted(ignored, key=len, reverse=True)
+                              if item["path"] == ignored_path or item["path"].startswith(ignored_path + "/")), None)
+                if owner:
+                    hidden[owner] = hidden.get(owner, 0) + 1
+                else:
+                    visible.append(item)
+            records = group_pending(path, entry, visible, associated)
+            if entry.get("is_dir") and not warnings:
+                from services.recognition_harness import plan_groups
+                records = plan_groups(database, path, records)
+            records.extend({"path": owner, "name": ignored[owner], "files": [None] * count,
+                            "_ignored": True} for owner, count in hidden.items())
             return root, entry["name"], records, warnings, {item["path"] for item in files}
 
         # 顶层条目 4 路并行；目录读取共用一个池，单个大合集也能并行展开。
@@ -327,7 +342,7 @@ def _run_scan(key, database, refresh):
                     for record in records:
                         record["root"] = root
                         record["incomplete"] = bool(warnings)
-                        if record["path"] in ignored:
+                        if record.get("_ignored"):
                             state["ignored"].append({"path": record["path"], "name": record["name"],
                                                      "count": len(record["files"])})
                         else:
@@ -338,7 +353,7 @@ def _run_scan(key, database, refresh):
                         listings[root]["complete"].add(name)
                     listings[root]["seen"].update(seen)
                 for record in records:
-                    if record["path"] not in ignored:
+                    if not record.get("_ignored"):
                         recognizing.put(record)
             with _lock:
                 _scans[key]["status"] = "recognizing"
@@ -425,7 +440,8 @@ def scan_status(database, *, prune=True):
         originals = {record["path"]: record for record in state["records"]}
         for record in records:
             found = cached.get(record["path"])
-            if found and found.get("signature") == signature(originals[record["path"]]):
+            if found and found.get("signature") in (
+                    signature(originals[record["path"]]), signature(originals[record["path"]], ai=False)):
                 found = {name: value for name, value in found.items() if name != "signature"}
                 if found.get("positions"):
                     paths = {item["path"] for item in record["files"]}
