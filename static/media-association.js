@@ -144,8 +144,10 @@
     const kindLabel = type => type === "tv" ? "剧集" : "电影";
 
     function syncSource() {
+        // 右侧在看某个网盘的详情时，左栏只高亮那个网盘，来源筛选的选中态先收起
+        const filtering = $("[data-drive-details-panel]").classList.contains("d-none");
         workspace.querySelectorAll("[data-source-path]").forEach(node => {
-            const active = node.dataset.sourcePath === sourcePath;
+            const active = filtering && node.dataset.sourcePath === sourcePath;
             node.setAttribute("aria-pressed", String(active));
         });
         const label = sourcePath === "/" ? "全部来源" : sourcePath === "*" ? "默认（透传）" : sourcePath;
@@ -1576,6 +1578,7 @@
         show($("[data-linked-editor]"), view === "linked");
         show($("[data-drive-details-panel]"), view === "drive");
         document.dispatchEvent(new CustomEvent("association:view", {detail:{view}}));
+        syncSource();
         syncBar();
     }
 

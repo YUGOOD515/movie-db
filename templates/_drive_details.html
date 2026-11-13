@@ -4,7 +4,7 @@
         <span class="ui-tile" aria-hidden="true">{{ ui_icon(drive.icon, '') }}</span>
         <div class="ui-group-text">
             <h2 class="h5 mb-1 ui-row-title">{{ drive.display_name }}</h2>
-            <p class="ui-group-desc">{{ drive.label }}</p>
+            {% if drive.label != drive.display_name %}<p class="ui-group-desc">{{ drive.label }}</p>{% endif %}
         </div>
         <div class="drive-item-actions">
             <button class="btn btn-sm chip-btn" type="button" data-drive-action="test" data-mount="{{ drive.mount }}">{{ ui_icon('refresh-cw', '') }}<span>检测连接</span></button>
@@ -30,7 +30,7 @@
     <dl class="connection-facts row row-cols-2 row-cols-xl-4 g-3 mb-4">
         <div class="col"><dt>{{ ui_icon('plug', '') }}<span>连接状态</span></dt><dd><span class="ui-pill" data-drive-status data-state="{{ drive.status_state }}"><span data-drive-status-text>{{ drive.status_text }}</span></span><p class="small text-body-secondary mt-2 mb-0 text-break" data-drive-status-detail{% if drive.status_state != 'fail' %} hidden{% endif %}>{{ drive.status_detail }}</p></dd></div>
         <div class="col"><dt>{{ ui_icon('user-round', '') }}<span>连接账号</span></dt><dd class="text-break">{{ drive.account or '未提供账号信息' }}</dd></div>
-        <div class="col"><dt>{{ ui_icon('folder', '') }}<span>挂载路径</span></dt><dd class="text-break">{{ drive.source_path }}<p class="small text-body-secondary mt-2 mb-0">{{ drive.scope }}</p></dd></div>
+        <div class="col"><dt>{{ ui_icon('folder', '') }}<span>挂载路径</span></dt><dd class="text-break">{{ '其他所有路径' if drive.source_path == '*' else drive.source_path }}<p class="small text-body-secondary mt-2 mb-0">{{ drive.scope }}</p></dd></div>
         <div class="col"><dt>{{ ui_icon('refresh-cw', '') }}<span>凭据续期</span></dt><dd>{{ drive.keepalive_text or '暂无续期记录' }}</dd></div>
     </dl>
     <section aria-label="连接配置">

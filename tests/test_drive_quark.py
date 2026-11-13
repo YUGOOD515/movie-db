@@ -24,7 +24,7 @@ def test_registry_and_check():
     driver = drive(session)
     assert driver.check() == "已连接"
     assert DRIVERS["quark"] is QuarkDrive and DRIVERS["uc"] is UCDrive
-    args, kwargs = session.request.call_args
+    args, kwargs = session.request.call_args_list[0]
     assert args == ("GET", "https://drive.quark.cn/1/clouddrive/config")
     assert kwargs["params"] == {"pr": "ucpro", "fr": "pc"}
     assert kwargs["headers"]["Referer"] == "https://pan.quark.cn"
@@ -62,6 +62,16 @@ def test_link_shape_and_uc_constants(cls):
     assert session.request.call_args.kwargs["json"] == {"fids": ["fid"]}
 
 
+def test_check_reports_account_nickname():
+    session = Mock()
+    session.request.side_effect = [
+        response({"code": 0, "status": 200, "data": {}}),
+        response({"success": True, "data": {"nickname": "小夸"}}),
+    ]
+    assert drive(session).check() == "已连接：小夸"
+    assert session.request.call_args.args == ("GET", "https://pan.quark.cn/account/info")
+
+
 def test_throttled_message_is_retried():
     session = Mock()
     session.request.side_effect = [
@@ -69,7 +79,8 @@ def test_throttled_message_is_retried():
         response({"code": 0, "status": 200, "data": {}}),
     ]
     assert drive(session).check() == "已连接"
-    assert session.request.call_count == 2
+    # 两次 /config（第一次被限速后重试），再加一次账号接口
+    assert session.request.call_count == 3
 
 
 @pytest.mark.parametrize("payload,status", [
@@ -92,7 +103,7 @@ def test_keepalive_requests_without_puus_and_saves_reissued_value():
     saved = Mock()
     driver = drive(session, saved)
     assert driver.keepalive() == "已连接"
-    sent = session.request.call_args.kwargs["headers"]["Cookie"]
+    sent = session.request.call_args_list[0].kwargs["headers"]["Cookie"]
     assert "__puus" not in sent and "a=1" in sent
     assert driver.cookie == "a=1; __puus=fresh"
     assert saved.call_args.args[0]["cookie"] == "a=1; __puus=fresh"

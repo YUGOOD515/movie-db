@@ -214,7 +214,7 @@
         if (!pending) {
             const status = card.querySelector("[data-drive-status]");
             status.dataset.state = result.ok ? "ok" : "fail";
-            card.querySelector("[data-drive-status-text]").textContent = result.ok ? "已连接" : "检测失败";
+            card.querySelector("[data-drive-status-text]").textContent = result.ok ? "正常" : "检测失败";
             // 详情只在比状态标签多出信息时显示
             const detail = result.ok ? "" : (result.message || "操作失败");
             const detailBox = card.querySelector("[data-drive-status-detail]");

@@ -108,7 +108,7 @@
         <div class="onboard-field">
             <label for="{{ prefix }}-kind">网盘类型</label>
             <select class="form-select" id="{{ prefix }}-kind" data-drive-kind>
-                {% for type in drive_types %}<option value="{{ type.kind }}">{{ type.label }}</option>{% endfor %}
+                {% for type in drive_types if type.creatable %}<option value="{{ type.kind }}">{{ type.label }}</option>{% endfor %}
             </select>
         </div>
         <div class="onboard-field" data-drive-mount hidden>
@@ -121,7 +121,7 @@
             <div class="ui-row-label"><label for="{{ prefix }}-kind">网盘类型</label></div>
             <div class="ui-row-control">
                 <select class="form-select" id="{{ prefix }}-kind" data-drive-kind>
-                    {% for type in drive_types %}<option value="{{ type.kind }}">{{ type.label }}</option>{% endfor %}
+                    {% for type in drive_types if type.creatable %}<option value="{{ type.kind }}">{{ type.label }}</option>{% endfor %}
                 </select>
             </div>
         </div>

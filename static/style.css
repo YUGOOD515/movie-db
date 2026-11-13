@@ -5585,7 +5585,7 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
 }
 
 .source-choice[aria-pressed="true"] { background: var(--media-selected-bg); color: var(--bs-emphasis-color); }
-.source-choice:hover { background: var(--bs-tertiary-bg); }
+.source-choice:hover:not([aria-pressed="true"], [aria-expanded="true"]) { background: var(--bs-tertiary-bg); }
 .source-choice > .app-icon { flex-shrink: 0; }
 
 .source-root.root-chip {
@@ -5610,11 +5610,16 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
 .connection-facts dd { margin: 0; }
 .drive-inline-fields { min-width: 0; padding: 0; margin: 0; border: 0; }
 .drive-inline-fields [hidden] { display: none !important; }
+/* 原地编辑时“网盘类型”“挂载名”两行隐藏，字段成了卡片第一行，顶部不再画分隔线 */
+.drive-inline-fields [data-drive-fields] > .ui-row:first-child { border-top: 0; }
+.drive-inline-fields [data-drive-fields] > .ui-disclosure:first-child > summary { background-image: none; }
 .drive-inline-fields .drive-form-actions { display: flex; align-items: center; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem; }
 
 .settings-nav { flex-direction: column; gap: 0.375rem; }
 .settings-nav .nav-link { color: var(--bs-secondary-color); border-radius: var(--radius-item); }
-.settings-nav .nav-link.active { color: var(--media-accent-contrast); }
+/* 左栏选中态与关联页的网盘侧栏一致：浅灰底 + 强调文字，不用实心强调色 */
+.settings-nav .nav-link:hover:not(.active) { background: var(--bs-tertiary-bg); color: var(--bs-body-color); }
+.settings-nav .nav-link.active { background: var(--media-selected-bg); color: var(--bs-emphasis-color); }
 .settings-form { container-type: inline-size; --ui-group-gap: 3rem; }
 .settings-section { align-items: start; }
 .settings-section > .ui-group { min-width: 0; }
@@ -5622,8 +5627,11 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
 .settings-section [data-reset],
 .settings-section > .tmdb-credit { grid-column: 1 / -1; }
 
+/* 宽屏两栏按列排（高矮不一的分组上下接着排，不按行对齐留出空洞）；清除数据与署名横跨两栏 */
 @container (min-width: 56rem) {
-    .settings-section:not([data-section="ai"]) { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--ui-group-gap) 1.5rem; }
+    .settings-section:not([data-section="ai"]) { display: block; columns: 2; column-gap: 1.5rem; }
+    .settings-section:not([data-section="ai"]) > * { break-inside: avoid; margin-bottom: var(--ui-group-gap); }
+    .settings-section:not([data-section="ai"]) > :is([data-reset], .tmdb-credit) { column-span: all; }
     .settings-section:not([data-section="ai"]) .ui-row:not(.is-switch):not(.is-action) > :is(.ui-row-label, .ui-row-control) { grid-column: 1 / -1; }
 }
 
@@ -6068,6 +6076,12 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
     }
 
     .ui-group-side > .btn {
+        margin-left: auto;
+    }
+
+    /* 只有一个按钮时不必换行，留在标题右侧 */
+    .ui-group-side:has(> .btn:only-child) {
+        width: auto;
         margin-left: auto;
     }
 

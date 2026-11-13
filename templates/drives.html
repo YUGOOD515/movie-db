@@ -6,14 +6,13 @@
     <div class="drive-list">
         <div class="drive-toolbar">
             <h2 class="h6 mb-0">网盘与关联文件夹</h2>
-            <div class="drive-item-actions">
-                <button class="btn btn-sm icon-btn" type="button" data-drive-add aria-label="添加网盘" title="添加网盘">{{ ui_icon('plus', '') }}</button>
-                <div class="dropdown">
-                    <button class="btn btn-sm icon-btn" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="来源管理" title="来源管理">{{ ui_icon('ellipsis', '') }}</button>
-                    <ul class="dropdown-menu media-menu">
-                        <li><button class="dropdown-item d-flex align-items-center gap-2" type="button" data-drive-import>{{ ui_icon('download', '') }}<span>从 AList 导入</span></button></li>
-                    </ul>
-                </div>
+            {# 添加连接的两种方式放在同一个“＋”菜单里；单个网盘的管理操作在右侧详情标题的“⋯”里 #}
+            <div class="dropdown">
+                <button class="btn btn-sm icon-btn" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="添加网盘" title="添加网盘">{{ ui_icon('plus', '') }}</button>
+                <ul class="dropdown-menu dropdown-menu-end media-menu">
+                    <li><button class="dropdown-item d-flex align-items-center gap-2" type="button" data-drive-add>{{ ui_icon('plus', '') }}<span>添加网盘</span></button></li>
+                    <li><button class="dropdown-item d-flex align-items-center gap-2" type="button" data-drive-import>{{ ui_icon('download', '') }}<span>从 AList 导入</span></button></li>
+                </ul>
             </div>
         </div>
         <button class="btn source-choice w-100 text-start mb-2" type="button" data-source-path="/" aria-pressed="true">{{ ui_icon('network', '') }}<span>全部来源</span></button>
@@ -22,10 +21,9 @@
                 <div class="drive-item{% if not drive.enabled %} is-disabled{% endif %}{% if drive.has_problem %} has-problem{% endif %}" data-drive-card="{{ drive.mount }}" data-drive-summary data-route="{{ drive.route_state }}" data-source-provider="{{ drive.provider or '' }}">
                     <div class="drive-item-main">
                         <button class="btn source-choice flex-grow-1 text-start min-w-0" type="button" data-drive-details-open="{{ drive.mount }}" aria-expanded="false" aria-controls="drive-connection-details" aria-label="查看 {{ drive.display_name }} 的连接详情">
-                            {{ ui_icon(drive.icon, '') }}<span class="min-w-0 source-identity"><span class="d-flex align-items-baseline gap-2 min-w-0"><span class="ui-row-title text-truncate">{{ drive.display_name }}</span><small class="source-kind text-truncate">{{ drive.category }}</small></span>{% if drive.account %}<span class="source-account text-truncate">{{ drive.account }}</span>{% endif %}</span>
+                            {{ ui_icon(drive.icon, '') }}<span class="min-w-0 source-identity"><span class="d-flex align-items-baseline gap-2 min-w-0"><span class="ui-row-title text-truncate">{{ drive.display_name }}</span>{% if drive.category != drive.display_name %}<small class="source-kind text-truncate">{{ drive.category }}</small>{% endif %}</span>{% if drive.account %}<span class="source-account text-truncate">{{ drive.account }}</span>{% endif %}</span>
                             {% if drive.has_problem %}{{ ui_icon('circle-alert', 'flex-shrink-0') }}<span class="visually-hidden">连接异常</span>{% endif %}
                         </button>
-                        <button class="btn icon-btn discovery-icon-btn" type="button" data-drive-details-open="{{ drive.mount }}" aria-label="{{ drive.display_name }} 的连接详情与操作" title="连接详情与操作">{{ ui_icon('ellipsis', '') }}</button>
                     </div>
                     <div class="vstack gap-1" data-source-folders="{{ drive.source_path }}"></div>
                     <template data-drive-details="{{ drive.mount }}">{% include "_drive_details.html" %}</template>

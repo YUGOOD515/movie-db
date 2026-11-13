@@ -16,12 +16,14 @@ from services import drive_keepalive, media_source
 
 
 def types():
+    # 透传只能有一个：已存在时不再出现在“新建”的类型下拉里，但编辑它仍需要这份字段表单。
     has_passthrough = drive_store.get_drive("*") is not None
     return [{"kind": kind, "label": driver.label, "fields": driver.fields,
+             "creatable": kind != "alist" or not has_passthrough,
              "qr_app": getattr(driver, "qr_app", "") if hasattr(driver, "start_login") else "",
              "oauth": oauth_url(driver), "oauth_page": oauth_page(driver),
              "oauth_embedded": bool(getattr(driver, "oauth_embedded", False))}
-            for kind, driver in DRIVERS.items() if kind != "alist" or not has_passthrough]
+            for kind, driver in DRIVERS.items()]
 
 
 def _oplist_base(driver):
@@ -70,7 +72,7 @@ def public(row, *, passthrough_names=frozenset(), passthrough=None):
     else:
         connected = row["status"].startswith("已连接")
         result["status_state"] = "ok" if connected else "fail"
-        result["status_text"] = "已连接" if connected else "检测失败"
+        result["status_text"] = "正常" if connected else "检测失败"
     # 网盘页展示：透传挂载 "*" 没有可读的名字，按用途命名；详情只在比状态标签多出信息时显示。
     is_passthrough = row["mount"] == "*"
     result["display_name"] = media_source.PASSTHROUGH_NAME if is_passthrough else row["mount"]

@@ -27,6 +27,7 @@ class QuarkDrive(Drive):
     referer = "https://pan.quark.cn"
     pr = "ucpro"
     ua = UA
+    account_url = "https://pan.quark.cn/account/info"
     # Cookie 里的 __puus 是会话凭证，约 3 小时过期（过期后能列目录、不能下载），比照 AList 每 100 分钟续一次
     keepalive_interval = 100 * 60
     fields = (
@@ -96,7 +97,23 @@ class QuarkDrive(Drive):
 
     def check(self):
         self._request("GET", "/config")
-        return "已连接"
+        return self._connected()
+
+    def _connected(self):
+        """“已连接：昵称”，和其他网盘一样让网盘页显示账号。
+
+        昵称来自网页版右上角用的账号接口；取不到时只返回“已连接”，不影响检测结果。
+        """
+        if not self.account_url:
+            return "已连接"
+        try:
+            response = throttle.call("quark", lambda: self.session.request(
+                "GET", self.account_url, params={"fr": "pc", "platform": "pc"},
+                headers={"Cookie": self.cookie, "Referer": self.referer}, timeout=20))
+            name = str((response.json().get("data") or {}).get("nickname") or "").strip()
+        except Exception:
+            name = ""
+        return f"已连接：{name}" if name else "已连接"
 
     def keepalive(self):
         """服务端只在请求不带 __puus 时下发新值（见 AlistGo/alist#830）：去掉它请求一次，新值由 _save_cookie 写回。
@@ -104,7 +121,8 @@ class QuarkDrive(Drive):
         服务端没有下发时 self.cookie 保持原样；只用长期凭证 __pus 也通不过时按 Cookie 失效报错。
         """
         self._request("GET", "/config", cookie=_without(self.cookie, "__puus"))
-        return "已连接"
+        # 续期结果会覆盖检测状态，一并带上账号，网盘页的账号才不会在续期后消失
+        return self._connected()
 
     def list(self, directory):
         result = []
@@ -147,4 +165,5 @@ class UCDrive(QuarkDrive):
     api = "https://pc-api.uc.cn/1/clouddrive"
     referer = "https://drive.uc.cn"
     pr = "UCBrowser"
+    account_url = ""  # UC 的账号接口未确认，只显示“已连接”
     ua = UA.replace("quark-cloud-drive", "uc-cloud-drive")
