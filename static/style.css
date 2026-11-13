@@ -46,6 +46,59 @@
 }
 
 /* ==========================================================================
+   Accent（强调色覆盖层）
+   Bootstrap 原生组件的聚焦、选中、激活色在编译时写死为蓝色，这里统一换成 --media-accent
+   （深色主题白色、浅色主题近黑）。勾、圆点等图形用 --media-accent-contrast，保证在强调色上看得清。
+   用到新的 Bootstrap 组件时，如果它的状态色仍是蓝色，就在这里补上。
+   ========================================================================== */
+
+:root,
+[data-bs-theme] {
+    --bs-primary: var(--media-accent);
+    --bs-primary-rgb: var(--media-accent-rgb);
+    --bs-focus-ring-color: rgba(var(--media-accent-rgb), 0.2);
+}
+
+.form-control:focus,
+.form-select:focus,
+.form-check-input:focus {
+    border-color: var(--media-selected-border);
+    box-shadow: 0 0 0 0.2rem var(--bs-focus-ring-color);
+}
+
+.form-check-input:checked,
+.form-check-input[type="checkbox"]:indeterminate {
+    border-color: var(--media-accent);
+    background-color: var(--media-accent);
+}
+
+.form-check-input:checked[type="checkbox"] { --bs-form-check-bg-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3e%3cpath fill='none' stroke='%23111111' stroke-linecap='round' stroke-linejoin='round' stroke-width='3' d='m6 10 3 3 6-6'/%3e%3c/svg%3e"); }
+.form-check-input[type="checkbox"]:indeterminate { --bs-form-check-bg-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3e%3cpath fill='none' stroke='%23111111' stroke-linecap='round' stroke-linejoin='round' stroke-width='3' d='M6 10h8'/%3e%3c/svg%3e"); }
+.form-check-input:checked[type="radio"] { --bs-form-check-bg-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='-4 -4 8 8'%3e%3ccircle r='2' fill='%23111111'/%3e%3c/svg%3e"); }
+.form-switch .form-check-input:checked { --bs-form-switch-bg: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='-4 -4 8 8'%3e%3ccircle r='3' fill='%23111111'/%3e%3c/svg%3e"); }
+.form-switch .form-check-input:focus:not(:checked) { --bs-form-switch-bg: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='-4 -4 8 8'%3e%3ccircle r='3' fill='rgba%28255, 255, 255, 0.25%29'/%3e%3c/svg%3e"); }
+
+[data-bs-theme="light"] .form-check-input:checked[type="checkbox"] { --bs-form-check-bg-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3e%3cpath fill='none' stroke='%23ffffff' stroke-linecap='round' stroke-linejoin='round' stroke-width='3' d='m6 10 3 3 6-6'/%3e%3c/svg%3e"); }
+[data-bs-theme="light"] .form-check-input[type="checkbox"]:indeterminate { --bs-form-check-bg-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3e%3cpath fill='none' stroke='%23ffffff' stroke-linecap='round' stroke-linejoin='round' stroke-width='3' d='M6 10h8'/%3e%3c/svg%3e"); }
+[data-bs-theme="light"] .form-check-input:checked[type="radio"] { --bs-form-check-bg-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='-4 -4 8 8'%3e%3ccircle r='2' fill='%23ffffff'/%3e%3c/svg%3e"); }
+[data-bs-theme="light"] .form-switch .form-check-input:checked { --bs-form-switch-bg: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='-4 -4 8 8'%3e%3ccircle r='3' fill='%23ffffff'/%3e%3c/svg%3e"); }
+[data-bs-theme="light"] .form-switch .form-check-input:focus:not(:checked) { --bs-form-switch-bg: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='-4 -4 8 8'%3e%3ccircle r='3' fill='rgba%280, 0, 0, 0.25%29'/%3e%3c/svg%3e"); }
+
+.dropdown-menu {
+    --bs-dropdown-link-active-color: var(--media-accent-contrast);
+    --bs-dropdown-link-active-bg: var(--media-accent);
+}
+
+.nav-pills {
+    --bs-nav-pills-link-active-color: var(--media-accent-contrast);
+    --bs-nav-pills-link-active-bg: var(--media-accent);
+}
+
+.btn-close {
+    --bs-btn-close-focus-shadow: 0 0 0 0.2rem var(--bs-focus-ring-color);
+}
+
+/* ==========================================================================
    Base & utilities
    ========================================================================== */
 
@@ -1806,50 +1859,12 @@ a.detail-rating-item:focus-visible .detail-rating-score {
     line-height: 1;
 }
 
-/* 待关联里的复选框跟随站点强调色（暗色主题为白底深色勾） */
-#media-association .form-check-input,
-.status-bar .form-check-input {
+/* 待关联里的复选框：透明底、浅描边；选中与聚焦的颜色见 Accent 覆盖层 */
+/* :where() 不增加优先级，选中、聚焦时仍由覆盖层换成强调色 */
+:where(#media-association, .status-bar) .form-check-input {
     --bs-form-check-bg: transparent;
     border-color: rgba(var(--bs-emphasis-color-rgb), 0.35);
     cursor: pointer;
-}
-
-#media-association .form-check-input:focus,
-.status-bar .form-check-input:focus,
-.settings-reset-part .form-check-input:focus {
-    border-color: var(--media-accent);
-    box-shadow: 0 0 0 0.2rem rgba(var(--media-accent-rgb), 0.2);
-}
-
-#media-association .form-check-input:checked,
-.status-bar .form-check-input:checked,
-.settings-reset-part .form-check-input:checked,
-#media-association .form-check-input:indeterminate,
-.status-bar .form-check-input:indeterminate {
-    border-color: var(--media-accent);
-    background-color: var(--media-accent);
-}
-
-#media-association .form-check-input:checked[type="checkbox"],
-.status-bar .form-check-input:checked[type="checkbox"],
-.settings-reset-part .form-check-input:checked[type="checkbox"] {
-    --bs-form-check-bg-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3e%3cpath fill='none' stroke='%23111111' stroke-linecap='round' stroke-linejoin='round' stroke-width='3' d='m6 10 3 3 6-6'/%3e%3c/svg%3e");
-}
-
-#media-association .form-check-input[type="checkbox"]:indeterminate,
-.status-bar .form-check-input[type="checkbox"]:indeterminate {
-    --bs-form-check-bg-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3e%3cpath fill='none' stroke='%23111111' stroke-linecap='round' stroke-linejoin='round' stroke-width='3' d='M6 10h8'/%3e%3c/svg%3e");
-}
-
-[data-bs-theme="light"] #media-association .form-check-input:checked[type="checkbox"],
-[data-bs-theme="light"] .status-bar .form-check-input:checked[type="checkbox"],
-[data-bs-theme="light"] .settings-reset-part .form-check-input:checked[type="checkbox"] {
-    --bs-form-check-bg-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3e%3cpath fill='none' stroke='%23ffffff' stroke-linecap='round' stroke-linejoin='round' stroke-width='3' d='m6 10 3 3 6-6'/%3e%3c/svg%3e");
-}
-
-[data-bs-theme="light"] #media-association .form-check-input[type="checkbox"]:indeterminate,
-[data-bs-theme="light"] .status-bar .form-check-input[type="checkbox"]:indeterminate {
-    --bs-form-check-bg-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3e%3cpath fill='none' stroke='%23ffffff' stroke-linecap='round' stroke-linejoin='round' stroke-width='3' d='M6 10h8'/%3e%3c/svg%3e");
 }
 
 .discovery-menu-spacer {
@@ -4524,26 +4539,13 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
     text-underline-offset: 0.2em;
 }
 
-/* 开关：沿用媒体强调色 */
+/* 开关尺寸；颜色见 Accent 覆盖层 */
 :is(.onboard, .settings-shell) .form-switch .form-check-input {
     width: 2.5em;
     height: 1.35em;
     cursor: pointer;
 }
 
-:is(.onboard, .settings-shell) .form-check-input:checked {
-    border-color: var(--media-accent);
-    background-color: var(--media-accent);
-}
-
-[data-bs-theme="dark"] :is(.onboard, .settings-shell) .form-switch .form-check-input:checked {
-    --bs-form-switch-bg: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='-4 -4 8 8'%3e%3ccircle r='3' fill='%23111'/%3e%3c/svg%3e");
-}
-
-:is(.onboard, .settings-shell) .form-check-input:focus {
-    border-color: var(--media-selected-border);
-    box-shadow: 0 0 0 0.2rem rgba(var(--media-accent-rgb), 0.2);
-}
 
 @media (max-width: 991.98px) {
     .onboard {

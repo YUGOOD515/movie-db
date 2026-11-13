@@ -37,6 +37,7 @@
 ## View
 
 - 用 HTML、CSS、JavaScript 完成，前端优先使用 Bootstrap 原生组件和工具类；只有媒体展示和 Bootstrap 做不到的交互才写自定义 CSS。不使用 `design-taste-frontend` skill。
+- 强调色只有 `--media-accent`（深色主题白、浅色主题近黑），任何状态都不出现 Bootstrap 蓝；原生组件照用，蓝色状态色统一在 `style.css` 的 Accent 覆盖层改掉（见 frontend.md）。
 - 可以引入第三方库来加快进度，放进 `static/vendor/` 并在其 README 登记，不走 CDN。
 - 卡片要对齐成竖线：内容包在 `container-xl` 里；卡片水平间距全站统一，小于 992px 用 1rem、992px 及以上用 1.5rem（网格 `g-3 g-lg-4`，轨道 `gap-3 gap-lg-4`）；按栏定宽时用 `--grid-col` / `--grid-gap` 计算。完整规则见 frontend.md。
 - 设置页、网盘页等管理页面复用 `ui-*` 类和 A–D 对齐线，不另写一套。
