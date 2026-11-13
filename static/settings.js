@@ -9,6 +9,7 @@
     const inputs = [...form.querySelectorAll("[data-setting]")];
     const aiSwitch = form.querySelector("#set-ai-enabled");
     const aiBody = form.querySelector("[data-ai-body]");
+    const imdbUpdate = form.querySelector("[data-imdb-update]");
     const SERVICE_GROUP = { alist: "alist", tmdb: "tmdb", llm: "llm", mdblist: "mdblist", ffprobe: "ffprobe", player: "player" };
     let state = null, baseline = {}, baselineAi = false, busy = false, leaving = false;
     const cleared = new Set();
@@ -35,6 +36,52 @@
     }
 
     // ------------------------------------------------------------ 分区
+
+    // IMDb 更新独立于设置保存，轮询不覆盖尚未保存的表单。
+    let imdbTimer = null, imdbEtag = null;
+    const mib = bytes => `${(Number(bytes || 0) / 1048576).toLocaleString("zh-CN", {maximumFractionDigits: 1})} MiB`;
+    const dateTime = seconds => seconds ? new Date(seconds * 1000).toLocaleString("zh-CN", {hour12: false}) : "尚未检查";
+    function renderImdb(index) {
+        if (!imdbUpdate || !index) return;
+        imdbUpdate.disabled = index.running;
+        root.querySelector("[data-imdb-summary]").textContent = index.available
+            ? `${Number(index.rows).toLocaleString("zh-CN")} 条单集关系 · ${mib(index.size_bytes)}` : "尚未建立本地单集库";
+        root.querySelector("[data-imdb-updated]").textContent = index.available ? `数据更新于 ${dateTime(index.updated_at)}` : "首次更新将下载官方数据并建立索引";
+        const detail = root.querySelector("[data-imdb-progress]");
+        detail.classList.toggle("text-danger", !!index.error);
+        detail.textContent = index.error || (index.running
+            ? index.phase === "build" ? `正在建立索引 · 已处理 ${Number(index.processed_rows || 0).toLocaleString("zh-CN")} 条`
+                : `正在检查并下载 · ${mib(index.downloaded)}${index.download_total ? ' / ' + mib(index.download_total) : ''}`
+            : `${index.message || "等待检查"} · 最近检查 ${dateTime(index.checked_at)}`);
+        renderStatus({"imdb-episodes": {state: index.error ? "warn" : index.available ? "ok" : "off",
+            text: index.running ? "更新中" : index.error ? "更新失败" : index.available ? "已就绪" : "尚未建立"}});
+        clearTimeout(imdbTimer);
+        imdbTimer = setTimeout(pollImdb, index.running ? 1000 : 15000);
+    }
+    async function pollImdb() {
+        if (document.hidden) { imdbTimer = setTimeout(pollImdb, 15000); return; }
+        try {
+            const response = await fetch("/settings/imdb-episodes", {headers: imdbEtag ? {"If-None-Match": imdbEtag} : {}});
+            if (response.status !== 304 && response.ok) {
+                imdbEtag = response.headers.get("ETag");
+                renderImdb((await response.json()).index);
+                return;
+            }
+        } catch {}
+        imdbTimer = setTimeout(pollImdb, 5000);
+    }
+    imdbUpdate?.addEventListener("click", async () => {
+        imdbUpdate.disabled = true;
+        try {
+            const result = await request("/settings/imdb-episodes", {});
+            if (!result.ok) throw new Error(result.message || "无法开始更新");
+            imdbEtag = null;
+            renderImdb(result.index);
+        } catch (error) {
+            imdbUpdate.disabled = false;
+            root.querySelector("[data-imdb-progress]").textContent = error.message || "无法开始更新，请稍后重试。";
+        }
+    });
 
     function showSection(id, { focus = false } = {}) {
         if (!sections.some(section => section.dataset.section === id)) id = sections[0].dataset.section;
@@ -243,6 +290,7 @@
         }
         if (aiSwitch) { aiSwitch.checked = Boolean(data.ai_enabled); baselineAi = aiSwitch.checked; syncAi(); setupPresets(data.presets); }
         renderStatus(data.status);
+        renderImdb(data.imdb_episodes);
         refreshPending();
         renderRestart(data.pending_restart, data.restart_supported);
         renderReset(data.data);

@@ -85,6 +85,17 @@ def snapshot(database):
     names = tasks.title_names(database, ids)
     entries = [_group(group, now, names) for group in groups.values()]
     scan = media_discovery.scan_summary(database)
+    from services import imdb_identity
+    index = imdb_identity.status()
+    if index.get("started_at"):
+        building = index.get("phase") == "build"
+        detail_text = (f"已处理 {index.get('processed_rows', 0):,} 条" if building else
+                       f"已下载 {index.get('downloaded', 0) / 1048576:.1f} MiB") if index["running"] else index.get("message", "")
+        entries.append({"id": "imdb-episodes", "kind": "imdb", "name": "更新 IMDb 单集库",
+                        "phase": ("imdb-build" if building else "imdb-download") if index["running"] else "failed" if index.get("error") else "complete",
+                        "state": "running" if index["running"] else "failed" if index.get("error") else "complete",
+                        "done": 0, "total": 0, "detail": detail_text, "updated_at": index.get("finished_at", index["started_at"]),
+                        "issues": [{"reason": index["error"]}] if index.get("error") else []})
     if scan["status"] != "idle":
         recognizing = scan["status"] == "recognizing"
         entries.append({"id": "scan", "kind": "scan", "name": "扫描媒体", "phase": "recognizing" if recognizing else "scan",

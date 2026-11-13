@@ -23,10 +23,12 @@
 |---|---|---|---|
 | `library.db` | 媒体展示数据：作品、季集关系、图片、演员、文件、播放进度、收藏 | 结构 `migrations/library_schema.sql`，写入 `models/library.py` | 是 |
 | `local.db` | 本机状态：扫描、识别缓存、关联任务、网盘配置与凭据、API 用量、评分缓存 | `models/local_store.py`、`drive_store.py`、`import_store.py`、`api_usage.py` | 否 |
+| `imdb/episodes.sqlite3` | 可重建的官方单集索引与来源版本，四整数列、复合主键、WITHOUT ROWID | `models/imdb_episodes.py` | 否 |
 
 - 凭据、令牌和只对本机有意义的状态放 `local.db`，因为 `library.db` 会被同步到云端。
 - 改 `library.db` 结构时同时改两处：`library_schema.sql`（新库）和 `models/library.py` 的 `upgrade_library`（老库补列）。只读快照不执行升级，所以新列在模板里要能处理缺失。
 - 单集直接保存季号和集号（`title_relation`），没有 season 实体；IMDb ID 是 `title_id` 主键，没有 IMDb ID 的单集不录入。
+- 单集 ID 按库内已有关系 → TMDB 外链 → 本地 IMDb 单集表回退；IMDb 表仅补 TMDB 季集目录内仍缺失、候选唯一且 ID 不冲突的位置。整剧 IMDb ID 未知、TMDB 不含该集、文件集号不明仍需核对。
 - `media_file.alist_path` 是历史命名，实际存的是 MovieDB 内部媒体路径（第一级目录是挂载名），与 AList 无关；接口里的 `alist_url` 等字段也一样。
 
 ### SQL 书写
@@ -55,6 +57,8 @@
 - 熔断时抛出 `RateLimitError`，调用方负责降级（例如 AI 识别退回规则识别）。
 - MDBList 有每日请求预算（`models/api_usage.py`），重试同样计入预算。
 - TMDB 密钥只发给 TMDB；图片可能经第三方 CDN 下载，下载图片的请求不带密钥。
+- `connectors/imdb_episodes.py` 经统一限速器流式下载官方 `title.episode.tsv.gz`，使用 ETag 条件检查。`services/imdb_identity.py` 后台建立临时 SQLite，检查格式、完整性和数据量后原子发布，失败保留旧库；临时下载不长期保留。索引只保存编号，不替代 TMDB 资料；按 IMDb 非商业数据集条款使用。
+- 单集库默认每周检查，可在设置改成每天或仅手动；调度只在 MovieDB 运行时执行，启动后补查，失败一小时后再自动尝试。手动更新与定时任务共用单飞任务。新索引发布后通过版本签名使识别缓存失效并触发重新扫描，不自动关联入库；304 只更新检查时间。当前桌面单进程共享读写锁，多进程部署需单一更新进程。
 
 ## 媒体来源与播放
 

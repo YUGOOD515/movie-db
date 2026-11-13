@@ -47,6 +47,24 @@ class TaskStatusTest(unittest.TestCase):
         self.assertNotIn('SECRET', changed.get_data(as_text=True))
         self.assertNotIn('PRIVATE', changed.get_data(as_text=True))
 
+    def test_imdb_index_update_progress_and_failure_are_visible(self):
+        state = {"started_at": 1, "running": True, "phase": "download", "downloaded": 1048576}
+        with patch('services.imdb_identity.status', return_value=state):
+            response = self.client.get('/manager/tasks')
+            item = next(task for task in response.json['tasks'] if task['kind'] == 'imdb')
+            self.assertEqual((item['state'], item['phase'], item['total']), ('running', 'imdb-download', 0))
+            self.assertIn('1.0 MiB', item['detail'])
+            state.update(phase='build', processed_rows=50000)
+            changed = self.client.get('/manager/tasks', headers={'If-None-Match': response.headers['ETag']})
+            self.assertEqual(changed.status_code, 200)
+            item = next(task for task in changed.json['tasks'] if task['kind'] == 'imdb')
+            self.assertEqual(item['phase'], 'imdb-build')
+            self.assertIn('50,000', item['detail'])
+            state.update(running=False, phase='failed', error='网络失败，旧库保留', finished_at=2)
+            item = next(task for task in self.client.get('/manager/tasks').json['tasks'] if task['kind'] == 'imdb')
+            self.assertEqual((item['state'], item['phase']), ('failed', 'failed'))
+            self.assertTrue(item['issues'])
+
     def test_live_parallel_episode_names_are_visible_before_completion(self):
         paths = ['/share/S01E01.mkv','/share/S01E02.mkv']
         self.seed(paths)

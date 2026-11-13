@@ -105,6 +105,7 @@
 | GET | `/setup/status` · `/settings/state` | 当前配置与检测状态 |
 | POST | `/setup/test/<service>` · `/settings/test/<service>` | 检测某项服务 |
 | POST | `/setup/save` · `/settings/save` | 保存配置，写入 `.env` 并立即生效 |
+| GET/POST | `/settings/imdb-episodes` | 本机单集索引状态 / 后台检查更新；GET 支持 ETag，POST 新任务返回 202，重复任务返回 200；返回 `{ok, started, index}`，更新失败仍可使用旧索引 |
 | POST | `/settings/clear` | 清除本机数据，需输入确认词 |
 | POST | `/settings/restart` | 桌面版重启 |
 | POST | `/desktop/show` | 桌面启动器专用（需 `X-MovieDB-Desktop: 1`） |

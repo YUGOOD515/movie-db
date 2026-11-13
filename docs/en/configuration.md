@@ -18,7 +18,7 @@ Once the library exists, **Manage → Settings** (管理 → 设置, `/settings`
 | Tab | Contents |
 |---|---|
 | Connection (连接) | Drives, pending-file scanning, player, ffprobe, cloud read-only snapshot, local port |
-| Metadata (元数据) | TMDB, MDBList, IMDb ratings |
+| Metadata (元数据) | TMDB, MDBList, IMDb ratings and episode index |
 | AI | Provider, model, endpoint, concurrency and more |
 | Data (数据) | Wipe local data |
 
@@ -28,6 +28,8 @@ Each group shows its status and has its own **Check** (检测) button; less comm
 - Settings are written to `.env` in the data folder (existing comments and other variables are preserved) and take effect immediately, except the port (`MOVIEDB_PORT`) and the interface mode (`MOVIEDB_UI`). After changing either, the desktop app can restart itself from the settings page or the tray menu (**Restart MovieDB**); other ways of running need a manual restart.
 - Settings can only be changed on the computer running MovieDB: they are read-only over a Cloudflare Tunnel and not available in the cloud snapshot.
 - Before a library exists (no `library.db`), `/setup` shows the first-run walkthrough; afterwards it redirects to the settings page.
+
+**Metadata → IMDb episode index** (元数据 → IMDb 单集库) offers **Check for updates** and manual / daily / weekly (default) modes. The first update downloads the official episode table and builds `imdb/episodes.sqlite3`, about 161 MiB; the compressed source is temporary. Settings and background tasks show progress and errors, and failed updates keep the old index. ETag checks avoid downloading and rebuilding unchanged data. Scheduled checks run while MovieDB is open and catch up after the next launch. A new index triggers recognition again, without automatically linking files; uncertain identities or episode numbers still require review. This local index is excluded from cloud snapshots.
 
 ## Wiping data
 
@@ -90,6 +92,7 @@ Mounts and credentials are managed under **Manage → Drives** and stored in `lo
 | `MDBLIST_APIKEY` | MDBList API key for Rotten Tomatoes, Metacritic and other ratings |
 | `DOUBAN_ENABLED` | Fetch Douban ratings on import and rating refresh (default on, `0` turns it off). Uses Douban's unofficial app API, which may stop working; when Douban refuses requests MovieDB pauses for 30 minutes |
 | `IMDB_RATINGS_PATH` | Location of the official IMDb ratings file, default `imdb/` in the data folder |
+| `IMDB_EPISODES_UPDATE` | Episode-index updates: empty for weekly, `daily` for daily, `manual` for manual only; changes apply immediately |
 
 **AI recognition** (any OpenAI-compatible API, see [Adding media → AI recognition](adding-media.md#ai-recognition))
 

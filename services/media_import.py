@@ -58,11 +58,14 @@ def load_title_catalog(library_db: sqlite3.Connection, title_id: str) -> dict:
     TMDB 已没有、但库里已有的单集也保留为可选目标，只是不重写其资料）。
     """
     known = get_series_episodes(library_db, title_id)
+    from services.imdb_identity import episode_ids
+    fallback = episode_ids(title_id)
     metadata = tmdb.build_media_metadata(
         title_id,
         known_episode_ids={
             (row["season_number"], row["episode_number"]): row["title_id"] for row in known
         },
+        **({"fallback_episode_ids": fallback} if fallback else {}),
     )
     root = metadata.get("title_basic") or {}
     if root.get("title_id") != title_id or root.get("title_type") not in ("movie", "series"):

@@ -603,6 +603,7 @@ def _series_episodes(
     series: dict,
     seasons: list[dict],
     known_episode_ids: dict[tuple[int, int], str],
+    fallback_episode_ids: dict[tuple[int, int], str] | None = None,
 ) -> list[dict]:
     """组装有 IMDb ID 的单集；库内已有的季集关系优先，冲突的 ID 跳过并告警。"""
     episodes = {
@@ -620,6 +621,12 @@ def _series_episodes(
             continue
         used.add(imdb_id)
         ids[position] = imdb_id
+    # 本机关系与 TMDB 外链优先；官方单集表只补当前仍然缺失且不冲突的位置。
+    for position, imdb_id in (fallback_episode_ids or {}).items():
+        if position not in episodes or position in ids or imdb_id in used or not TITLE_ID_PATTERN.fullmatch(imdb_id):
+            continue
+        ids[position] = imdb_id
+        used.add(imdb_id)
     return [build_episode(episode, series, ids[position]) for position, episode in episodes.items() if position in ids]
 
 
@@ -627,23 +634,26 @@ def build_media_metadata(
     imdb_id: str,
     session: requests.Session | None = None,
     known_episode_ids: dict[tuple[int, int], str] | None = None,
+    fallback_episode_ids: dict[tuple[int, int], str] | None = None,
 ) -> dict:
     """主入口：电影或剧集 IMDb ID → 与 library.db 对应的完整元数据（不含 IMDb 评分）。
 
     电影 2 次请求（find + detail 挂载 images/credits/translations）；
     剧集另加 ceil(季数/20) 次季详情，以及 ceil(新单集数/20) 次单集 IMDb ID。
     known_episode_ids 为库内已有的 {(季, 集): 单集 ID}，可省去这些单集的 ID 请求。
+    fallback_episode_ids 来自 IMDb 单集表，只补 TMDB 仍缺失的编号；库内关系优先。
     结果缓存 10 分钟，返回副本。
     """
     imdb_id = imdb_id.strip()
     known = dict(known_episode_ids or {})
-    key = ("metadata", imdb_id, LANGUAGE, tuple(sorted(known.items())))
+    fallback = dict(fallback_episode_ids or {})
+    key = ("metadata", imdb_id, LANGUAGE, tuple(sorted(known.items())), tuple(sorted(fallback.items())))
 
     def fetch():
         own_session = session is None
         current = session or _session()
         try:
-            return _build_media_metadata(current, imdb_id, known)
+            return _build_media_metadata(current, imdb_id, known, fallback)
         finally:
             if own_session:
                 current.close()
@@ -651,7 +661,7 @@ def build_media_metadata(
     return deepcopy(_cached(key, fetch))
 
 
-def _build_media_metadata(session: requests.Session, imdb_id: str, known: dict) -> dict:
+def _build_media_metadata(session: requests.Session, imdb_id: str, known: dict, fallback=None) -> dict:
     media_type, found = find_media(session, imdb_id)
     if media_type == "episode":
         raise ValueError(f"{imdb_id} 是单集，请使用父剧集的 IMDb ID。")
@@ -676,7 +686,7 @@ def _build_media_metadata(session: requests.Session, imdb_id: str, known: dict) 
     }
     if media_type == "tv":
         seasons = fetch_seasons(session, tmdb_id, detail.get("seasons") or [])
-        metadata["episodes"] = _series_episodes(session, tmdb_id, title, seasons, known)
+        metadata["episodes"] = _series_episodes(session, tmdb_id, title, seasons, known, fallback)
         metadata["episode_catalog"] = [
             [episode["season_number"], episode["episode_number"]]
             for season in seasons for episode in season.get("episodes", [])

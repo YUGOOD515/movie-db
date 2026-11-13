@@ -211,6 +211,11 @@ SECTIONS: tuple[Section, ...] = (
               hint="扫描、识别、关联任务、网盘配置、请求预算与评分缓存共用 local.db；更换位置前先迁移原文件。"),
         ), test="mdblist", icon="chart-column"),
         Group("imdb", "IMDb 评分", "官方评分文件，超过一天自动重新下载", (), icon="star"),
+        Group("imdb-episodes", "IMDb 单集库", "补齐 TMDB 未填写的 IMDb 单集编号", (
+            S("IMDB_EPISODES_UPDATE", "更新方式", "select", options=(
+                ("", "每周（默认）"), ("daily", "每天"), ("manual", "仅手动")),
+              hint="MovieDB 运行时检查；停机期间错过的检查，下次启动后补上。"),
+        ), icon="database"),
         Group("douban", "豆瓣评分", "录入和刷新评分时一并获取", (
             S("DOUBAN_ENABLED", "获取豆瓣评分", "bool", True,
               hint="使用豆瓣 App 的非官方接口，可能随时失效；请求过快时豆瓣会暂时拒绝访问，MovieDB 会自动暂停 30 分钟。"),
@@ -278,6 +283,8 @@ def statuses() -> dict:
     ffprobe = setup_wizard.ffprobe_status()
     configured = lambda ok, on="已配置", off="未配置": {"state": "ok" if ok else "off", "text": on if ok else off}  # noqa: E731
     from services import cloud_sync
+    from services import imdb_identity
+    episodes = imdb_identity.status()
 
     sync_token = bool(env("MOVIEDB_SYNC_TOKEN", "").strip())
     return {
@@ -291,12 +298,15 @@ def statuses() -> dict:
         "tmdb": _tmdb_status(),
         "mdblist": configured(env("MDBLIST_APIKEY", "").strip(), off="未开启"),
         "imdb": _ratings_status(),
+        "imdb-episodes": {"state": "warn" if episodes.get("error") else "ok" if episodes["available"] else "off",
+                          "text": "更新中" if episodes["running"] else "更新失败" if episodes.get("error") else "已就绪" if episodes["available"] else "尚未建立"},
         "douban": configured(FIELDS["DOUBAN_ENABLED"].display(), "已开启", "已关闭"),
         "llm": configured(llm.is_configured(), "已开启", "未开启"),
     }
 
 
 def state(*, restart_supported: bool) -> dict:
+    from services import imdb_identity
     return {
         "values": {name: item.display() for name, item in FIELDS.items() if not item.secret},
         "saved": {name: bool(os.environ.get(name, "").strip()) for name, item in FIELDS.items() if item.secret},
@@ -305,6 +315,7 @@ def state(*, restart_supported: bool) -> dict:
         "ai_enabled": llm.is_configured(),
         "pending_restart": sorted(_pending_restart),
         "restart_supported": restart_supported,
+        "imdb_episodes": imdb_identity.status(),
     }
 
 
@@ -382,6 +393,10 @@ def apply(changed: list[str], app) -> list[str]:
         throttle.configure()  # 保留正在进行的请求和服务冷却时间
         actions.append("throttle")
     testing = app.config.get("TESTING")
+    if "IMDB_EPISODES_UPDATE" in changed and not testing and not app.config.get("READ_ONLY"):
+        from services import imdb_identity
+        imdb_identity.wake_scheduler(app.config["DATABASE"])
+        actions.append("imdb-episodes")
     if "MOVIEDB_AUTOSCAN" in changed and not testing \
             and not os.environ.get("MOVIEDB_AUTOSCAN_DISABLED"):
         from services.media_discovery import start_autoscan

@@ -243,6 +243,8 @@ def remember_local_port():
     if not app.config["READ_ONLY"] and not app.config.get("TESTING"):
         from services import media_source
         media_source.remember_local_port(request.environ)
+        from services import imdb_identity
+        imdb_identity.start_scheduler(app.config["DATABASE"])
 
 
 @app.before_request
@@ -400,6 +402,20 @@ def settings_save():
     result["applied"] = _settings.apply(result["changed"], app)
     result["status"] = _settings.statuses()
     return jsonify(result)
+
+
+@app.route("/settings/imdb-episodes", methods=["GET", "POST"])
+def settings_imdb_episodes():
+    denied = _setup_guard()
+    if denied:
+        return denied
+    from services import imdb_identity
+    started = imdb_identity.start_update(app.config["DATABASE"]) if request.method == "POST" else False
+    response = jsonify(ok=True, started=started, index=imdb_identity.status())
+    response.set_etag(hashlib.sha256(response.get_data()).hexdigest())
+    response.cache_control.private = True
+    response.cache_control.no_cache = True
+    return (response, 202 if started else 200) if request.method == "POST" else response.make_conditional(request)
 
 
 @app.post("/settings/clear")

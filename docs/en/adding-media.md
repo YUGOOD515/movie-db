@@ -53,7 +53,7 @@ After you configure `LLM_BASE_URL`, `LLM_API_KEY` and `LLM_MODEL` (or pick a pro
 
 Inputs include directory context, relative-path samples from different branches and TMDB candidates. Read-only investigation is restricted to the current snapshot, TMDB searches and candidate detail/episode checks. Each phase permits at most three model calls and eight tool calls, and starts no new steps after 90 seconds. Every video must belong to exactly one group; validation errors are returned to AI for correction. Uncertain results retain the rule groups or require review. This never moves drive files or imports automatically. Ignoring a directory also covers its descendants.
 
-Directories clearly containing courses or stock footage remain non-media collections, with every file available for manual linking. **Recognize again** reassesses that label. If a work is identified but its TMDB episodes lack IMDb IDs, the list explains why linking is unavailable; AI never invents episode IDs or repeatedly investigates this missing data.
+Directories clearly containing courses or stock footage remain non-media collections, with every file available for manual linking. **Recognize again** reassesses that label. If a work is identified but neither TMDB nor the local episode index provides unique IMDb IDs, the list explains why linking is unavailable; AI never invents episode IDs or repeatedly investigates this missing data.
 
 ### Pipeline
 
@@ -107,7 +107,7 @@ The **Media versions** section shows every file and all its parameters directly,
 
 The **⋯** menu at the top right of the pending list has *Manual entry*, *Upload JSON* and *JSON template*.
 
-- **By IMDb ID** — add a movie or an episode. A series ID needs a season and episode number; an episode ID resolves its parent series automatically. Episodes without an IMDb ID on TMDB can't be added.
+- **By IMDb ID** — add a movie or an episode. A series ID needs a season and episode number; an episode ID resolves its parent series automatically. When TMDB omits an episode IMDb ID, the local official episode index fills it in; episodes still lacking a unique ID require review.
 - **Search TMDB** — search by name → pick a movie or series → for a series, enter season, episode and a mounted path (`/mount/path`) per row (add or remove rows); for a movie, enter one path → add everything to the import list. Season and episode numbers are validated against TMDB on import. Adding only creates rows on the page and never overwrites existing data; the first addition replaces the single empty placeholder row. Finish with **Validate and import**.
 - **Upload JSON** — bulk import following the template; if any entry fails, the whole batch is rolled back.
 
@@ -116,6 +116,7 @@ Searches and IMDb mappings are cached in memory for 10 minutes (up to 2048 entri
 ## Where metadata comes from
 
 - **TMDB** — title, year, genres, season/episode structure and episode IMDb IDs, overview, cast and images. Chinese titles fall back zh-CN → zh-TW → zh-HK; genres are converted to IMDb's English genres (e.g. Sci-Fi & Fantasy → Sci-Fi, Fantasy).
+- **IMDb episode index** — a local SQLite index built from the official `title.episode.tsv.gz`. It only fills missing episode IDs, preserving existing library relationships and TMDB links; TMDB remains the source for metadata and episode structure. Ambiguous positions are excluded. Unknown series IMDb IDs, episodes absent from TMDB and unreadable file episode numbers still require review. See [configuration](configuration.md#settings-page) for updates and [IMDb non-commercial datasets](https://data.imdb.com/non-commercial-datasets/) for the source and usage terms.
 - **IMDb ratings** — from the official `title.ratings.tsv.gz` file (about 9 MB), downloaded to `imdb/` in the data folder on first import and refreshed when older than a day; override the location with `IMDB_RATINGS_PATH`. **Refresh ratings** on the Overview tab updates IMDb ratings for every title and episode from this file.
 - **MDBList** (optional) — Rotten Tomatoes, Metacritic, Letterboxd, Trakt and more.
 

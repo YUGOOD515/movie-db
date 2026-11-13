@@ -54,8 +54,9 @@ def signature(record: dict, *, ai: bool | None = None) -> str:
     digest = hashlib.sha1("\n".join([record["name"], record.get("context_path", ""), *files]).encode("utf-8")).hexdigest()[:16]
     used = llm.is_configured() if ai is None else ai
     from services.recognition_harness import fingerprint
+    from services.imdb_identity import revision
     prompt = hashlib.sha256(SYSTEM_PROMPT.encode()).hexdigest()[:12]
-    return f"v{VERSION}:{digest}:{fingerprint()}:{record.get('grouping_version', 0)}:{prompt}:{int(used)}"
+    return f"v{VERSION}:{digest}:{fingerprint()}:{revision()}:{record.get('grouping_version', 0)}:{prompt}:{int(used)}"
 
 
 def alias_key(name: str) -> str:

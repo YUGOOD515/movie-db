@@ -62,7 +62,7 @@ LABELS = {
     "quark": "夸克 / UC", "baidu": "百度网盘", "aliyun-list": "阿里云盘列目录",
     "aliyun-link": "阿里云盘取链", "aliyun": "阿里云盘", "pan123-list": "123 云盘列目录",
     "pan123-link": "123 云盘取链", "pan123": "123 云盘", "llm": "AI 接口",
-    "mdblist": "MDBList", "douban": "豆瓣", "wikidata": "Wikidata",
+    "mdblist": "MDBList", "douban": "豆瓣", "wikidata": "Wikidata", "imdb": "IMDb 单集数据",
 }
 
 
@@ -123,6 +123,7 @@ def _policies() -> dict[str, Policy]:
         # 豆瓣被拦截时由 connectors/douban.py 直接暂停 30 分钟（超过 max_wait 即熔断）。
         "douban": Policy(rate=0.5, burst=1, concurrency=1, max_wait=60, attempts=2),
         "wikidata": Policy(rate=1, burst=1, concurrency=1, max_wait=60, attempts=2),
+        "imdb": Policy(rate=1, burst=1, concurrency=1, max_wait=30, attempts=2),
     }
 
 

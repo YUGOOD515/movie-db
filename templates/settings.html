@@ -89,6 +89,9 @@
                     <section class="ui-group" data-group="{{ group.id }}" aria-labelledby="group-{{ group.id }}">
                         {% call group_head(group.id, group.title, group.description, group.icon) %}
                             <span class="ui-pill" data-status="{{ group.id }}"><span data-status-text></span></span>
+                            {% if group.id == "imdb-episodes" %}
+                                <button class="btn btn-sm chip-btn" type="button" data-imdb-update{% if remote %} disabled{% endif %}>{{ ui_icon('refresh-cw', '') }}<span>检查更新</span></button>
+                            {% endif %}
                             {% if group.id == "llm" %}
                                 <div class="form-check form-switch m-0" title="开启 AI 识别">
                                     <input class="form-check-input" id="set-ai-enabled" name="ai_enabled" type="checkbox" role="switch" aria-label="开启 AI 识别">
@@ -117,6 +120,16 @@
                                 </div>
                             {%- endif -%}
                             {%- for item in group.basic %}{{ row(item) }}{% endfor -%}
+                            {% if group.id == "imdb-episodes" %}
+                                <div class="ui-row">
+                                    <div class="ui-row-label"><p class="ui-row-title">本地数据库</p><p class="ui-row-hint">更新时仍可使用旧版本，不会自动关联影片。</p></div>
+                                    <div class="ui-row-control"><p class="mb-1" data-imdb-summary>正在读取…</p><p class="ui-row-hint mb-0" data-imdb-updated></p></div>
+                                </div>
+                                <div class="ui-row">
+                                    <div class="ui-row-label"><p class="ui-row-title">更新状态</p><p class="ui-row-hint">文件未变化时只检查版本，不重新下载。</p></div>
+                                    <div class="ui-row-control"><p class="mb-0" data-imdb-progress role="status" aria-live="polite"></p></div>
+                                </div>
+                            {% endif %}
                             {%- if group.advanced %}{{ disclosure(group.advanced) }}{% endif -%}
                         </div>
                     </section>

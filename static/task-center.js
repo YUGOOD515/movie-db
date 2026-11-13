@@ -35,11 +35,11 @@
     let selectedId = null, detailSignature = null, returnToSidebar = false;
     // 与任务详情的步骤名一致（viewmodels/tasks.py）
     const labels = {metadata:'核对资料', probe:'读取参数', write:'写入媒体库', image:'补海报', rating:'补评分', derive:'生成预览',
-        enrich:'补齐资料', retry:'等待重试', queued:'排队', scan:'扫描', recognizing:'识别', complete:'完成', failed:'失败', partial:'需处理', cancelled:'已停止'};
+        enrich:'补齐资料', retry:'等待重试', queued:'排队', scan:'扫描', recognizing:'识别', 'imdb-download':'下载单集数据', 'imdb-build':'建立单集索引', complete:'完成', failed:'失败', partial:'需处理', cancelled:'已停止'};
     const el = (tag, className='', text='') => {
         const node = document.createElement(tag); node.className = className; node.textContent = text; return node;
     };
-    const fingerprint = task => JSON.stringify([task.state, task.updated_at, task.done, task.total, task.issues]);
+    const fingerprint = task => JSON.stringify([task.state, task.phase, task.detail, task.updated_at, task.done, task.total, task.issues]);
     const icon = name => window.appIcon(name);
 
     function countdown(until) {
@@ -63,7 +63,7 @@
         try {
             if (task.localAction) await task.localAction();
             else {
-                const url = task.kind === 'scan' ? root.dataset.scanUrl + '?refresh=1' : task.kind === 'rating' ? root.dataset.ratingUrl : root.dataset.jobsUrl;
+                const url = task.kind === 'imdb' ? '/settings/imdb-episodes' : task.kind === 'scan' ? root.dataset.scanUrl + '?refresh=1' : task.kind === 'rating' ? root.dataset.ratingUrl : root.dataset.jobsUrl;
                 const response = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'},
                     body:JSON.stringify(task.kind === 'import' ? {action:type, ids:type === 'cancel' ? task.cancel_ids : task.retry_ids} : {})});
                 if (!response.ok) { const data = await response.json(); throw new Error(data.error || '操作失败，请重试'); }
@@ -90,7 +90,7 @@
     const allTasks = () => [...state.tasks, ...local.values()];
     const selectedTask = () => allTasks().find(task => task.id === selectedId);
     const actionType = task => task.localAction ? 'retry' : task.cancel_ids?.length ? 'cancel' :
-        task.retry_ids?.length || problem(task) && ['scan','rating'].includes(task.kind) ? 'retry' : null;
+        task.retry_ids?.length || problem(task) && ['scan','rating','imdb'].includes(task.kind) ? 'retry' : null;
     const phaseLabel = task => labels[task.phase] || task.phase || '进行中';
     const statusLabel = task => task.state === 'waiting' ? '待重试' : task.state === 'queued' ? '排队' : labels[task.state] || '进行中';
     const countLabel = task => task.total > 0 ? `${task.done}/${task.total}` : '';

@@ -71,6 +71,30 @@ def test_state_reports_secrets_as_saved_only(env):
     assert state["values"]["MOVIEDB_AUTOSCAN"] is True and state["restart_supported"] is False
 
 
+def test_imdb_episode_controls_and_conditional_status(env, monkeypatch):
+    from services import imdb_identity
+    client = env["client"]
+    result = _save(client, {"IMDB_EPISODES_UPDATE": "manual"})
+    assert result.status_code == 200
+    assert os.environ["IMDB_EPISODES_UPDATE"] == "manual"
+    assert "IMDB_EPISODES_UPDATE=manual" in env["env"].read_text(encoding="utf-8")
+    assert _save(client, {"IMDB_EPISODES_UPDATE": "bad"}).status_code == 400
+    response = client.get("/settings/imdb-episodes")
+    assert response.get_json()["index"]["interval_seconds"] == 0
+    assert client.get("/settings/imdb-episodes", headers={"If-None-Match": response.headers["ETag"]}).status_code == 304
+    start = Mock(return_value=True)
+    monkeypatch.setattr(imdb_identity, "start_update", start)
+    assert client.post("/settings/imdb-episodes", json={}, headers=SAME_ORIGIN).status_code == 202
+    start.return_value = False
+    assert client.post("/settings/imdb-episodes", json={}, headers=SAME_ORIGIN).status_code == 200
+    start.reset_mock()
+    assert client.post("/settings/imdb-episodes", json={}, headers={"Origin": "https://evil.example"}).status_code == 403
+    assert client.get("/settings/imdb-episodes", headers={"Cf-Connecting-Ip": "1.2.3.4"}).status_code in (403, 404)
+    movie_app.app.config["READ_ONLY"] = True
+    assert client.post("/settings/imdb-episodes", json={}, headers=SAME_ORIGIN).status_code == 503
+    start.assert_not_called()
+
+
 def test_blank_secret_keeps_value(env):
     client = env["client"]
     response = _save(client, {"TMDB_TOKEN": ""})
