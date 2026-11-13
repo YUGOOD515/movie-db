@@ -13,7 +13,7 @@
 - **内置网盘层**：直接支持夸克 / UC、阿里云盘 Open、百度网盘、123 云盘 Open 和本机目录，也可连接已有 AList / OpenList；只读列目录和播放，不上传或删除。
 - **智能识别待关联**：扫描所选网盘目录，清洗伪装文件名、搜索 TMDB 并推测季集；拿不准的交给 AI（任意 OpenAI 兼容接口，推荐 DeepSeek）。结果分为“可确认 / 待核对 / 未识别”，一键批量入库。
 - **关联界面**：逐个文件核对 TMDB 单集，用可视化的文件名规则编辑器修正季集，支持按文件夹设季号、连续编号顺延、同一集多个版本。
-- **本机播放**：用 MPC-HC、IINA、mpv、VLC 或系统默认程序打开 MovieDB `/stream` 地址；支持跳转、单连接和并发分段转发，MPC-HC、IINA、mpv 记录进度并续播。
+- **本机播放**：用 MPC-HC、IINA、mpv、VLC 或系统默认程序打开 MovieDB `/stream` 地址；支持跳转、单连接和并发分段转发。AList / OpenList、夸克和 UC 默认启用有上限的后台预读，多次播放器请求共用同一份缓存；MPC-HC、IINA、mpv 记录进度并续播。
 - **桌面应用**：Windows 安装包或免安装 zip，macOS 提供 Apple 芯片与 Intel 两种 .dmg；自带 Python、全部依赖和 ffprobe；界面显示在独立的原生窗口里（系统自带的 WebView2 / WKWebView，不附带浏览器内核）。
 - **引导与设置**：首次使用全屏引导，设置页逐项检测连接状态。
 - **远程访问（可选）**：经 Cloudflare Tunnel 远程使用；电脑离线时自动切换到 Cloudflare Workers 上的只读快照。

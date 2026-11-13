@@ -43,9 +43,8 @@ uv run flask --app app run                # 也可以直接用 Flask 开发服�
 | `scripts/` | 命令行工具：缩略图、评分、快照发布、`.env` 核对等 |
 | `packaging/` | Windows / macOS 安装包与精简版 ffprobe 的构建脚本 |
 | `cloud/` | 云端只读快照的 Cloudflare Workers |
-| `archive/` | 已退出运行链路的历史材料 |
 
-代码约定见 [AGENTS.MD](../../AGENTS.MD)。
+代码约定见 [AGENTS.MD](../../AGENTS.MD)；设计细节见 [前端设计](../design/frontend.md)、[后端设计](../design/backend.md)、[HTTP 接口](../design/api.md)。
 
 ## 测试
 
@@ -59,7 +58,7 @@ uv run --with pytest python -m pytest -q
 
 本地回放服务器只提供《绝命毒师》（IMDb `tt0903747` / TMDb `1396`）的中文 TMDb 数据和 MDBList 评分，不请求远程 API。搜索支持简繁中文、英文及部分名称；支持详情、`append_to_response`、季集资料、IMDb 映射，以及当前搜索和导入用到的图片；未收录的内容返回空结果或 404。
 
-快照位于 `local-test-data/breaking-bad/`（被 Git 忽略），独立于业务库和 `static/images`，删除网站里的作品不会删除快照。其中包含真实 API 响应、相关的业务库记录、剧照 / 海报 / 背景 / 标志 / 演员照片，以及图片 URL 映射和 SHA-256 清单；单集 find 响应由保存的季资料与单集 external_ids 组合，旧快照没有译名时按“无译名”回放。不复制 AList 视频。
+快照位于 `local-test-data/breaking-bad/`（被 Git 忽略），独立于业务库和 `static/images`，删除网站里的作品不会删除快照。其中包含真实 API 响应、相关的业务库记录、剧照 / 海报 / 背景 / 标志 / 演员照片，以及图片 URL 映射和 SHA-256 清单；单集 find 响应由保存的季资料与单集 external_ids 组合，旧快照没有译名时按“无译名”回放。不复制网盘视频。
 
 先在一个终端运行本地 API：
 
@@ -77,7 +76,7 @@ uv run flask --app app run --host 127.0.0.1 --port 5000
 ```
 
 - 原有 Token / API Key 可保留，本地服务器忽略凭据；没有凭据时可把 `TMDB_TOKEN` 和 `MDBLIST_APIKEY` 设为 `local-test`。
-- AList 流程照常运行；IMDb 评分文件仍从官方地址下载。
+- 网盘列目录和播放照常运行；IMDb 评分文件仍从官方地址下载。
 - 环境变量要设置在实际启动 MovieDB 的进程中，并重启应用以清空旧缓存；只编辑 `.env` 不会替换 TMDb 地址。恢复远程服务时移除这三个变量并重启。
 
 重新抓取：`uv run python scripts/capture_breaking_bad.py --output local-test-data/breaking-bad-new`，再用 `--data local-test-data/breaking-bad-new` 启动回放服务器。抓取会访问远程 API，但不写业务库；已有快照目录禁止覆盖。
@@ -119,7 +118,17 @@ uv run python packaging/build_macos.py [--arch arm64|x86_64] [--ffprobe-dir <目
 
 `.github/workflows/windows-package.yml`（“安装包（Windows / macOS）”）在推送到 `main`、`release/**`、`feat/**`、`perf/**` 且改动了程序文件时运行：编译并校验精简版 ffprobe，构建 Windows 安装包与免安装 zip、两种架构的 macOS .dmg，并测试安装、免安装版数据位置、旧版数据迁移与 .dmg 签名。各分支的构建产物在运行记录底部的 Artifacts 下载（需登录 GitHub）。
 
-推送到 `main` 时，如果还没有 `v<pyproject.toml 版本号>` 的 Release，就自动创建并上传安装包，发行说明取 [CHANGELOG.md](../../CHANGELOG.md) 中 `## v<版本号>` 的段落。发布新版本：更新 `pyproject.toml` 的版本号，把 CHANGELOG 的“未发布”改为该版本号，合并到 `main`。
+推送到 `main` 时，如果还没有 `v<pyproject.toml 版本号>` 的 Release，就自动创建并上传安装包，发行说明取 [CHANGELOG.md](../../CHANGELOG.md) 中 `## v<版本号>` 的段落。
+
+平时不需要逐次更新 CHANGELOG，发版时根据提交历史一次汇总。发布新版本：
+
+1. 先合并最新的 `origin/main`，确认工作区干净。
+2. 运行 `git log v<上一版本>..HEAD --no-merges --format="%h %s%n%b"`，把用户能感知的改动按主题（播放、网盘与导入、界面、安全等）写进 CHANGELOG 的“未发布”。每条说清改了什么、对用户有什么影响；纯重构、测试和开发文档的改动不写。
+3. 对照这些改动检查 README 和 `docs/`：搜索涉及的功能、设置项和界面名称，更新过时的描述，并确认中英文档逐段对应。
+4. 把“未发布”改为 `## v<新版本>`，在上方留一个空的“未发布”；修改 `pyproject.toml` 的版本号，运行 `uv lock` 同步 `uv.lock`。新功能升次版本号，只有修复时升修订号。
+5. 运行测试后合并到 `main`，CI 会自动创建 Release。
+
+在 Claude Code 中可以用 `/release` 按以上步骤执行。
 
 ## 前端约定
 
@@ -127,6 +136,6 @@ uv run python packaging/build_macos.py [--arch arm64|x86_64] [--ffprobe-dir <目
 - 海报 / 背景图先显示 BlurHash 模糊占位，再淡入原图；色调表 `static/thumbnails/tones.json` 在录入时生成，启动时自动为旧图片补齐（`MOVIEDB_TONES_DISABLED=1` 可跳过）。
 - 桌面端海报悬停倾斜、列表进入视口时依次浮现、卡片到详情页的共享元素转场（View Transitions，Chrome / Edge / Safari 18+）。系统开启“减少动态效果”时自动关闭。
 - 第三方库（Embla Carousel、Motion、vanilla-tilt、BlurHash，均为 MIT）随仓库放在 `static/vendor/`，不走 CDN。
-- 媒体资源管理页使用统一的底部状态栏（`static/status-bar.js`）：固定在视口底部居中，页面底部自动留出空间，下拉菜单显示在状态栏之上。上层显示后台任务（扫描 AList、刷新评分、关联结果），下层显示当前视图的操作。预设有 `selection`（已选 N 项 + 批量操作）、`check`（校验结果 + 提交）、`progress`（确定 / 不确定进度）、`result`（成功 / 警告 / 失败，可自动收起，悬停时暂停）、`notice`（建议操作）和 `pending`（未保存的修改：放弃 / 保存），按 key 调用 `StatusBar.<预设>(key, …)` 更新、`StatusBar.clear(key)` 收起。状态栏外圆角 = 内部控件圆角 + 内边距 + 边框（控件 2rem 胶囊、内边距 0.5rem），内外弧线同心。
+- 资源管理页与设置页使用统一的底部状态栏（`static/status-bar.js`）：固定在视口底部居中，页面底部自动留出空间，下拉菜单显示在状态栏之上。状态栏只放当前视图的操作；后台任务（扫描、刷新评分、关联结果）交给全站侧栏的任务中心（`static/task-center.js`），没有任务中心的页面才显示在状态栏上层。预设有 `selection`（已选 N 项 + 批量操作）、`check`（校验结果 + 提交）、`progress`（确定 / 不确定进度）、`result`（成功 / 警告 / 失败，可自动收起，悬停时暂停）、`notice`（建议操作）和 `pending`（未保存的修改：放弃 / 保存），按 key 调用 `StatusBar.<预设>(key, …)` 更新、`StatusBar.clear(key)` 收起。状态栏外圆角 = 内部控件圆角 + 内边距 + 边框（控件 2rem 胶囊、内边距 0.5rem），内外弧线同心。
 - 资源管理里的弹窗（选择作品、扫描目录、删除作品）统一居中、淡入并轻微放大；选择作品弹窗高度固定，从待关联打开时自动按预填名称搜索。概览卡片试用图片后，卡片标题旁显示“未保存”，底部状态栏提供“放弃 / 保存”（多部作品可一次保存），离开页面前会提醒。
 - 圆角统一使用超椭圆（`corner-shape: squircle`）。子元素继承父级圆角时需一并写 `corner-shape: inherit`，并把半径减去父级边框宽度，否则悬停底色在四角会露出缝隙。

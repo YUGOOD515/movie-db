@@ -43,9 +43,8 @@ uv run flask --app app run                # or the plain Flask development serve
 | `scripts/` | Command-line tools: thumbnails, ratings, snapshot publishing, `.env` check… |
 | `packaging/` | Build scripts for the Windows / macOS installers and the slim ffprobe |
 | `cloud/` | Cloudflare Workers for the read-only snapshot |
-| `archive/` | Historical material no longer used at runtime |
 
-Coding conventions are in [AGENTS.MD](../../AGENTS.MD) (Chinese).
+Coding conventions are in [AGENTS.MD](../../AGENTS.MD); design notes are in [frontend](../design/frontend.md), [backend](../design/backend.md) and [HTTP API](../design/api.md) (all in Chinese).
 
 ## Tests
 
@@ -59,7 +58,7 @@ uv run --with pytest python -m pytest -q
 
 A local replay server serves Chinese TMDB data and MDBList ratings for *Breaking Bad* only (IMDb `tt0903747` / TMDB `1396`) and never calls remote APIs. Search accepts Simplified / Traditional Chinese, English and partial names; details, `append_to_response`, seasons and episodes, IMDb mappings and the images used by search and import are supported. Anything else returns empty results or 404.
 
-The snapshot lives in `local-test-data/breaking-bad/` (ignored by Git), separate from the library and `static/images`, so deleting the title in the app doesn't touch it. It contains real API responses, the related library rows, stills / posters / backdrops / logos / cast photos, an image URL map and a SHA-256 manifest. Episode `find` responses are assembled from the saved season data and episode `external_ids`; older snapshots without translations replay as untranslated. AList videos are not copied.
+The snapshot lives in `local-test-data/breaking-bad/` (ignored by Git), separate from the library and `static/images`, so deleting the title in the app doesn't touch it. It contains real API responses, the related library rows, stills / posters / backdrops / logos / cast photos, an image URL map and a SHA-256 manifest. Episode `find` responses are assembled from the saved season data and episode `external_ids`; older snapshots without translations replay as untranslated. Drive videos are not copied.
 
 Run the local API in one terminal:
 
@@ -77,7 +76,7 @@ uv run flask --app app run --host 127.0.0.1 --port 5000
 ```
 
 - Existing tokens and keys can stay; the local server ignores credentials. Without any, set `TMDB_TOKEN` and `MDBLIST_APIKEY` to `local-test`.
-- AList works as usual; the IMDb ratings file still comes from the official site.
+- Drive listing and playback work as usual; the IMDb ratings file still comes from the official site.
 - Set the variables in the process that actually starts MovieDB and restart it to clear caches — editing `.env` alone does not replace the TMDB addresses. Remove the three variables and restart to go back to the real services.
 
 To capture a fresh snapshot, run `uv run python scripts/capture_breaking_bad.py --output local-test-data/breaking-bad-new` and start the replay server with `--data local-test-data/breaking-bad-new`. Capturing calls the remote APIs but never writes to the library; existing snapshot folders are never overwritten.
@@ -119,7 +118,17 @@ Rare formats the slim build doesn't know only lose their quality info; importing
 
 `.github/workflows/windows-package.yml` (“安装包（Windows / macOS）”) runs on pushes to `main`, `release/**`, `feat/**` and `perf/**` that touch program files. It builds and verifies the slim ffprobe, builds the Windows installer and portable zip and the macOS `.dmg` for both architectures, and tests installation, the portable data location, migration of old data and the `.dmg` signature. Build artifacts of any branch can be downloaded at the bottom of the run page (GitHub sign-in required).
 
-On `main`, if no release `v<version from pyproject.toml>` exists yet, one is created with the installers attached; its notes are the `## v<version>` section of [CHANGELOG.md](../../CHANGELOG.md). To release: bump the version in `pyproject.toml`, rename the CHANGELOG's “未发布” (Unreleased) section to that version, and merge into `main`.
+On `main`, if no release `v<version from pyproject.toml>` exists yet, one is created with the installers attached; its notes are the `## v<version>` section of [CHANGELOG.md](../../CHANGELOG.md).
+
+The changelog is not updated commit by commit; it is written from the Git history at release time. To cut a release:
+
+1. Merge the latest `origin/main` and make sure the working tree is clean.
+2. Run `git log v<previous>..HEAD --no-merges --format="%h %s%n%b"` and add the user-visible changes to the “未发布” (Unreleased) section of CHANGELOG, grouped by topic (playback, drives and import, UI, security…). Each entry says what changed and how it affects users; pure refactors, tests and developer docs are left out.
+3. Check README and `docs/` against those changes: search for the affected features, settings and UI names, fix outdated text, and make sure the English and Chinese docs still match section by section.
+4. Rename “未发布” to `## v<new version>` with an empty “未发布” above it; bump the version in `pyproject.toml` and run `uv lock` to update `uv.lock`. New features bump the minor version; fixes only bump the patch version.
+5. Run the tests and merge into `main`; CI creates the Release.
+
+In Claude Code, `/release` runs these steps.
 
 ## Front-end conventions
 
@@ -127,6 +136,6 @@ On `main`, if no release `v<version from pyproject.toml>` exists yet, one is cre
 - Posters and backdrops show a BlurHash placeholder before fading in. The color table `static/thumbnails/tones.json` is generated on import and filled in for older images at startup (skip with `MOVIEDB_TONES_DISABLED=1`).
 - On desktop, posters tilt on hover, lists fade in as they enter the viewport, and cards morph into detail pages with shared-element View Transitions (Chrome / Edge / Safari 18+). Everything is disabled when the system asks for reduced motion.
 - Third-party libraries (Embla Carousel, Motion, vanilla-tilt, BlurHash — all MIT) are vendored in `static/vendor/`; no CDN.
-- Media management uses one bottom status bar (`static/status-bar.js`), centered at the bottom of the viewport; the page reserves space for it and drop-downs open above it. The upper layer shows background tasks (AList scan, rating refresh, link results), the lower layer the current view's actions. Presets: `selection` (N selected + bulk actions), `check` (validation + submit), `progress` (determinate / indeterminate), `result` (success / warning / error, auto-dismiss, paused on hover), `notice` (suggested action) and `pending` (unsaved changes: discard / save). Update with `StatusBar.<preset>(key, …)` and dismiss with `StatusBar.clear(key)`. Outer radius = inner control radius + padding + border (2rem pill controls, 0.5rem padding), so the curves are concentric.
+- Media management and Settings use one bottom status bar (`static/status-bar.js`), centered at the bottom of the viewport; the page reserves space for it and drop-downs open above it. It only holds the current view's actions; background tasks (scans, rating refresh, link results) go to the task center in the site sidebar (`static/task-center.js`), and only pages without a task center show them in the status bar's upper layer. Presets: `selection` (N selected + bulk actions), `check` (validation + submit), `progress` (determinate / indeterminate), `result` (success / warning / error, auto-dismiss, paused on hover), `notice` (suggested action) and `pending` (unsaved changes: discard / save). Update with `StatusBar.<preset>(key, …)` and dismiss with `StatusBar.clear(key)`. Outer radius = inner control radius + padding + border (2rem pill controls, 0.5rem padding), so the curves are concentric.
 - Dialogs in media management (pick a title, scan folders, delete a title) are centered and fade in with a slight zoom. The title picker has a fixed height and searches the prefilled name when opened from the pending list. After trying another image on an overview card, the card shows “unsaved” and the status bar offers discard / save (several titles at once), with a warning before leaving the page.
 - Corners use superellipses (`corner-shape: squircle`). A child that inherits its parent's radius must also set `corner-shape: inherit` and subtract the parent's border width from the radius, or the hover background shows gaps in the corners.

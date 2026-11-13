@@ -2,49 +2,45 @@
 
 ## 项目简介
 
-当前项目是一个本地影视资源管理网页，遵循 MVC 架构原则，即Model、Connector、View原则。
+本地影视资源管理网页，Flask + Jinja 实现，按 Model / Connector / View 分层。影视资料以 TMDB 为准，IMDb ID 是主键；媒体文件来自内置网盘层或 AList / OpenList 透传。
 
-录入时以 TMDB 作为影视主数据（标题、年份、分类、季集、简介、演员和图片），IMDb ID 仍是主键；IMDb 评分来自官方 `title.ratings.tsv.gz`，MDBList 提供多平台评分；内置网盘层与 AList / OpenList 透传保存本地媒体来源。电影和剧集的共用查询、图片及数据库写入流程已经合并整理。标题图片目录以 Title ID（IMDb ID）命名存放在 static/images 目录。
+本文件只写我的偏好和必须遵守的约定，细节在设计文档里，改到相关部分时先读对应文档：
+
+- [docs/design/frontend.md](docs/design/frontend.md)：网格与间距、管理页 Design system、组件与脚本
+- [docs/design/backend.md](docs/design/backend.md)：分层、数据库、SQL 书写、录入规则、外部服务、播放来源
+- [docs/design/api.md](docs/design/api.md)：路由清单、错误格式、状态码、安全检查
+- [docs/zh-CN/development.md](docs/zh-CN/development.md)：运行、测试、打包、发布
+
+`.planning/` 保存整个开发历史中的全部计划文件（每个任务一份 `task_plan.md` / `findings.md` / `progress.md`），其中很多方案已经被推翻或重构。参考时先看文件的最后修改时间（`git log -1 --format=%cs -- <目录>`），越早的越可能过时；与代码或设计文档冲突时，以代码和设计文档为准。
+
+## 常用命令
+
+- 启动：`uv run flask --app app run --host 127.0.0.1 --port 5055`
+- Python 测试：`uv run --with pytest python -m pytest -q`（单个文件把路径加在最后）
+- 前端规则测试：`node --test tests/test_filename_rules.cjs`
+
+改完代码后跑相关测试；改了页面就打开页面看一眼效果。
 
 ## Model
 
-媒体展示数据只存 `library.db`，共八表（`title_basic` / `title_relation` / `title_artwork` / `title_cast` / `media_file` / `playback_progress` / `collection` / `collection_item`）。`title_basic` 保存 TMDB 字段及 IMDb 评分（`average_rating`、`num_votes`），`title_cast` 保存电影和剧集的主要演员。单集直接保存季号与集号，不设置 season 和 collection 实体。读操作集中在 @queries/，写操作集中在 @models/library.py；@connectors/ 对接 TMDB、IMDb 评分文件、MDBList、网盘、ffprobe 与本机播放器（MPC-HC / IINA / mpv / VLC），@services/ 编排录入和播放业务。
-
-SQL 代码书写准则：https://www.sqlstyle.guide/zh/
-
-录入规则：中文名按 TMDB zh-CN → TW → HK 回退；分类按 `tmdb.GENRE_NAMES` 转成 IMDb 英文分类；没有 IMDb ID 的单集不录入。重新录入时库内已有的名称、分类和季集关系保持不变，评分缺失时保留旧值。评分文件缓存在 `imdb/`（Git 忽略），超过一天自动重新下载。
-
-其余本机状态（扫描目录、扫描快照、识别缓存、忽略列表、已确认别名、源文件健康、TMDB 查询缓存、关联任务、网盘配置与凭据、API 用量与评分缓存）单独存于 `local.db`（@models/local_store.py），不写入 `library.db`，以免触发云端同步。识别流程在 @services/recognition.py（名称清洗在 @services/name_cleaning.py），只产出建议，入库仍走 `media_association.complete`；AI 通过 @connectors/llm.py 调用 OpenAI 兼容接口，结果必须经 TMDB 校验。批量识别 `recognize_many` 是规则 / AI / 核对三段流水线，外部请求的速率与并发统一由 @connectors/throttle.py 控制（429 时并发自动减半），不要在调用方另加限速。
-
-关联任务由 @services/import_jobs.py 按根 Title ID 调度，通过 @models/import_store.py 持久化到 `local.db`；探测、图片与派生处理共用 @services/import_runtime.py 的有界资源池。核心关联提交后继续补齐资料，恢复时复用探测检查点；签名链接与令牌不存入任务。MDBList 请求预算及评分缓存也存于 `local.db`（@models/api_usage.py），重试也消耗预算，不进入云端快照。
-
-豆瓣评分走 @connectors/douban.py 与独立单并发评分队列，核心导入不等待它；IMDb → 豆瓣 ID 优先由 Wikidata 批量映射。豆瓣与 Wikidata 请求仍统一走 throttle，豆瓣被拒绝时暂停 30 分钟；评分缓存复用 `local.db`。旧库的豆瓣字段在本机启动时由 `upgrade_library` 补齐，只读云端不执行迁移。
+- 读写分开：页面读 `library.db` 的 SQL 放 `queries/`，写操作放 `models/`。
+- SQL 按 https://www.sqlstyle.guide/zh/ 书写，现有写法参考 `queries/home.py`；值用参数传入，不拼进字符串。
+- 媒体展示数据放 `library.db`；凭据和本机状态放 `local.db`，因为 `library.db` 会同步到云端快照。
 
 ## Connector
 
-采用 Flask + Jinja 三层结构：@app.py 路由只做"查询 → 整理 → 渲染"编排；@queries/ 只查数据库，@viewmodels/ 把查询结果整理成页面形状（poster/backdrop 卡片、进度、徽章、播放文案），Jinja 只负责 HTML 显示，不做业务判断。媒体数据流为 @services/* → @services/media_source.py → @connectors/drives/；播放器与 ffprobe 只使用 MovieDB 的 `/stream` 地址，转发逻辑在 @services/media_stream.py。来源路由是显式的（`media_source.route`）：路径第一级由同名网盘提供，停用后不可用，只有用户选择“改由透传提供”（`local.db` 的 `drive_route`）才交给透传 `*`；改变路由的网盘操作会触发重新扫描。驱动返回的时间统一为 UTC（`drives/base.utc_iso`），版本比较按时刻（`same_instant`）；`/stream` 地址跟随实际监听端口。
+这里的 Connector 指路由编排层（`app.py`），不是对接外部服务的 `connectors/` 目录。
+
+- 路由只做“查询 → 整理 → 渲染”：`queries/` 查库，`viewmodels/` 整理成页面数据，Jinja 只负责显示。路由里不写 SQL，也不拼页面数据。
+- 业务流程放 `services/`，外部服务调用放 `connectors/`，限速统一交给 `connectors/throttle.py`。
 
 ## View
 
-使用 HTML、CSS、JavaScript 完成即可，适当引入第三方库用于加快进度。当前已有精简的 Bootstrap 媒体关联页面。
-
-前端优先使用 Bootstrap 原生组件和工具类，仅为媒体展示与必要交互保留少量自定义 CSS；本项目不使用 `design-taste-frontend` skill。
-
-布局沿用 12 栏网格：`style.css` 顶部定义圆角等令牌与 `--grid-col` / `--grid-gap`，跨栏尺寸写成 `--grid-col` 的倍数。设置页、网盘页与任务详情抽屉共用 `style.css` 的 Design system 段（`ui-*` 分组卡片、12 栏行、按分区上色的图标块、状态标签、高级选项按钮行、`btn-tonal` / `btn-ghost`），对齐线与层级规则写在该段注释里；分区色登记在 `settings.SECTIONS` 的 `hue`。导入任务详情由 `viewmodels/tasks.py` 整理，`/manager/tasks/detail` 只在打开抽屉时读取文件与探测结果。通用模板片段在 `templates/_ui.html`；`site.js` 只放全站行为，页面脚本按页拆分（`detail.js`、`manager.js` 等）。
-
-动效集中在 `effects.js`（BlurHash 占位、海报倾斜、入场动画、页面共享元素转场），首页轮播在 `home.js`；第三方库放在 `static/vendor/`（见其 README），不走 CDN；评分图标放在 `static/icons/ratings/` 随仓库提交（安装包只打包 git 跟踪的文件）。海报 / 背景图的环境色与 BlurHash 存于 `static/thumbnails/tones.json`，录入时生成、启动时补齐，模板用 `image_tone` 过滤器读取。
-
-## 设置
-
-可配置项以 @services/settings.py 的 `SECTIONS` 清单为唯一来源：设置页按它渲染、保存时按它校验并写入 `.env`、测试核对 `.env.example`；新增环境变量时登记到清单并补进 `.env.example`。保存后由 `settings.apply` 让修改立即生效，只有标记 `restart` 的项需要重启（桌面版通过 `app.config["RESTART_HANDLER"]` 重启）。首次引导 `/setup` 只在媒体库建好前出现。
-
-TMDB 密钥：用户填写的 `TMDB_TOKEN` 优先，留空时用安装包内置的 `connectors/tmdb_builtin.py`（Git 忽略，CI 构建时由仓库 Secret `TMDB_BUILTIN_TOKEN` 经 `packaging/build_windows.py` 的 `write_builtin_token` 写入；源码运行没有内置密钥）。`tmdb.auth()` 按格式区分 v3 API Key（查询参数）与读访问令牌（Bearer）；接口地址是官方域名时，连不上会在 `api.themoviedb.org` 与 `api.tmdb.org` 之间自动切换（`tmdb.use_origin`）。图片可能走第三方 CDN（wsrv.nl），下载图片时不要带上密钥。
-
-文件位置统一从 @services/paths.py 取：程序文件在 `paths.APP_DIR`，用户数据（`library.db`、`local.db`、`.env`、`static/images`、`static/thumbnails`、`imdb/`、`logs/`）在 `paths.DATA_DIR`（源码运行时两者相同，安装版分开）；不要再用 `Path(__file__)` 拼数据路径。代码要同时能在 Windows 与 macOS 上运行，平台差异集中处理（如 `desktop.py`、`desktop_window.py`、`connectors/player.py`）；桌面版界面是 pywebview 原生窗口，页面里通过 `window.pywebview.api` 调用的接口在 `desktop_window.Api`。
-
-## 云端只读快照
-
-`cloud/` 下为 Cloudflare Worker：本机离线时提供只读快照，界面复用同一套模板。只读模式由 `MOVIEDB_READ_ONLY=1` 开启，只放行 `READ_ONLY_ENDPOINTS` 中的 GET 页面；新增只读页面时须加入该集合，写操作无需额外处理。
+- 用 HTML、CSS、JavaScript 完成，前端优先使用 Bootstrap 原生组件和工具类；只有媒体展示和 Bootstrap 做不到的交互才写自定义 CSS。不使用 `design-taste-frontend` skill。
+- 可以引入第三方库来加快进度，放进 `static/vendor/` 并在其 README 登记，不走 CDN。
+- 卡片要对齐成竖线：内容包在 `container-xl` 里；卡片水平间距全站统一，小于 992px 用 1rem、992px 及以上用 1.5rem（网格 `g-3 g-lg-4`，轨道 `gap-3 gap-lg-4`）；按栏定宽时用 `--grid-col` / `--grid-gap` 计算。完整规则见 frontend.md。
+- 设置页、网盘页等管理页面复用 `ui-*` 类和 A–D 对齐线，不另写一套。
+- 界面文案用中文。
 
 ## 进度存储区
 
@@ -52,4 +48,8 @@ TMDB 密钥：用户填写的 `TMDB_TOKEN` 优先，留空时用安装包内置�
 
 ## Tips
 
-该 AGENTS.MD 需要保持简洁，不得过度约束与工程化，记录项目主干。
+- 保持简单，不过度约束、不过度工程化：只做需求要的改动，不顺手重构或加配置项。
+- 代码要在 Windows 和 macOS 上都能运行。
+- 提交信息用中文，第一行写成用户能看懂的一句话，概括改了什么、为什么改。CHANGELOG 不逐次更新，发版时直接用提交信息汇总（步骤见 development.md 的“持续集成与发布”）。
+- 修改 `docs/zh-CN/` 时，在同一次提交里同步修改 `docs/en/` 的对应段落。
+- 改变某项约定时，同步更新对应的设计文档；本文件只记录项目主干，保持简短。
