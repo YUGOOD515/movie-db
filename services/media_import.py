@@ -13,13 +13,14 @@ from pathlib import Path
 
 import requests
 
-from connectors import events, imdb_ratings, media_probe, throttle, tmdb
+from connectors import events, media_probe, throttle, tmdb
 from models.database import connect_database, connect_writable
 from models.library import import_media_bundle, enrich_media_bundle
 from queries.association import get_douban_id, get_existing_artwork_slots, get_file_targets, get_series_episodes
 from services.rating_sync import fetch_douban_rating, fetch_title_rating
 from services.image_tones import ensure_tones, compute_tone, merge_tones, wants_tone
 from services.thumbnails import ensure_thumbnail, normalize_image_path, generate_thumbnail, get_target_size_for_path, shrink_original
+from services import imdb_identity
 from services import import_runtime as runtime
 from services import media_source
 
@@ -621,17 +622,13 @@ def _result(prepared: PreparedMediaImport, file_id: int) -> dict:
 
 
 def _apply_imdb_ratings(prepared_items: list[PreparedMediaImport]) -> dict | None:
-    """从 IMDb 评分文件填入 average_rating / num_votes；不可用时保留库内旧值。"""
+    """从 IMDb 本地库填入 average_rating / num_votes；尚未建立时保留库内旧值，建立后统一补齐。"""
     titles = {
         title["title_id"]: title
         for prepared in prepared_items
         for title in prepared.bundle.titles
     }
-    try:
-        ratings = imdb_ratings.lookup_ratings(titles)
-    except (OSError, ValueError, EOFError) as error:
-        logger.warning("IMDb 评分文件读取失败：%s", error)
-        return {"status": "error", "message": "IMDb 评分文件读取失败"}
+    ratings = imdb_identity.ratings(titles)
     for title_id, (rating, votes) in ratings.items():
         titles[title_id]["average_rating"] = rating
         titles[title_id]["num_votes"] = votes

@@ -13,27 +13,28 @@
 
 ![Settings page](../images/settings.webp)
 
-Once the library exists, **Manage → Settings** (管理 → 设置, `/settings`) has four tabs:
+Once the library exists, **Manage → Settings** (管理 → 设置, `/settings`) has three tabs:
 
 | Tab | Contents |
 |---|---|
-| Connection (连接) | Drives, pending-file scanning, player, ffprobe, cloud read-only snapshot, local port |
-| Metadata (元数据) | TMDB, MDBList, IMDb ratings and episode index |
+| Connection (连接) | Player, ffprobe, cloud read-only snapshot, local port |
+| Metadata (元数据) | TMDB, MDBList, IMDb data; **Wipe data** (清除数据) is at the bottom of the page |
 | AI | Provider, model, endpoint, concurrency and more |
-| Data (数据) | Wipe local data |
 
-Each group shows its status and has its own **Check** (检测) button; less common options are under **Advanced** (高级). Save or discard changes in the bar at the bottom.
+Each group shows its status next to its title: always “正常” (OK) when working, with extra detail after it (for example “正常 · 内置密钥”, built-in key); grey when not configured or turned off, and the reason when something is wrong. Each group has its own **Check** (检测) button; less common options are under **Advanced** (高级). Save or discard changes in the bar at the bottom.
+
+Drive request rates, pending-file scanning, the TMDB proxy, the Douban ratings switch and the location of `local.db` are not shown on the settings page; set them directly in `.env` if needed (see [Environment variables](#environment-variables)). Mounts and drive credentials are managed under **Manage → Drives**.
 
 - Saved passwords and keys are never shown again — leave a field empty to keep it. Optional keys can be cleared individually. Turning AI recognition off also clears its endpoint, model and API key.
 - Settings are written to `.env` in the data folder (existing comments and other variables are preserved) and take effect immediately, except the port (`MOVIEDB_PORT`) and the interface mode (`MOVIEDB_UI`). After changing either, the desktop app can restart itself from the settings page or the tray menu (**Restart MovieDB**); other ways of running need a manual restart.
 - Settings can only be changed on the computer running MovieDB: they are read-only over a Cloudflare Tunnel and not available in the cloud snapshot.
 - Before a library exists (no `library.db`), `/setup` shows the first-run walkthrough; afterwards it redirects to the settings page.
 
-**Metadata → IMDb episode index** (元数据 → IMDb 单集库) offers **Check for updates** and manual / daily / weekly (default) modes. The first update downloads the official episode table and builds `imdb/episodes.sqlite3`, about 161 MiB; the compressed source is temporary. Settings and background tasks show progress and errors, and failed updates keep the old index. ETag checks avoid downloading and rebuilding unchanged data. Scheduled checks run while MovieDB is open and catch up after the next launch. A new index triggers recognition again, without automatically linking files; uncertain identities or episode numbers still require review. This local index is excluded from cloud snapshots.
+**Metadata → IMDb data** (元数据 → IMDb 数据) offers **Check for updates** and manual / daily / weekly (default) modes. The official ratings and episode tables are downloaded together and built into one local database, `imdb/index.sqlite3` (about 200 MiB); the status label shows when the data was updated, and the compressed sources are temporary. Progress appears in the status label and background tasks, errors below the group, and failed updates keep the old index. ETag checks avoid downloading and rebuilding when neither file changed. Once a new index is published, IMDb ratings for every title and episode in the library are updated right away. Scheduled checks run while MovieDB is open and catch up after the next launch. A new index triggers recognition again, without automatically linking files; uncertain identities or episode numbers still require review. This local index is excluded from cloud snapshots.
 
 ## Wiping data
 
-**Settings → Data** deletes local data and returns to the first-run walkthrough. You can choose:
+**Wipe data** (清除数据) at the bottom of **Settings → Metadata** deletes local data and returns to the first-run walkthrough. You can choose:
 
 - the library (`library.db` — links, watch progress and collections)
 - the recognition cache and scan records (`local.db`)
@@ -91,8 +92,7 @@ Mounts and credentials are managed under **Manage → Drives** and stored in `lo
 | `TMDB_API_ORIGIN`, `TMDB_IMAGE_ORIGIN` | Reverse proxy or mirror, defaults `https://api.themoviedb.org/3` and `https://image.tmdb.org/t/p`. With no API origin set, MovieDB switches to the official `api.tmdb.org` domain when the main one is unreachable; if posters don't load, set the image origin to the public relay `https://wsrv.nl/?url=https://image.tmdb.org/t/p` (third-party) |
 | `MDBLIST_APIKEY` | MDBList API key for Rotten Tomatoes, Metacritic and other ratings |
 | `DOUBAN_ENABLED` | Fetch Douban ratings on import and rating refresh (default on, `0` turns it off). Uses Douban's unofficial app API, which may stop working; when Douban refuses requests MovieDB pauses for 30 minutes |
-| `IMDB_RATINGS_PATH` | Location of the official IMDb ratings file, default `imdb/` in the data folder |
-| `IMDB_EPISODES_UPDATE` | Episode-index updates: empty for weekly, `daily` for daily, `manual` for manual only; changes apply immediately |
+| `IMDB_EPISODES_UPDATE` | IMDb data (ratings and episode IDs) updates: empty for weekly, `daily` for daily, `manual` for manual only; changes apply immediately |
 
 **AI recognition** (any OpenAI-compatible API, see [Adding media → AI recognition](adding-media.md#ai-recognition))
 

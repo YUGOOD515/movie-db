@@ -8,10 +8,11 @@ from contextlib import closing
 
 import requests
 
-from connectors import douban, imdb_ratings, mdblist
+from connectors import douban, mdblist
 from models.database import connect_database
 from models.library import update_imdb_ratings, update_title_ratings
 from queries.manager import get_all_title_ids
+from services import imdb_identity
 
 
 DEFAULT_WORKERS = 3
@@ -174,10 +175,10 @@ def refresh_douban_ratings(database_path: str | Path, progress_callback=None) ->
 
 
 def refresh_imdb_ratings(database_path: str | Path) -> int:
-    """用 IMDb 官方评分文件更新库内全部作品（含单集），返回变化的行数。"""
+    """用 IMDb 本地库的评分更新库内全部作品（含单集），返回变化的行数。"""
     with closing(connect_database(database_path)) as db:
         title_ids = get_all_title_ids(db)
-    return update_imdb_ratings(database_path, imdb_ratings.lookup_ratings(title_ids))
+    return update_imdb_ratings(database_path, imdb_identity.ratings(title_ids))
 
 
 def sync_title_ratings(

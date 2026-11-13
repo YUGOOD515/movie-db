@@ -91,7 +91,7 @@ def snapshot(database):
         building = index.get("phase") == "build"
         detail_text = (f"已处理 {index.get('processed_rows', 0):,} 条" if building else
                        f"已下载 {index.get('downloaded', 0) / 1048576:.1f} MiB") if index["running"] else index.get("message", "")
-        entries.append({"id": "imdb-episodes", "kind": "imdb", "name": "更新 IMDb 单集库",
+        entries.append({"id": "imdb-episodes", "kind": "imdb", "name": "更新 IMDb 数据",
                         "phase": ("imdb-build" if building else "imdb-download") if index["running"] else "failed" if index.get("error") else "complete",
                         "state": "running" if index["running"] else "failed" if index.get("error") else "complete",
                         "done": 0, "total": 0, "detail": detail_text, "updated_at": index.get("finished_at", index["started_at"]),

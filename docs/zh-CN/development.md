@@ -37,7 +37,7 @@ uv run flask --app app run                # 也可以直接用 Flask 开发服�
 | `models/` | 写操作：`library.py`（媒体库）、`local_store.py` / `drive_store.py`（`local.db`） |
 | `viewmodels/` | 页面 ViewModel |
 | `services/` | 导入、关联、识别、播放、删除、设置、数据目录等业务；`media_source.py` 统一挂载解析，`media_stream.py` 负责 `/stream` 转发 |
-| `connectors/` | 外部接口：TMDB、MDBList、IMDb 评分、AI、ffprobe、播放器、限速；`drives/` 为内置网盘与 AList / OpenList 透传驱动 |
+| `connectors/` | 外部接口：TMDB、MDBList、IMDb 数据集、AI、ffprobe、播放器、限速；`drives/` 为内置网盘与 AList / OpenList 透传驱动 |
 | `templates/`、`static/` | Jinja 模板、样式与按页拆分的脚本；第三方库在 `static/vendor/` |
 | `migrations/` | 数据库结构，`library_schema.sql` 为当前结构 |
 | `scripts/` | 命令行工具：缩略图、评分、快照发布、`.env` 核对等 |
@@ -76,7 +76,7 @@ uv run flask --app app run --host 127.0.0.1 --port 5000
 ```
 
 - 原有 Token / API Key 可保留，本地服务器忽略凭据；没有凭据时可把 `TMDB_TOKEN` 和 `MDBLIST_APIKEY` 设为 `local-test`。
-- 网盘列目录和播放照常运行；IMDb 评分文件仍从官方地址下载。
+- 网盘列目录和播放照常运行；IMDb 数据仍从官方地址下载。
 - 环境变量要设置在实际启动 MovieDB 的进程中，并重启应用以清空旧缓存；只编辑 `.env` 不会替换 TMDb 地址。恢复远程服务时移除这三个变量并重启。
 
 重新抓取：`uv run python scripts/capture_breaking_bad.py --output local-test-data/breaking-bad-new`，再用 `--data local-test-data/breaking-bad-new` 启动回放服务器。抓取会访问远程 API，但不写业务库；已有快照目录禁止覆盖。

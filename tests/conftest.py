@@ -21,7 +21,7 @@ def fast_throttle(monkeypatch, tmp_path):
     monkeypatch.setattr(throttle, "_backoff", lambda attempt: 0.0)
     monkeypatch.setenv("MOVIEDB_LOCAL_DATABASE", str(tmp_path / "local.db"))
     from services import imdb_identity
-    monkeypatch.setattr(imdb_identity, "index_path", lambda: tmp_path / "imdb" / "episodes.sqlite3")
+    monkeypatch.setattr(imdb_identity, "index_path", lambda: tmp_path / "imdb" / "index.sqlite3")
     # 部分桌面端点用例会暂时关闭 TESTING，仍不能启动真实的下载调度线程。
     monkeypatch.setattr(imdb_identity, "start_scheduler", lambda database: None)
     monkeypatch.setattr(imdb_identity, "wake_scheduler", lambda database: None)

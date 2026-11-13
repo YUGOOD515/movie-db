@@ -1,5 +1,3 @@
-import gzip
-import os
 import sqlite3
 import tempfile
 import unittest
@@ -7,49 +5,11 @@ from contextlib import closing
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-import requests
-
-from connectors import imdb_ratings, tmdb
+from connectors import tmdb
 from models.library import import_media_bundle
 from services import rating_sync
 
 ROOT = Path(__file__).resolve().parents[1]
-
-
-def write_ratings(path, rows):
-    with gzip.open(path, "wt", encoding="utf-8") as file:
-        file.write("tconst\taverageRating\tnumVotes\n")
-        for row in rows:
-            file.write("\t".join(map(str, row)) + "\n")
-
-
-class ImdbRatingsTest(unittest.TestCase):
-    def setUp(self):
-        self.directory = tempfile.TemporaryDirectory()
-        self.addCleanup(self.directory.cleanup)
-        self.path = Path(self.directory.name) / "title.ratings.tsv.gz"
-
-    def test_lookup_streams_only_requested_titles(self):
-        write_ratings(self.path, [("tt0000001", 5.7, 2100), ("tt0903747", 9.5, 2400000)])
-        self.assertEqual(
-            imdb_ratings.lookup_ratings(["tt0903747", "tt404"], self.path),
-            {"tt0903747": (9.5, 2400000)},
-        )
-        self.assertEqual(imdb_ratings.lookup_ratings([], self.path), {})
-
-    def test_fresh_file_skips_download_and_failed_refresh_keeps_old_file(self):
-        write_ratings(self.path, [("tt1", 7.0, 10)])
-        with patch.object(imdb_ratings.requests, "get") as get:
-            self.assertEqual(imdb_ratings.ensure_ratings_file(self.path), self.path)
-            get.assert_not_called()
-        os.utime(self.path, (0, 0))
-        with patch.object(imdb_ratings.requests, "get", side_effect=requests.Timeout("offline")):
-            self.assertEqual(imdb_ratings.ensure_ratings_file(self.path), self.path)
-        self.assertEqual(imdb_ratings.lookup_ratings(["tt1"], self.path), {"tt1": (7.0, 10)})
-        missing = Path(self.directory.name) / "missing.tsv.gz"
-        with patch.object(imdb_ratings.requests, "get", side_effect=requests.Timeout("offline")):
-            self.assertIsNone(imdb_ratings.ensure_ratings_file(missing))
-        self.assertFalse(missing.with_name(missing.name + ".part").exists())
 
 
 def translations(*items):
@@ -169,9 +129,8 @@ class LibraryRatingsTest(unittest.TestCase):
 
     def test_refresh_updates_every_title_from_the_ratings_file(self):
         self.write([self.row(), self.row(title_id="tt2", title_type="episode")], "/a.mkv")
-        path = Path(self.directory.name) / "ratings.tsv.gz"
-        write_ratings(path, [("tt1", 8.0, 100), ("tt2", 9.1, 321)])
-        with patch.object(imdb_ratings, "ensure_ratings_file", return_value=path):
+        from services import imdb_identity
+        with patch.object(imdb_identity, "ratings", return_value={"tt1": (8.0, 100), "tt2": (9.1, 321)}):
             self.assertEqual(rating_sync.refresh_imdb_ratings(self.database), 1)
         with closing(sqlite3.connect(self.database)) as db:
             self.assertEqual(db.execute("SELECT average_rating, num_votes FROM title_basic WHERE title_id = 'tt2'").fetchone(), (9.1, 321))

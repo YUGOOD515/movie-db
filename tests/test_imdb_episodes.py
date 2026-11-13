@@ -1,4 +1,4 @@
-"""官方单集索引：真实 SQLite、条件下载、原子更新和元数据回退。"""
+"""IMDb 本地库（单集 + 评分）：真实 SQLite、条件下载、原子更新和元数据回退。"""
 
 import gzip
 import sqlite3
@@ -12,6 +12,7 @@ from models import imdb_episodes as store
 from services import imdb_identity as identity
 
 HEADER = "tconst\tparentTconst\tseasonNumber\tepisodeNumber\n"
+RATINGS = "tconst\taverageRating\tnumVotes\ntt0000001\t8.5\t1200\ntt1000099\t7.1\t33\n"
 
 
 def source(path, rows="tt1000001\ttt0000001\t1\t1\n"):
@@ -40,6 +41,21 @@ def test_index_preserves_ambiguous_and_unknown_rows_without_guessing(tmp_path):
     assert store.lookup(path, "1 OR 1=1") == {}
     with sqlite3.connect(path) as db:
         assert "WITHOUT ROWID" in db.execute("SELECT sql FROM sqlite_master WHERE name='episode'").fetchone()[0]
+
+
+def test_ratings_share_the_index_and_ignore_invalid_ids(tmp_path):
+    ratings = tmp_path / "ratings.gz"
+    with gzip.open(ratings, "wt", encoding="utf-8") as file:
+        file.write(RATINGS)
+    path = tmp_path / "index.sqlite3"
+    store.build(source(tmp_path / "episodes.gz"), path, {"revision": "r"}, ratings_source=ratings)
+    assert store.info(path)["rating_rows"] == 2
+    assert store.ratings(path, ["tt0000001", "tt404", "x OR 1"]) == {"tt0000001": (8.5, 1200)}
+    assert store.ratings(tmp_path / "missing.sqlite3", ["tt0000001"]) == {}
+    bad = tmp_path / "bad.gz"
+    bad.write_bytes(gzip.compress(HEADER.encode()))
+    with pytest.raises(ValueError, match="评分文件格式"):
+        store.build(source(tmp_path / "episodes2.gz"), tmp_path / "bad.sqlite3", {"revision": "b"}, ratings_source=bad)
 
 
 @pytest.mark.parametrize("payload", [b"not gzip", gzip.compress(HEADER.encode()),
@@ -106,7 +122,10 @@ def run_refresh(monkeypatch):
 
 
 def test_update_304_does_not_rebuild_or_rescan(tmp_path, monkeypatch):
-    existing(tmp_path)
+    path = existing(tmp_path)
+    stale = path.parent / ".episodes-update-killed"  # 上次更新中途退出留下的临时目录
+    stale.mkdir()
+    (stale / "episodes.tsv.gz").write_bytes(b"partial")
     monkeypatch.setattr(remote, "download", Mock(return_value={"unchanged": True}))
     build = Mock(side_effect=AssertionError("must not rebuild"))
     monkeypatch.setattr(store, "build", build)
@@ -116,6 +135,7 @@ def test_update_304_does_not_rebuild_or_rescan(tmp_path, monkeypatch):
     assert identity.status()["message"] == "已是最新版本"
     assert not identity.status()["running"]
     scan.assert_not_called()
+    assert not stale.exists()
 
 
 @pytest.mark.parametrize("failure", [requests.Timeout("offline"), ValueError("文件损坏")])
@@ -127,30 +147,60 @@ def test_update_failure_preserves_old_index(tmp_path, monkeypatch, failure):
     assert path.read_bytes() == original
     assert identity.status()["error"]
     assert not identity.status()["running"]
-    assert not list(path.parent.glob(".episodes-update-*"))
+    assert not list(path.parent.glob(".imdb-update-*"))
     scan.assert_not_called()
 
 
-def test_successful_update_publishes_and_invalidates_recognition(tmp_path, monkeypatch):
-    existing(tmp_path)
-    def download(target, **kwargs):
-        assert kwargs["etag"] == '"v1"'
-        source(target, "tt1000099\ttt0000001\t1\t1\n")
-        return {"unchanged": False, "etag": '"v2"'}
-    monkeypatch.setattr(remote, "download", download)
+def fake_download(episode_rows="tt1000099\ttt0000001\t1\t1\n", calls=None):
+    def download(target, *, url, etag=None, progress=None):
+        if calls is not None:
+            calls.append((url, etag))
+        if url == remote.RATINGS_URL:
+            with gzip.open(target, "wt", encoding="utf-8") as file:
+                file.write(RATINGS)
+            return {"unchanged": False, "etag": '"r2"', "download_bytes": 10}
+        source(target, episode_rows)
+        return {"unchanged": False, "etag": '"v2"', "download_bytes": 20}
+    return download
+
+
+def test_successful_update_publishes_ratings_and_episodes_together(tmp_path, monkeypatch):
+    path = existing(tmp_path)
+    legacy = path.parent / "title.ratings.tsv.gz"
+    legacy.write_bytes(b"old")
+    calls = []
+    monkeypatch.setattr(remote, "download", fake_download(calls=calls))
+    from services import rating_sync
+    refresh = Mock()
+    monkeypatch.setattr(rating_sync, "refresh_imdb_ratings", refresh)
     scan = run_refresh(monkeypatch)
+    assert calls == [(remote.URL, '"v1"'), (remote.RATINGS_URL, None)]
     assert identity.revision() != "old"
     assert identity.episode_ids("tt0000001") == {(1, 1): "tt1000099"}
-    assert not identity.status()["running"]
+    assert identity.ratings(["tt1000099"]) == {"tt1000099": (7.1, 33)}
+    assert identity.status()["ratings_etag"] == '"r2"' and not identity.status()["running"]
+    assert not legacy.exists()
+    refresh.assert_called_once_with("library.db")
     scan.assert_called_once_with("library.db")
+
+
+def test_one_changed_file_downloads_both_again(tmp_path, monkeypatch):
+    existing(tmp_path)
+    calls, real = [], fake_download()
+    def download(target, *, url, etag=None, progress=None):
+        calls.append((url, etag))
+        return {"unchanged": True} if etag else real(target, url=url)
+    monkeypatch.setattr(remote, "download", download)
+    from services import rating_sync
+    monkeypatch.setattr(rating_sync, "refresh_imdb_ratings", Mock())
+    run_refresh(monkeypatch)
+    assert calls == [(remote.URL, '"v1"'), (remote.RATINGS_URL, None), (remote.URL, None), (remote.RATINGS_URL, None)]
+    assert identity.ratings(["tt0000001"]) == {"tt0000001": (8.5, 1200)}
 
 
 def test_abnormal_row_drop_keeps_old_database(tmp_path, monkeypatch):
     path = existing(tmp_path, "".join(f"tt{1000000+i}\ttt0000001\t1\t{i}\n" for i in range(1, 1002)))
-    def download(target, **kwargs):
-        source(target)
-        return {"unchanged": False}
-    monkeypatch.setattr(remote, "download", download)
+    monkeypatch.setattr(remote, "download", fake_download("tt1000001\ttt0000001\t1\t1\n"))
     run_refresh(monkeypatch)
     assert store.info(path)["rows"] == 1001
     assert "数据量异常" in identity.status()["error"]

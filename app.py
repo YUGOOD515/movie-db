@@ -416,7 +416,8 @@ def settings_imdb_episodes():
         return denied
     from services import imdb_identity
     started = imdb_identity.start_update(app.config["DATABASE"]) if request.method == "POST" else False
-    response = jsonify(ok=True, started=started, index=imdb_identity.status())
+    index = imdb_identity.status()
+    response = jsonify(ok=True, started=started, index=index, status=_settings.imdb_status(index))
     response.set_etag(hashlib.sha256(response.get_data()).hexdigest())
     response.cache_control.private = True
     response.cache_control.no_cache = True

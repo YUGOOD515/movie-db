@@ -12,10 +12,9 @@ import sys
 import threading
 import time
 from dataclasses import dataclass, field
-from pathlib import Path
 from urllib.parse import urlparse
 
-from connectors import imdb_ratings, llm, player, throttle, tmdb
+from connectors import llm, player, throttle, tmdb
 from services import env_file, setup_wizard
 
 KEEP = object()  # 密钥留空：保持已保存的值
@@ -153,19 +152,7 @@ else:
           hint="留空自动查找" + ("；可以直接选择 .app。" if IS_MACOS else "。")),
     )
 SECTIONS: tuple[Section, ...] = (
-    Section("connection", "连接", "影片来源、播放器与本机服务", (
-        Group("drive", "网盘", "从网盘读取和播放影片", (
-            S("DRIVE_RATE", "网盘每秒请求数", "float", 20, advanced=True, low=0.1, high=100, placeholder="20"),
-            S("DRIVE_CONCURRENCY", "网盘同时请求数", "int", 4, advanced=True, low=1, high=16, placeholder="4"),
-        ), icon="network"),
-        Group("scan", "待关联扫描", "发现新文件、检查失效文件", (
-            S("MOVIEDB_AUTOSCAN", "启动时自动扫描", "bool", True,
-              hint="MovieDB 启动后在后台扫描已选择的片库目录。"),
-            S("MEDIA_IMPORT_ROOT", "导入根目录", advanced=True, hint="只允许导入这个目录下的文件，留空不限制。",
-              placeholder="/夸克/影视"),
-            S("IMPORT_TITLE_CONCURRENCY", "核心关联作品并行数", "int", 4, advanced=True, low=1, high=16, placeholder="4",
-              hint="多个作品共用接口限额和视频探测池；图片与评分在独立资源池继续补齐。"),
-        ), icon="radar"),
+    Section("connection", "连接", "播放器与本机服务", (
         Group("player", "播放器", "播放影片并记录观看进度", PLAYER_SETTINGS, test="player", icon="circle-play"),
         Group("ffprobe", "ffprobe", "读取分辨率、HDR 与音轨", (
             S("FFPROBE_PATH", "程序路径", "path", placeholder="ffprobe", hint="安装包已自带；留空使用系统 PATH 中的 ffprobe。"),
@@ -192,14 +179,13 @@ SECTIONS: tuple[Section, ...] = (
     ), icon="plug", hue="blue"),
     Section("metadata", "元数据", "海报、简介、演员与评分", (
         Group("tmdb", "TMDB", "海报、简介、演员与季集", (
-            S("TMDB_PROXY", "代理", "url", placeholder="http://127.0.0.1:7890", hint="只用于访问 TMDB。"),
-            S("TMDB_TOKEN", "自己的密钥", "secret", advanced=True,
+            S("TMDB_TOKEN", "自己的密钥", "secret",
               hint="留空使用 MovieDB 内置的密钥。API 读访问令牌或 32 位 API Key 都可以。"),
-            S("TMDB_API_ORIGIN", "接口地址", "url", advanced=True, placeholder="https://api.themoviedb.org/3",
+            S("TMDB_API_ORIGIN", "接口地址", "url", placeholder="https://api.themoviedb.org/3",
               hint="留空时自动选择：api.themoviedb.org 连不上就改用 api.tmdb.org。使用反向代理或镜像时填写。"),
-            S("TMDB_IMAGE_ORIGIN", "图片地址", "url", advanced=True, placeholder="https://image.tmdb.org/t/p",
+            S("TMDB_IMAGE_ORIGIN", "图片地址", "url", placeholder="https://image.tmdb.org/t/p",
               hint="海报加载不出来时，可填公共图片加速 https://wsrv.nl/?url=https://image.tmdb.org/t/p（第三方服务）。"),
-            S("TMDB_RATE", "每秒请求预算", "float", 25, advanced=True, low=0.1, high=30, placeholder="25",
+            S("TMDB_RATE", "每秒请求预算", "float", 25, low=0.1, high=30, placeholder="25",
               hint="扫描、识别与导入共用预算；不积攒突发额度。"),
         ), test="tmdb", icon="image"),
         Group("mdblist", "MDBList", "烂番茄、Metacritic 等多平台评分", (
@@ -207,19 +193,12 @@ SECTIONS: tuple[Section, ...] = (
             S("MDBLIST_DAILY_BUDGET", "24 小时请求预算", "int", 900, advanced=True, low=1, high=100000, placeholder="900",
               hint="按连续 24 小时统计，包含重试。根据账号套餐设置并保留余量。"),
             S("MDBLIST_RATE", "每秒请求预算", "float", 2, advanced=True, low=0.1, high=2, placeholder="2"),
-            S("MOVIEDB_LOCAL_DATABASE", "本机状态数据库位置", "path", advanced=True, restart=True,
-              hint="扫描、识别、关联任务、网盘配置、请求预算与评分缓存共用 local.db；更换位置前先迁移原文件。"),
         ), test="mdblist", icon="chart-column"),
-        Group("imdb", "IMDb 评分", "官方评分文件，超过一天自动重新下载", (), icon="star"),
-        Group("imdb-episodes", "IMDb 单集库", "补齐 TMDB 未填写的 IMDb 单集编号", (
+        Group("imdb", "IMDb 数据", "官方评分与单集编号，一起下载、一起更新", (
             S("IMDB_EPISODES_UPDATE", "更新方式", "select", options=(
                 ("", "每周（默认）"), ("daily", "每天"), ("manual", "仅手动")),
-              hint="MovieDB 运行时检查；停机期间错过的检查，下次启动后补上。"),
-        ), icon="database"),
-        Group("douban", "豆瓣评分", "录入和刷新评分时一并获取", (
-            S("DOUBAN_ENABLED", "获取豆瓣评分", "bool", True,
-              hint="使用豆瓣 App 的非官方接口，可能随时失效；请求过快时豆瓣会暂时拒绝访问，MovieDB 会自动暂停 30 分钟。"),
-        ), icon="message-square-quote"),
+              hint="MovieDB 运行时检查；停机期间错过的检查，下次启动后补上。更新时仍可使用旧版本。"),
+        ), icon="star"),
     ), icon="library", hue="amber"),
     Section("ai", "AI", "识别文件名拿不准的影片", (
         Group("llm", "AI 识别", "文件名规则拿不准时，让大模型判断片名、年份和季集", (
@@ -238,7 +217,6 @@ SECTIONS: tuple[Section, ...] = (
               hint="留空时 DeepSeek 为 64，其他平台为 2；遇到限流会自动减半再逐步恢复。"),
         ), test="llm", icon="sparkles"),
     ), icon="sparkles", hue="violet"),
-    Section("data", "数据", "清除本机数据，回到首次使用", icon="database", hue="red"),
 )
 del S
 
@@ -252,30 +230,27 @@ _lock = threading.Lock()
 # ---------------------------------------------------------------- 状态
 
 
-def _ratings_status() -> dict:
-    path = Path(imdb_ratings.RATINGS_PATH)
-    if not path.is_file():
-        return {"state": "off", "text": "尚未下载，首次录入时自动获取"}
-    hours = (time.time() - path.stat().st_mtime) / 3600
-    when = "刚刚" if hours < 1 else f"{int(hours)} 小时前" if hours < 48 else f"{int(hours // 24)} 天前"
-    return {"state": "ok", "text": f"{when}更新"}
+# 正常时统一写“正常”，需要补充的信息放在“·”后面；未配置 / 已关闭为灰色，异常写具体原因
+OK = "正常"
+
+
+def _ok(detail: str = "") -> dict:
+    return {"state": "ok", "text": f"{OK} · {detail}" if detail else OK}
 
 
 def _tmdb_status() -> dict:
     source = tmdb.token_source()
     if not source:
-        return {"state": "warn", "text": "需要填写密钥"}
-    return {"state": "ok", "text": "自己的密钥" if source == "user" else "内置密钥"}
+        return {"state": "warn", "text": "未配置"}
+    return _ok("自己的密钥" if source == "user" else "内置密钥")
 
 
 def _player_status() -> dict:
     try:
         kind, _path = player.resolve_player()
     except player.PlayerNotFound:
-        return {"state": "warn", "text": "未找到播放器"}
-    if kind == "system":
-        return {"state": "off", "text": "使用系统默认程序"}
-    return {"state": "ok", "text": f"已找到 {player.label(kind)}"}
+        return {"state": "warn", "text": "未找到"}
+    return _ok("系统默认程序" if kind == "system" else player.label(kind))
 
 
 def _short_version(version: str) -> str:
@@ -284,30 +259,37 @@ def _short_version(version: str) -> str:
     return (match.group(1) or match.group(2)) if match else (version or "")[:16]
 
 
+def imdb_status(index: dict) -> dict:
+    """IMDb 数据的状态标签：更新中显示进度，正常时显示数据更新日期。"""
+    if index.get("running"):
+        if index.get("phase") == "build":
+            return {"state": "ok", "text": "更新中 · 建立索引"}
+        return {"state": "ok", "text": f"更新中 · 已下载 {index.get('downloaded', 0) / 1048576:.0f} MiB"}
+    if index.get("error"):
+        return {"state": "warn", "text": "更新失败"}
+    if not index.get("available"):
+        return {"state": "off", "text": "未建立"}
+    updated = time.localtime(index.get("updated_at") or 0)
+    same_year = updated.tm_year == time.localtime().tm_year
+    return _ok(time.strftime("%m-%d 更新" if same_year else "%Y-%m-%d 更新", updated))
+
+
 def statuses() -> dict:
     env = os.environ.get
     ffprobe = setup_wizard.ffprobe_status()
-    configured = lambda ok, on="已配置", off="未配置": {"state": "ok" if ok else "off", "text": on if ok else off}  # noqa: E731
     from services import cloud_sync
     from services import imdb_identity
-    episodes = imdb_identity.status()
 
     sync_token = bool(env("MOVIEDB_SYNC_TOKEN", "").strip())
     return {
-        "scan": configured(FIELDS["MOVIEDB_AUTOSCAN"].display(), "已开启", "已关闭"),
         "player": _player_status(),
-        "ffprobe": {"state": "ok", "text": f"已就绪{' · ' + _short_version(ffprobe['version']) if ffprobe['version'] else ''}"}
-        if ffprobe["ok"] else {"state": "warn", "text": "未找到"},
-        "sync": {"state": "ok", "text": "自动同步中"} if cloud_sync.is_enabled()
-        else {"state": "off", "text": "已暂停" if sync_token else "未开启"},
-        "app": {"state": "warn", "text": "等待重启"} if _pending_restart else {"state": "ok", "text": "运行中"},
+        "ffprobe": _ok(_short_version(ffprobe["version"])) if ffprobe["ok"] else {"state": "warn", "text": "未找到"},
+        "sync": _ok() if cloud_sync.is_enabled() else {"state": "off", "text": "已关闭" if sync_token else "未配置"},
+        "app": {"state": "warn", "text": "等待重启"} if _pending_restart else _ok(),
         "tmdb": _tmdb_status(),
-        "mdblist": configured(env("MDBLIST_APIKEY", "").strip(), off="未开启"),
-        "imdb": _ratings_status(),
-        "imdb-episodes": {"state": "warn" if episodes.get("error") else "ok" if episodes["available"] else "off",
-                          "text": "更新中" if episodes["running"] else "更新失败" if episodes.get("error") else "已就绪" if episodes["available"] else "尚未建立"},
-        "douban": configured(FIELDS["DOUBAN_ENABLED"].display(), "已开启", "已关闭"),
-        "llm": configured(llm.is_configured(), "已开启", "未开启"),
+        "mdblist": _ok() if env("MDBLIST_APIKEY", "").strip() else {"state": "off", "text": "未配置"},
+        "imdb": imdb_status(imdb_identity.status()),
+        "llm": _ok() if llm.is_configured() else {"state": "off", "text": "已关闭"},
     }
 
 
@@ -321,7 +303,7 @@ def state(*, restart_supported: bool) -> dict:
         "ai_enabled": llm.is_configured(),
         "pending_restart": sorted(_pending_restart),
         "restart_supported": restart_supported,
-        "imdb_episodes": imdb_identity.status(),
+        "imdb": imdb_identity.status(),
     }
 
 
@@ -403,12 +385,6 @@ def apply(changed: list[str], app) -> list[str]:
         from services import imdb_identity
         imdb_identity.wake_scheduler(app.config["DATABASE"])
         actions.append("imdb-episodes")
-    if "MOVIEDB_AUTOSCAN" in changed and not testing \
-            and not os.environ.get("MOVIEDB_AUTOSCAN_DISABLED"):
-        from services.media_discovery import start_autoscan
-
-        start_autoscan(app.config["DATABASE"])
-        actions.append("autoscan")
     if changed & {"MOVIEDB_SYNC_TOKEN", "MOVIEDB_SYNC_DISABLED"}:
         from services import cloud_sync
 

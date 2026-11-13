@@ -1,4 +1,4 @@
-"""可重建的 IMDb 单集索引；只保存四整数列，发布时原子替换。"""
+"""可重建的 IMDb 本地库：单集编号与评分放在同一个 SQLite，一起建立、一起原子替换。"""
 
 from contextlib import closing
 import csv
@@ -20,8 +20,15 @@ CREATE TABLE episode (
     title INTEGER NOT NULL,
     PRIMARY KEY (parent, season, number, title)
 ) WITHOUT ROWID;
+CREATE TABLE rating (
+    title INTEGER PRIMARY KEY,
+    rating REAL NOT NULL,
+    votes INTEGER NOT NULL
+) WITHOUT ROWID;
 CREATE TABLE source (id INTEGER PRIMARY KEY CHECK (id = 1), payload TEXT NOT NULL);
 """
+SCHEMA_VERSION = 2  # 2：加入评分表；旧版本视为不可用，下次检查时重建
+RATINGS_HEADER = ["tconst", "averageRating", "numVotes"]
 
 
 def _read(path):
@@ -40,7 +47,7 @@ def info(path):
             with closing(_read(path)) as db:
                 row = db.execute("SELECT payload FROM source WHERE id = 1").fetchone()
             result = json.loads(row[0])
-            if not isinstance(result, dict) or result.get("schema") != 1 or not result.get("rows") or not result.get("revision"):
+            if not isinstance(result, dict) or result.get("schema") != SCHEMA_VERSION or not result.get("rows") or not result.get("revision"):
                 return None
             result["size_bytes"] = stat.st_size
             _metadata[str(path)] = (signature, result)
@@ -79,7 +86,49 @@ def lookup(path, parent):
         return dict(found)
 
 
-def build(source, target, metadata, progress=None):
+def ratings(path, title_ids):
+    """返回 {title_id: (评分, 票数)}；库不可用时返回空字典，库内旧评分保持不变。"""
+    numbers = sorted({int(item[2:]) for item in title_ids if re.fullmatch(r"tt[0-9]+", str(item))})
+    if not numbers or not info(path):
+        return {}
+    found = {}
+    try:
+        with closing(_read(path)) as db:
+            for start in range(0, len(numbers), 500):
+                chunk = numbers[start:start + 500]
+                placeholders = ", ".join("?" for _ in chunk)
+                rows = db.execute(f"""
+                    SELECT title, rating, votes
+                      FROM rating
+                     WHERE title IN ({placeholders})
+                """, chunk)
+                found.update((f"tt{title:07d}", (rating, votes)) for title, rating, votes in rows)
+    except (OSError, sqlite3.Error):
+        return {}
+    return found
+
+
+def _insert_ratings(db, source):
+    count, batch = 0, []
+    with gzip.open(source, "rt", encoding="utf-8", newline="") as file:
+        reader = csv.reader(file, delimiter="\t")
+        if next(reader, None) != RATINGS_HEADER:
+            raise ValueError("IMDb 评分文件格式无法识别。")
+        for title, rating, votes in reader:
+            if not re.fullmatch(r"tt\d+", title):
+                raise ValueError("IMDb 评分编号无效。")
+            batch.append((int(title[2:]), float(rating), int(votes)))
+            count += 1
+            if len(batch) >= 25000:
+                db.executemany("INSERT INTO rating VALUES (?, ?, ?)", batch)
+                batch.clear()
+        db.executemany("INSERT INTO rating VALUES (?, ?, ?)", batch)
+    if not count:
+        raise ValueError("IMDb 评分文件为空。")
+    return count
+
+
+def build(source, target, metadata, progress=None, ratings_source=None):
     """调用方提供新的临时目标；坏 gzip/格式/数据不能成为可用索引。"""
     source, target = Path(source), Path(target)
     if target.exists():
@@ -112,7 +161,8 @@ def build(source, target, metadata, progress=None):
             db.executemany("INSERT INTO episode VALUES (?, ?, ?, ?)", batch)
             if not rows:
                 raise ValueError("IMDb 单集文件为空。")
-            payload = {**metadata, "schema": 1, "rows": rows}
+            rating_rows = _insert_ratings(db, ratings_source) if ratings_source else 0
+            payload = {**metadata, "schema": SCHEMA_VERSION, "rows": rows, "rating_rows": rating_rows}
             db.execute("INSERT INTO source VALUES (1, ?)", (json.dumps(payload),))
             db.commit()
         db.execute("VACUUM")

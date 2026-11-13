@@ -37,7 +37,7 @@ uv run flask --app app run                # or the plain Flask development serve
 | `models/` | Writes: `library.py` (library), `local_store.py` and `drive_store.py` (`local.db`) |
 | `viewmodels/` | Page view models |
 | `services/` | Import, linking, recognition, playback, deletion, settings and data folders; `media_source.py` resolves mounts and `media_stream.py` handles `/stream` |
-| `connectors/` | External services: TMDB, MDBList, IMDb ratings, AI, ffprobe, players and throttling; `drives/` contains built-in and AList / OpenList drivers |
+| `connectors/` | External services: TMDB, MDBList, IMDb datasets, AI, ffprobe, players and throttling; `drives/` contains built-in and AList / OpenList drivers |
 | `templates/`, `static/` | Jinja templates, styles and per-page scripts; third-party libraries in `static/vendor/` |
 | `migrations/` | Database schema; `library_schema.sql` is the current one |
 | `scripts/` | Command-line tools: thumbnails, ratings, snapshot publishing, `.env` check… |
@@ -76,7 +76,7 @@ uv run flask --app app run --host 127.0.0.1 --port 5000
 ```
 
 - Existing tokens and keys can stay; the local server ignores credentials. Without any, set `TMDB_TOKEN` and `MDBLIST_APIKEY` to `local-test`.
-- Drive listing and playback work as usual; the IMDb ratings file still comes from the official site.
+- Drive listing and playback work as usual; IMDb data still comes from the official site.
 - Set the variables in the process that actually starts MovieDB and restart it to clear caches — editing `.env` alone does not replace the TMDB addresses. Remove the three variables and restart to go back to the real services.
 
 To capture a fresh snapshot, run `uv run python scripts/capture_breaking_bad.py --output local-test-data/breaking-bad-new` and start the replay server with `--data local-test-data/breaking-bad-new`. Capturing calls the remote APIs but never writes to the library; existing snapshot folders are never overwritten.

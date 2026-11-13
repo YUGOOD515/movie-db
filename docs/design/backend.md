@@ -23,7 +23,7 @@
 |---|---|---|---|
 | `library.db` | 媒体展示数据：作品、季集关系、图片、演员、文件、播放进度、收藏 | 结构 `migrations/library_schema.sql`，写入 `models/library.py` | 是 |
 | `local.db` | 本机状态：扫描、识别缓存、关联任务、网盘配置与凭据、API 用量、评分缓存 | `models/local_store.py`、`drive_store.py`、`import_store.py`、`api_usage.py` | 否 |
-| `imdb/episodes.sqlite3` | 可重建的官方单集索引与来源版本，四整数列、复合主键、WITHOUT ROWID | `models/imdb_episodes.py` | 否 |
+| `imdb/index.sqlite3` | 可重建的 IMDb 本地库：官方单集表（四整数列、复合主键）与评分表，均 WITHOUT ROWID，附来源版本 | `models/imdb_episodes.py` | 否 |
 
 - 凭据、令牌和只对本机有意义的状态放 `local.db`，因为 `library.db` 会被同步到云端。
 - 改 `library.db` 结构时同时改两处：`library_schema.sql`（新库）和 `models/library.py` 的 `upgrade_library`（老库补列）。只读快照不执行升级，所以新列在模板里要能处理缺失。
@@ -57,8 +57,8 @@
 - 熔断时抛出 `RateLimitError`，调用方负责降级（例如 AI 识别退回规则识别）。
 - MDBList 有每日请求预算（`models/api_usage.py`），重试同样计入预算。
 - TMDB 密钥只发给 TMDB；图片可能经第三方 CDN 下载，下载图片的请求不带密钥。
-- `connectors/imdb_episodes.py` 经统一限速器流式下载官方 `title.episode.tsv.gz`，使用 ETag 条件检查。`services/imdb_identity.py` 后台建立临时 SQLite，检查格式、完整性和数据量后原子发布，失败保留旧库；临时下载不长期保留。索引只保存编号，不替代 TMDB 资料；按 IMDb 非商业数据集条款使用。
-- 单集库默认每周检查，可在设置改成每天或仅手动；调度只在 MovieDB 运行时执行，启动后补查，失败一小时后再自动尝试。手动更新与定时任务共用单飞任务。新索引发布后通过版本签名使识别缓存失效并触发重新扫描，不自动关联入库；304 只更新检查时间。当前桌面单进程共享读写锁，多进程部署需单一更新进程。
+- IMDb 单集编号与评分共用一次更新、一个本地库和一个状态，保证两者同步。`connectors/imdb_episodes.py` 经统一限速器流式下载官方 `title.episode.tsv.gz` 与 `title.ratings.tsv.gz`，各自用 ETag 条件检查；只要有一个变化就两个都重新下载，因为要一起建库。`services/imdb_identity.py` 后台建立临时 SQLite，检查格式、完整性和数据量后原子发布，失败保留旧库；临时下载不长期保留。新库发布后用 `rating_sync.refresh_imdb_ratings` 同步库内评分。索引只保存编号与评分，不替代 TMDB 资料；按 IMDb 非商业数据集条款使用。
+- IMDb 数据默认每周检查，可在设置改成每天或仅手动；调度只在 MovieDB 运行时执行，启动后补查，失败一小时后再自动尝试。手动更新与定时任务共用单飞任务。新索引发布后通过版本签名使识别缓存失效并触发重新扫描，不自动关联入库；304 只更新检查时间。当前桌面单进程共享读写锁，多进程部署需单一更新进程。
 
 ## 媒体来源与播放
 
@@ -73,7 +73,7 @@
 
 ## 配置与路径
 
-- 可配置项以 `services/settings.py` 的 `SECTIONS` 为唯一来源：设置页按它渲染，保存时按它校验并写入 `.env`。新增环境变量要登记到 `SECTIONS` 并补进 `.env.example`（测试会核对两者）。只有标记 `restart` 的项需要重启。
+- 设置页上的项以 `services/settings.py` 的 `SECTIONS` 为唯一来源：设置页按它渲染，保存时按它校验并写入 `.env`。要在设置页显示的新变量登记到 `SECTIONS`；不常改的变量（网盘速率、扫描、代理等）只在 `.env` 配置，不登记。两类都要补进 `.env.example` 和 configuration.md（测试会核对 `SECTIONS` 与 `.env.example`）。只有标记 `restart` 的项需要重启。
 - 文件路径从 `services/paths.py` 取：程序文件在 `APP_DIR`，用户数据（数据库、`.env`、图片、日志）在 `DATA_DIR`。源码运行时两者相同，安装版分开，所以用 `Path(__file__)` 拼数据路径在安装版里会出错。
 - 代码要在 Windows 和 macOS 上都能运行，平台差异集中在 `desktop.py`、`desktop_window.py`、`connectors/player.py`。
 

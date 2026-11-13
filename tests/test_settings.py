@@ -68,7 +68,30 @@ def test_state_reports_secrets_as_saved_only(env):
     state = env["client"].get("/settings/state").get_json()
     assert state["saved"]["TMDB_TOKEN"] is True and state["saved"]["LLM_API_KEY"] is False
     assert TOKEN not in str(state)
-    assert state["values"]["MOVIEDB_AUTOSCAN"] is True and state["restart_supported"] is False
+    assert state["values"]["MOVIEDB_SYNC_DISABLED"] is False and state["restart_supported"] is False
+
+
+def test_env_only_settings_are_not_on_the_page_but_stay_documented(env):
+    """网盘、扫描、代理、豆瓣开关、local.db 位置只通过 .env 配置：页面不显示，也不能经设置页保存。"""
+    example = (Path(__file__).resolve().parents[1] / ".env.example").read_text(encoding="utf-8")
+    html = env["client"].get("/settings", headers=HTML).get_data(as_text=True)
+    for name in ("DRIVE_RATE", "DRIVE_CONCURRENCY", "MOVIEDB_AUTOSCAN", "MEDIA_IMPORT_ROOT", "IMPORT_TITLE_CONCURRENCY",
+                 "TMDB_PROXY", "DOUBAN_ENABLED", "MOVIEDB_LOCAL_DATABASE"):
+        assert name not in settings.FIELDS and f'name="{name}"' not in html
+        assert re.search(rf"^#?\s*{name}=", example, re.M)
+    assert _save(env["client"], {"DRIVE_RATE": "10"}).status_code == 400
+    assert 'data-tab="data"' not in html and "data-reset" in html
+
+
+def test_status_text_is_uniform():
+    assert settings.imdb_status({"available": False}) == {"state": "off", "text": "未建立"}
+    assert settings.imdb_status({"running": True, "phase": "download", "downloaded": 3 * 1048576})["text"] == "更新中 · 已下载 3 MiB"
+    assert settings.imdb_status({"running": True, "phase": "build"})["text"] == "更新中 · 建立索引"
+    assert settings.imdb_status({"available": True, "error": "x"}) == {"state": "warn", "text": "更新失败"}
+    import time
+    assert settings.imdb_status({"available": True, "updated_at": time.time()})["text"] == time.strftime("正常 · %m-%d 更新")
+    for info in settings.statuses().values():
+        assert info["state"] != "ok" or info["text"].split(" · ")[0] in (settings.OK, "更新中")
 
 
 def test_imdb_episode_controls_and_conditional_status(env, monkeypatch):
@@ -81,6 +104,7 @@ def test_imdb_episode_controls_and_conditional_status(env, monkeypatch):
     assert _save(client, {"IMDB_EPISODES_UPDATE": "bad"}).status_code == 400
     response = client.get("/settings/imdb-episodes")
     assert response.get_json()["index"]["interval_seconds"] == 0
+    assert response.get_json()["status"] == {"state": "off", "text": "未建立"}
     assert client.get("/settings/imdb-episodes", headers={"If-None-Match": response.headers["ETag"]}).status_code == 304
     start = Mock(return_value=True)
     monkeypatch.setattr(imdb_identity, "start_update", start)
@@ -108,12 +132,12 @@ def test_tmdb_key_is_optional_and_status_shows_source(env, monkeypatch):
     from connectors import tmdb
     monkeypatch.setattr(tmdb, "BUILTIN_TOKEN", "")
     monkeypatch.setattr(tmdb.paths, "ENV_PATH", env["env"])
-    assert settings._tmdb_status()["text"] == "自己的密钥"
+    assert settings._tmdb_status()["text"] == "正常 · 自己的密钥"
     cleared = _save(env["client"], {"TMDB_TOKEN": None})
     assert cleared.status_code == 200 and "TMDB_TOKEN" not in os.environ
-    assert settings._tmdb_status() == {"state": "warn", "text": "需要填写密钥"}
+    assert settings._tmdb_status() == {"state": "warn", "text": "未配置"}
     monkeypatch.setattr(tmdb, "BUILTIN_TOKEN", "builtin")
-    assert settings._tmdb_status() == {"state": "ok", "text": "内置密钥"}
+    assert settings._tmdb_status() == {"state": "ok", "text": "正常 · 内置密钥"}
 
 
 def test_optional_secret_can_be_cleared(env, monkeypatch):
@@ -133,10 +157,10 @@ def test_validation_errors_are_keyed_by_field(env):
 
 def test_bool_matching_default_is_not_written(env):
     client = env["client"]
-    assert _save(client, {"MOVIEDB_AUTOSCAN": True}).get_json()["changed"] == []
-    assert _save(client, {"MOVIEDB_AUTOSCAN": False}).get_json()["changed"] == ["MOVIEDB_AUTOSCAN"]
-    assert os.environ["MOVIEDB_AUTOSCAN"] == "0"
-    assert client.get("/settings/state").get_json()["values"]["MOVIEDB_AUTOSCAN"] is False
+    assert _save(client, {"MOVIEDB_SYNC_DISABLED": False}).get_json()["changed"] == []
+    assert _save(client, {"MOVIEDB_SYNC_DISABLED": True}).get_json()["changed"] == ["MOVIEDB_SYNC_DISABLED"]
+    assert os.environ["MOVIEDB_SYNC_DISABLED"] == "1"
+    assert client.get("/settings/state").get_json()["values"]["MOVIEDB_SYNC_DISABLED"] is True
 
 
 def test_ai_enable_requires_core_fields_and_normalizes_deepseek(env):
@@ -155,11 +179,11 @@ def test_ai_enable_requires_core_fields_and_normalizes_deepseek(env):
     assert not any(name in os.environ for name in settings.AI_CORE)
 
 
-def test_drive_change_applies_immediately(env):
-    result = _save(env["client"], {"DRIVE_RATE": "10", "MEDIA_IMPORT_ROOT": "/夸克/影视"}).get_json()
-    assert result["changed"] == ["DRIVE_RATE", "MEDIA_IMPORT_ROOT"]
+def test_rate_change_applies_immediately(env):
+    result = _save(env["client"], {"TMDB_RATE": "10", "MDBLIST_RATE": "1"}).get_json()
+    assert result["changed"] == ["MDBLIST_RATE", "TMDB_RATE"]
     assert result["applied"] == ["throttle"]
-    assert os.environ["DRIVE_RATE"] == "10" and os.environ["MEDIA_IMPORT_ROOT"] == "/夸克/影视"
+    assert os.environ["TMDB_RATE"] == "10" and os.environ["MDBLIST_RATE"] == "1"
 
 
 def test_port_change_waits_for_restart(env):

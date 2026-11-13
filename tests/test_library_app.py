@@ -17,7 +17,7 @@ from urllib.parse import unquote
 
 with patch.dict(os.environ, {"ALIST_AUTOSTART": "0"}):
     import app as movie_app
-from connectors import imdb_ratings, media_probe, player, tmdb
+from connectors import media_probe, player, tmdb
 from models import database as database_module
 from models import library as models
 from queries.collection import get_collection_items
@@ -110,7 +110,8 @@ class LibraryIntegrationTest(unittest.TestCase):
             patcher = patch.object(tmdb, name, side_effect=fake)
             patcher.start()
             self.addCleanup(patcher.stop)
-        patcher = patch.object(imdb_ratings, "lookup_ratings", side_effect=lambda ids, path=None: {
+        from services import imdb_identity
+        patcher = patch.object(imdb_identity, "ratings", side_effect=lambda ids: {
             title_id: FAKE_RATINGS[title_id] for title_id in ids if title_id in FAKE_RATINGS
         })
         patcher.start()

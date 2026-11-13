@@ -55,11 +55,15 @@
     </details>
 {% endmacro %}
 
-{% macro group_head(id, title, description, icon) %}
+{# 状态标签紧跟标题；右侧只放检测、更新等操作 #}
+{% macro group_head(id, title, description, icon, status=false) %}
     <header class="ui-group-head">
         {% if icon %}<span class="ui-tile" aria-hidden="true">{{ ui_icon(icon, '') }}</span>{% endif %}
         <div class="ui-group-text">
-            <h2 class="ui-group-title" id="group-{{ id }}">{{ title }}</h2>
+            <div class="d-flex align-items-center gap-2">
+                <h2 class="ui-group-title" id="group-{{ id }}">{{ title }}</h2>
+                {% if status %}<span class="ui-pill" data-status="{{ id }}"><span data-status-text></span></span>{% endif %}
+            </div>
             <p class="ui-group-desc">{{ description }}</p>
         </div>
         {% if caller %}<div class="ui-group-side">{{ caller() }}</div>{% endif %}
@@ -83,13 +87,12 @@
     {% endif %}
 
     <form class="settings-form" data-settings-form autocomplete="off" novalidate>
-        {% for section in sections if section.id != "data" %}
+        {% for section in sections %}
             <section class="settings-section ui-stack" id="section-{{ section.id }}" role="tabpanel" aria-labelledby="tab-{{ section.id }}" data-section="{{ section.id }}" data-hue="{{ section.hue }}" hidden>
                 {% for group in section.groups %}
                     <section class="ui-group" data-group="{{ group.id }}" aria-labelledby="group-{{ group.id }}">
-                        {% call group_head(group.id, group.title, group.description, group.icon) %}
-                            <span class="ui-pill" data-status="{{ group.id }}"><span data-status-text></span></span>
-                            {% if group.id == "imdb-episodes" %}
+                        {% call group_head(group.id, group.title, group.description, group.icon, status=true) %}
+                            {% if group.id == "imdb" %}
                                 <button class="btn btn-sm chip-btn" type="button" data-imdb-update{% if remote %} disabled{% endif %}>{{ ui_icon('refresh-cw', '') }}<span>检查更新</span></button>
                             {% endif %}
                             {% if group.id == "llm" %}
@@ -101,15 +104,9 @@
                                 <button class="btn btn-sm chip-btn" type="button" data-test="{{ group.test }}"><span>检测</span></button>
                             {% endif %}
                         {% endcall %}
-                        {% if group.test %}<div class="settings-result" data-result="{{ group.test }}" role="status" aria-live="polite"></div>{% endif %}
+                        {% if group.test or group.id == "imdb" %}<div class="settings-result" data-result="{{ group.test or group.id }}" role="status" aria-live="polite"></div>{% endif %}
 
                         <div class="ui-card"{% if group.id == "llm" %} data-ai-body{% endif %}>
-                            {%- if group.id == "drive" -%}
-                                <div class="ui-row is-action">
-                                    <div class="ui-row-label"><p class="ui-row-title">挂载管理</p><p class="ui-row-hint">添加、检测、停用或删除网盘与凭据。</p></div>
-                                    <div class="ui-row-control"><a class="btn btn-sm chip-btn" href="{{ url_for('media', tab='drives') }}"><span>打开网盘页</span>{{ ui_icon('chevron-right', '') }}</a></div>
-                                </div>
-                            {%- endif -%}
                             {%- if group.id == "llm" -%}
                                 <div class="ui-row">
                                     <div class="ui-row-label">
@@ -120,47 +117,37 @@
                                 </div>
                             {%- endif -%}
                             {%- for item in group.basic %}{{ row(item) }}{% endfor -%}
-                            {% if group.id == "imdb-episodes" %}
-                                <div class="ui-row">
-                                    <div class="ui-row-label"><p class="ui-row-title">本地数据库</p><p class="ui-row-hint">更新时仍可使用旧版本，不会自动关联影片。</p></div>
-                                    <div class="ui-row-control"><p class="mb-1" data-imdb-summary>正在读取…</p><p class="ui-row-hint mb-0" data-imdb-updated></p></div>
-                                </div>
-                                <div class="ui-row">
-                                    <div class="ui-row-label"><p class="ui-row-title">更新状态</p><p class="ui-row-hint">文件未变化时只检查版本，不重新下载。</p></div>
-                                    <div class="ui-row-control"><p class="mb-0" data-imdb-progress role="status" aria-live="polite"></p></div>
-                                </div>
-                            {% endif %}
                             {%- if group.advanced %}{{ disclosure(group.advanced) }}{% endif -%}
                         </div>
                     </section>
                 {% endfor %}
-                {% if section.id == "metadata" %}{% include "_tmdb_credit.html" %}{% endif %}
+                {% if section.id == "metadata" %}
+                    {# 清除数据放在元数据页最底部；不是独立表单（不能嵌套在设置表单里），由 settings.js 处理 #}
+                    <section class="ui-group" data-reset data-hue="red" aria-labelledby="group-reset">
+                        {{ group_head("reset", "清除数据", "彻底删除所选数据，不做备份、无法恢复。清除媒体库或连接设置后会回到首次使用引导。", "trash-2") }}
+                        <div class="ui-card">
+                            <div class="settings-reset-parts" data-reset-parts></div>
+                            <p class="settings-reset-note" data-reset-cloud hidden>{{ ui_icon('cloud-off', '') }}<span>已开启云端只读快照：清除媒体库时，云端快照会同步清空。</span></p>
+                            <div class="ui-row settings-reset-confirm">
+                                <div class="ui-row-label">
+                                    <label for="reset-confirm">确认</label>
+                                    <p class="ui-row-hint">输入“清除”后才能执行。</p>
+                                </div>
+                                <div class="ui-row-control">
+                                    <input class="form-control" id="reset-confirm" type="text" placeholder="清除" spellcheck="false" autocomplete="off" data-reset-confirm>
+                                </div>
+                            </div>
+                            <div class="settings-reset-actions">
+                                <div class="settings-result" data-reset-result role="status" aria-live="polite"></div>
+                                <button class="btn btn-sm btn-danger" type="button" data-reset-submit disabled>{{ ui_icon('trash-2', '') }}<span>清除所选数据</span></button>
+                            </div>
+                        </div>
+                    </section>
+                    {% include "_tmdb_credit.html" %}
+                {% endif %}
             </section>
         {% endfor %}
     </form>
-
-    <section class="settings-section ui-stack" id="section-data" role="tabpanel" aria-labelledby="tab-data" data-section="data" data-hue="red" hidden>
-        <form class="ui-group" data-reset aria-labelledby="group-reset" autocomplete="off" novalidate>
-            {{ group_head("reset", "清除数据", "彻底删除所选数据，不做备份、无法恢复。清除媒体库或连接设置后会回到首次使用引导。", "trash-2") }}
-            <div class="ui-card">
-                <div class="settings-reset-parts" data-reset-parts></div>
-                <p class="settings-reset-note" data-reset-cloud hidden>{{ ui_icon('cloud-off', '') }}<span>已开启云端只读快照：清除媒体库时，云端快照会同步清空。</span></p>
-                <div class="ui-row settings-reset-confirm">
-                    <div class="ui-row-label">
-                        <label for="reset-confirm">确认</label>
-                        <p class="ui-row-hint">输入“清除”后才能执行。</p>
-                    </div>
-                    <div class="ui-row-control">
-                        <input class="form-control" id="reset-confirm" type="text" placeholder="清除" spellcheck="false" autocomplete="off" data-reset-confirm>
-                    </div>
-                </div>
-                <div class="settings-reset-actions">
-                    <div class="settings-result" data-reset-result role="status" aria-live="polite"></div>
-                    <button class="btn btn-sm btn-danger" type="submit" data-reset-submit disabled>{{ ui_icon('trash-2', '') }}<span>清除所选数据</span></button>
-                </div>
-            </div>
-        </form>
-    </section>
 </div>
 {% endblock %}
 

@@ -74,13 +74,13 @@ Then open **Media management → Link** (媒体资源管理 → 关联) in the s
 
 ## Configuration
 
-Everything can be changed later in **Manage → Settings** (管理 → 设置), grouped into **Connection** (drives, scanning, player, ffprobe, cloud snapshot, port), **Metadata** (TMDB, MDBList, IMDb ratings), **AI** and **Data**. Each group shows its status and has a **Check** button; less common options are under **Advanced**. Saved passwords and keys are never shown again — leave a field empty to keep it. Mounts and drive credentials are managed under **Manage → Drives**.
+Everything can be changed later in **Manage → Settings** (管理 → 设置), grouped into **Connection** (player, ffprobe, cloud snapshot, port), **Metadata** (TMDB, MDBList, IMDb data, plus wiping local data at the bottom) and **AI**. Drive rates, scanning and a few other rarely changed options are set in `.env` only. Each group shows its status next to its title and has a **Check** button; less common options are under **Advanced**. Saved passwords and keys are never shown again — leave a field empty to keep it. Mounts and drive credentials are managed under **Manage → Drives**.
 
 Settings are stored in a `.env` file in the data folder and take effect immediately, except the port (`MOVIEDB_PORT`), which needs a restart (use **Restart MovieDB** in the settings page or tray menu). The full list of variables is in [Configuration](docs/en/configuration.md).
 
 ### Where your data lives
 
-The library (`library.db`), local state (`local.db` — discovery, jobs, drive configuration and rating caches), settings (`.env`), posters, thumbnails, the IMDb ratings file and logs are all kept in the **data folder**. Use **Open data folder** in the tray / menu bar to find it.
+The library (`library.db`), local state (`local.db` — discovery, jobs, drive configuration and rating caches), settings (`.env`), posters, thumbnails, the IMDb data and logs are all kept in the **data folder**. Use **Open data folder** in the tray / menu bar to find it.
 
 | How you run MovieDB | Data folder |
 |---|---|
@@ -89,7 +89,7 @@ The library (`library.db`), local state (`local.db` — discovery, jobs, drive c
 | Windows portable zip | the `app\` folder inside the unzipped directory |
 | From source | the repository root |
 
-Set the `MOVIEDB_DATA_DIR` environment variable to use another location. **Settings → Data** can wipe local data and return to the first-run walkthrough.
+Set the `MOVIEDB_DATA_DIR` environment variable to use another location. **Wipe data** at the bottom of **Settings → Metadata** can wipe local data and return to the first-run walkthrough.
 
 ### Players
 

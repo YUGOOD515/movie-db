@@ -1,5 +1,5 @@
 // 设置页：连接 / 元数据 / AI 三个分区按项记录修改，底部状态栏统一保存，保存后立即生效，少数项提示重启；
-// “数据”分区单独提交：勾选要彻底删除的数据，输入“清除”确认后执行。
+// 元数据页底部的“清除数据”单独执行：勾选要彻底删除的数据，输入“清除”确认后执行。
 (() => {
     const root = document.querySelector("[data-settings]");
     if (!root) return;
@@ -37,24 +37,14 @@
 
     // ------------------------------------------------------------ 分区
 
-    // IMDb 更新独立于设置保存，轮询不覆盖尚未保存的表单。
+    // IMDb 更新独立于设置保存，轮询不覆盖尚未保存的表单；状态文字由服务端统一生成。
     let imdbTimer = null, imdbEtag = null;
-    const mib = bytes => `${(Number(bytes || 0) / 1048576).toLocaleString("zh-CN", {maximumFractionDigits: 1})} MiB`;
-    const dateTime = seconds => seconds ? new Date(seconds * 1000).toLocaleString("zh-CN", {hour12: false}) : "尚未检查";
-    function renderImdb(index) {
-        if (!imdbUpdate || !index) return;
+    function renderImdb(data) {
+        if (!imdbUpdate || !data?.index) return;
+        const index = data.index;
         imdbUpdate.disabled = index.running;
-        root.querySelector("[data-imdb-summary]").textContent = index.available
-            ? `${Number(index.rows).toLocaleString("zh-CN")} 条单集关系 · ${mib(index.size_bytes)}` : "尚未建立本地单集库";
-        root.querySelector("[data-imdb-updated]").textContent = index.available ? `数据更新于 ${dateTime(index.updated_at)}` : "首次更新将下载官方数据并建立索引";
-        const detail = root.querySelector("[data-imdb-progress]");
-        detail.classList.toggle("text-danger", !!index.error);
-        detail.textContent = index.error || (index.running
-            ? index.phase === "build" ? `正在建立索引 · 已处理 ${Number(index.processed_rows || 0).toLocaleString("zh-CN")} 条`
-                : `正在检查并下载 · ${mib(index.downloaded)}${index.download_total ? ' / ' + mib(index.download_total) : ''}`
-            : `${index.message || "等待检查"} · 最近检查 ${dateTime(index.checked_at)}`);
-        renderStatus({"imdb-episodes": {state: index.error ? "warn" : index.available ? "ok" : "off",
-            text: index.running ? "更新中" : index.error ? "更新失败" : index.available ? "已就绪" : "尚未建立"}});
+        renderStatus({imdb: data.status});
+        showResult("imdb", index.error && !index.running ? { ok: false, message: index.error } : null);
         clearTimeout(imdbTimer);
         imdbTimer = setTimeout(pollImdb, index.running ? 1000 : 15000);
     }
@@ -64,7 +54,7 @@
             const response = await fetch("/settings/imdb-episodes", {headers: imdbEtag ? {"If-None-Match": imdbEtag} : {}});
             if (response.status !== 304 && response.ok) {
                 imdbEtag = response.headers.get("ETag");
-                renderImdb((await response.json()).index);
+                renderImdb(await response.json());
                 return;
             }
         } catch {}
@@ -76,10 +66,10 @@
             const result = await request("/settings/imdb-episodes", {});
             if (!result.ok) throw new Error(result.message || "无法开始更新");
             imdbEtag = null;
-            renderImdb(result.index);
+            renderImdb(result);
         } catch (error) {
             imdbUpdate.disabled = false;
-            root.querySelector("[data-imdb-progress]").textContent = error.message || "无法开始更新，请稍后重试。";
+            showResult("imdb", { ok: false, message: error.message || "无法开始更新，请稍后重试。" });
         }
     });
 
@@ -290,7 +280,7 @@
         }
         if (aiSwitch) { aiSwitch.checked = Boolean(data.ai_enabled); baselineAi = aiSwitch.checked; syncAi(); setupPresets(data.presets); }
         renderStatus(data.status);
-        renderImdb(data.imdb_episodes);
+        renderImdb({ index: data.imdb, status: data.status.imdb });
         refreshPending();
         renderRestart(data.pending_restart, data.restart_supported);
         renderReset(data.data);
@@ -425,7 +415,8 @@
 
     reset.addEventListener("input", syncReset);
     reset.addEventListener("change", syncReset);
-    reset.addEventListener("submit", event => { event.preventDefault(); clearData(); });
+    resetSubmit.addEventListener("click", clearData);
+    resetConfirm.addEventListener("keydown", event => { if (event.key === "Enter" && !resetSubmit.disabled) clearData(); });
 
     // ------------------------------------------------------------ 重启
 
@@ -482,7 +473,9 @@
     form.addEventListener("change", refreshPending);
     form.addEventListener("submit", event => { event.preventDefault(); save(); });
     form.addEventListener("keydown", event => {
-        if (event.key === "Enter" && event.target.matches("input:not([type=checkbox])") && dirtyCount()) { event.preventDefault(); save(); }
+        if (event.key !== "Enter" || !event.target.matches("input:not([type=checkbox])")) return;
+        event.preventDefault();  // 清除数据的输入框也在表单里，回车不能提交设置表单
+        if (!event.target.closest("[data-reset]") && dirtyCount()) save();
     });
     aiSwitch?.addEventListener("change", () => { syncAi(); if (aiSwitch.checked) setupPresets(state.presets); refreshPending(); });
     for (const button of root.querySelectorAll("[data-reveal]")) {
