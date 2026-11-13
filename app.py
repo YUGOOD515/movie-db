@@ -164,6 +164,9 @@ if not READ_ONLY:
     if not os.environ.get("MOVIEDB_IMPORTS_DISABLED") and Path(DATABASE_PATH).is_file():
         from services.import_jobs import start as resume_imports
         resume_imports(DATABASE_PATH)
+    from services import drive_keepalive
+
+    drive_keepalive.start()  # MOVIEDB_KEEPALIVE_DISABLED=1 时不启动
 
 
 def serve_static(filename: str):
@@ -302,8 +305,10 @@ def setup_page():
         abort(404)
     if _library_ready():
         return redirect(url_for("settings_page"))
+    from connectors.drives.alist_config import guess_path
+
     return render_template("setup.html", first_run=True, remote=bool(request.headers.get("Cf-Connecting-Ip")),
-                           drive_types=_drives.types())
+                           drive_types=_drives.types(), alist_path=guess_path())
 
 
 @app.get("/setup/poster/<size>/<name>")
@@ -697,6 +702,52 @@ def delete_drive(mount):
     return jsonify(_after_reroute(_drives.delete(mount)))
 
 
+@app.post("/manager/drives/qr-login")
+def drive_qr_login():
+    """扫码登录：action=start 返回二维码，poll 查询是否已确认；确认后直接保存挂载。"""
+    denied = _setup_guard()
+    if denied:
+        return denied
+    payload = request.get_json(silent=True) or {}
+    try:
+        if payload.get("action") == "poll":
+            return jsonify(_after_reroute(_drives.qr_poll(payload.get("login_id"))))
+        return jsonify(_drives.qr_start(payload.get("kind"), payload.get("mount"), payload.get("create") is True))
+    except (RuntimeError, ValueError) as error:
+        return jsonify(ok=False, message=str(error)), 400
+
+
+@app.post("/manager/drives/oauth")
+def drive_oauth():
+    """网页授权完成：url 为授权结束后的网址（或其中 # 后的部分），解码出令牌后保存挂载。"""
+    denied = _setup_guard()
+    if denied:
+        return denied
+    payload = request.get_json(silent=True) or {}
+    try:
+        return jsonify(_after_reroute(_drives.oauth_finish(
+            payload.get("kind"), payload.get("mount"), payload.get("url"), payload.get("create") is True)))
+    except (RuntimeError, ValueError) as error:
+        return jsonify(ok=False, message=str(error)), 400
+
+
+@app.post("/manager/drives/import-alist")
+def import_alist_drives():
+    """读取本机 AList / OpenList 的 data.db 或备份 JSON：action=preview 只列出处理方式，apply 导入所选挂载。"""
+    denied = _setup_guard()
+    if denied:
+        return denied
+    from services import alist_import
+
+    payload = request.get_json(silent=True) or {}
+    try:
+        if payload.get("action") == "apply":
+            return jsonify(_after_reroute(alist_import.apply(payload.get("path"), payload.get("mounts"))))
+        return jsonify(alist_import.preview(payload.get("path")))
+    except ValueError as error:
+        return jsonify(ok=False, message=str(error)), 400
+
+
 @app.get("/media")
 def media():
     title_type = request.args.get("type", "all")
@@ -709,6 +760,11 @@ def media():
     active_tab = requested_tab if requested_tab in allowed_tabs else "overview"
     drive_list = _drives.listing() if active_tab in ("associate", "drives") and not app.config["READ_ONLY"] else []
     drive_types = _drives.types() if active_tab == "drives" else []
+    alist_path = ""
+    if active_tab == "drives" and not app.config["READ_ONLY"]:
+        from connectors.drives.alist_config import guess_path
+
+        alist_path = guess_path()
     missing_mounts = []
     if active_tab == "drives":
         raw = {"titles": [], "artwork": [], "query": "", "title_type": title_type}
@@ -741,6 +797,7 @@ def media():
         drive_types=drive_types,
         drives=drive_list,
         missing_mounts=missing_mounts,
+        alist_path=alist_path,
     )
 
 

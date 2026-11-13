@@ -14,6 +14,8 @@ TOKEN_TTL = 3600
 class AListDrive(Drive):
     kind = "alist"
     label = "AList / OpenList（透传）"
+    # 透传服务由用户自行运行，可能随时停止：较频繁地检测，让网盘页的状态反映实际情况
+    keepalive_interval = 30 * 60
     root_id = "/"
     fields = (
         Field("origin", "地址", default="http://127.0.0.1:5244"),

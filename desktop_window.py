@@ -124,6 +124,16 @@ def fit_to_screens(window_rect: tuple[int, int, int, int],
     return (sx + (sw - new_width) // 2, sy + (sh - new_height) // 2, new_width, new_height)
 
 
+AUTHORIZE_HOSTS = ("oplist.org", "oplist.org.cn")
+
+
+def is_authorize_url(url: str) -> bool:
+    """只允许在授权窗口里打开 OpenList 授权页（https），避免页面借此打开任意网址。"""
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower()
+    return parsed.scheme == "https" and any(host == item or host.endswith("." + item) for item in AUTHORIZE_HOSTS)
+
+
 def same_origin_path(url: str | None, origin: str) -> str | None:
     """当前页面在 MovieDB 里的路径（含查询参数）；其他网站或无法识别时返回 None。"""
     if not url:
@@ -172,6 +182,12 @@ class Api:
 
     def pick_path(self, mode="file", current=""):
         return self._shell.pick_path(mode, current if isinstance(current, str) else "")
+
+    def authorize(self, url):
+        """在新窗口打开 OpenList 授权页，授权结束后返回网址 # 后的授权结果；关闭窗口或超时返回空字符串。"""
+        if not isinstance(url, str) or not is_authorize_url(url):
+            return ""
+        return self._shell.authorize(url)
 
 
 class DesktopWindow:
@@ -259,6 +275,62 @@ class DesktopWindow:
                 AppHelper.callAfter(window.native.setAppearance_, AppKit.NSAppearance.appearanceNamed_(name))
         except Exception as error:  # noqa: BLE001 — 标题栏颜色不影响使用
             logger.debug("设置标题栏外观失败：%s", error)
+
+    def authorize(self, url: str, timeout: float = 600) -> str:
+        """OpenList 网页授权，返回授权结果（# 后的 base64 JSON 或 refresh_token）；关闭窗口或超时返回空字符串。
+
+        1. 先打开 /requests：OpenList 在这个窗口里设置回调要用的 Cookie，页面内容是 {"text": 授权地址}；
+        2. 跳到授权地址，用户登录并同意，OpenList 回调换取令牌后回到根路径（# 后带结果）；
+        3. 它的页面加载后会立刻清掉 #，来不及读到时改读页面上显示令牌的文本框（access 在前、refresh 在后）。
+        """
+        import json
+        import time
+
+        import webview
+
+        host = urlparse(url).netloc
+        closed = threading.Event()
+        try:
+            window = webview.create_window("登录授权", url, width=520, height=720)
+        except Exception as error:  # noqa: BLE001
+            logger.warning("打开授权窗口失败：%s", error)
+            return ""
+        window.events.closed += closed.set
+        deadline = time.monotonic() + timeout
+        result, redirected = "", False
+        while not closed.is_set() and time.monotonic() < deadline:
+            time.sleep(0.3)
+            try:
+                current = urlparse(window.get_current_url() or "")
+            except Exception:  # noqa: BLE001 — 页面还在加载
+                continue
+            if current.netloc != host:
+                continue  # 在微软 / Google 的登录页
+            try:
+                if not redirected and current.path.endswith("/requests"):
+                    target = json.loads(window.evaluate_js("document.body ? document.body.innerText : ''") or "{}")
+                    if str(target.get("text", "")).startswith("https://"):
+                        window.load_url(target["text"])
+                        redirected = True
+                    continue
+                if redirected and current.path in ("", "/"):
+                    if current.fragment:
+                        result = current.fragment
+                        break
+                    values = window.evaluate_js("Array.from(document.querySelectorAll('textarea')).map(t => t.value)")
+                    tokens = [value for value in values or [] if isinstance(value, str) and len(value) >= 20
+                              and "://" not in value and not any(char.isspace() for char in value)]
+                    if tokens:
+                        result = tokens[-1]
+                        break
+            except Exception:  # noqa: BLE001 — 页面还在渲染
+                continue
+        if not closed.is_set():
+            try:
+                window.destroy()
+            except Exception:  # noqa: BLE001
+                pass
+        return result
 
     def pick_path(self, mode: str, current: str) -> str | None:
         import webview

@@ -120,6 +120,7 @@ Mounts and credentials are managed under **Manage → Drives** and stored in `lo
 | `PLAYER_PATH` | Program path for players other than MPC-HC; on macOS this can be an `.app` |
 | `MPC_PATH`, `MPC_WEB_URL` | MPC-HC program path and web interface (default `http://127.0.0.1:13579`) |
 | `MOVIEDB_TONES_DISABLED` | Set to `1` to skip computing artwork colors and BlurHash placeholders at startup |
+| `MOVIEDB_KEEPALIVE_DISABLED` | Set to `1` to stop renewing drive credentials automatically (for tests) |
 
 **Cloud read-only snapshot** (see [Remote access](remote-access.md))
 

@@ -6,14 +6,16 @@ from connectors import throttle
 from connectors.drives.base import AuthError, Drive, DriveError, Entry, Field, Link
 
 BASE = "https://openapi.alipan.com"
+QR_STATUS = "https://openapi.aliyundrive.com/oauth/qrcode/{sid}/status"
 INVALID_TOKEN = {"AccessTokenInvalid", "AccessTokenExpired", "I400JD"}
 
 
 class AliyunDrive(Drive):
     kind = "aliyun"
     label = "阿里云盘 Open"
+    qr_app = "阿里云盘 App"
     fields = (
-        Field("refresh_token", "refresh_token", "secret", required=True),
+        Field("refresh_token", "refresh_token", "secret", required=True, manual=True),
         Field("drive_type", "盘类型", "select", default="resource",
               options=(("resource", "资源库"), ("default", "备份盘（默认盘）"), ("backup", "备份盘"))),
         Field("alipan_type", "客户端类型", "select", default="default",
@@ -66,6 +68,50 @@ class AliyunDrive(Drive):
                 except (ValueError, TypeError, KeyError) as error:
                     last_error = error
             raise AuthError("阿里云盘 refresh_token 已失效，请重新获取") from last_error
+
+    # ---- 扫码登录：经 OpenList 令牌服务生成官方二维码（用它的应用密钥），与默认续期方式是同一个应用 ----
+    def _oplist(self):
+        renew = self.config.get("renew_api") or "https://api.oplist.org/alicloud/renewapi"
+        return renew.rsplit("/", 2)[0]
+
+    def start_login(self):
+        # 同一个 session 保存 OpenList 下发的 Cookie，换令牌时它据此识别登录方式
+        response = throttle.call("aliyun", lambda: self.session.get(
+            self._oplist() + "/alicloud/requests", params={"driver_txt": "alicloud_qr", "server_use": "true"},
+            timeout=20))
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = {}
+        if not payload.get("sid") or not payload.get("text"):
+            raise DriveError(str(payload.get("text") or "无法获取登录二维码，请稍后重试"))
+        return {"qr": payload["text"], "state": {"sid": payload["sid"]}}
+
+    def finish_login(self, state):
+        sid = state["sid"]
+        response = throttle.call("aliyun", lambda: self.session.get(QR_STATUS.format(sid=sid), timeout=20))
+        try:
+            status = response.json().get("status") or ""
+        except ValueError:
+            status = ""
+        if status == "QRCodeExpired":
+            raise AuthError("二维码已过期，请重新获取")
+        if status != "LoginSuccess":
+            return False
+        response = throttle.call("aliyun", lambda: self.session.get(self._oplist() + "/alicloud/callback", params={
+            "server_use": "true", "grant_type": "authorization_code", "code": sid, "sid": sid,
+            "client_id": "", "client_secret": "",
+        }, timeout=20))
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = {}
+        if not payload.get("refresh_token"):
+            raise AuthError(str(payload.get("text") or "阿里云盘登录失败，请重新扫码"))
+        self.config.update(refresh_token=payload["refresh_token"], access_token=payload.get("access_token") or "",
+                           alipan_type="default")
+        self.save(self.config)
+        return True
 
     def _request(self, path, body, *, service="aliyun"):
         for attempt in range(2):

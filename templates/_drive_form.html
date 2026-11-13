@@ -48,6 +48,60 @@
     {% endif %}
 {% endmacro %}
 
+{# 扫码登录：二维码与状态由 drives.js 填充；确认后服务端直接保存挂载，令牌不经过页面 #}
+{% macro qr_login(type, prefix, setup) %}
+    {% set body %}
+        <button class="btn btn-sm chip-btn" type="button" data-drive-qr-start>{{ ui_icon('radar', '') }}<span>获取二维码</span></button>
+        <div class="drive-qr" data-drive-qr hidden>
+            <img class="drive-qr-image" alt="{{ type.qr_app }}扫码登录二维码" referrerpolicy="no-referrer" data-drive-qr-image>
+            <p class="ui-row-hint m-0" data-drive-qr-status role="status" aria-live="polite"></p>
+            <p class="ui-row-hint m-0" data-drive-qr-hint hidden></p>
+        </div>
+    {% endset %}
+    {% if setup %}
+        <div class="onboard-field">
+            <label>扫码登录</label>
+            <small>用{{ type.qr_app }}扫码并确认，登录后自动保存挂载。</small>
+            {{ body }}
+        </div>
+    {% else %}
+        <div class="ui-row">
+            <div class="ui-row-label">
+                <label>扫码登录</label>
+                <p class="ui-row-hint">用{{ type.qr_app }}扫码并确认，登录后自动保存挂载。</p>
+            </div>
+            <div class="ui-row-control">{{ body }}</div>
+        </div>
+    {% endif %}
+{% endmacro %}
+
+{# 网页授权（OneDrive、Google Drive）：在 OpenList 授权页登录后，令牌在跳转后网址的 # 片段里。
+   桌面版在 MovieDB 自己的窗口打开并自动读取；浏览器里把最终网址粘贴回来 #}
+{% macro oauth_login(type, prefix, setup) %}
+    {% set body %}
+        <button class="btn btn-sm chip-btn" type="button" data-drive-oauth-start data-oauth-url="{{ type.oauth }}" data-oauth-page="{{ type.oauth_page }}" data-oauth-embedded="{{ 'true' if type.oauth_embedded else 'false' }}">{{ ui_icon('external-link', '') }}<span>去授权</span></button>
+        <div class="drive-oauth-paste" data-drive-oauth-paste hidden>
+            <textarea class="form-control" rows="3" placeholder="在打开的 OpenList 页面点“获取 Token”并完成授权，然后把页面上的 Refresh Token 复制到这里" spellcheck="false" autocomplete="off" data-drive-oauth-input></textarea>
+            <button class="btn btn-sm media-primary-action is-compact" type="button" data-drive-oauth-finish>{{ ui_icon('check', '') }}<span>完成登录</span></button>
+        </div>
+    {% endset %}
+    {% if setup %}
+        <div class="onboard-field">
+            <label>授权登录</label>
+            <small>在打开的页面登录 {{ type.label }} 并同意授权，完成后自动保存挂载；在浏览器中授权时，把页面上的 Refresh Token 粘贴回来。</small>
+            {{ body }}
+        </div>
+    {% else %}
+        <div class="ui-row">
+            <div class="ui-row-label">
+                <label>授权登录</label>
+                <p class="ui-row-hint">在打开的页面登录 {{ type.label }} 并同意授权。桌面版会自动保存；在浏览器中授权时，把页面上的 Refresh Token 粘贴回来。授权页由 OpenList 团队提供。</p>
+            </div>
+            <div class="ui-row-control">{{ body }}</div>
+        </div>
+    {% endif %}
+{% endmacro %}
+
 {% macro drive_form(prefix, setup=false, action=none) %}
 <div{% if setup %} class="vstack gap-3"{% endif %} data-drive-form{% if setup %} data-drive-setup{% endif %}>
     {% if setup %}
@@ -81,13 +135,31 @@
     {% endif %}
     {% for type in drive_types %}
         <div{% if setup %} class="vstack gap-3"{% endif %} data-drive-fields="{{ type.kind }}" hidden>
-            {% for field in type.fields if not field.advanced %}
+            {% if type.qr_app %}{{ qr_login(type, prefix, setup) }}{% elif type.oauth %}{{ oauth_login(type, prefix, setup) }}{% endif %}
+            {% for field in type.fields if not field.advanced and not field.manual %}
                 {{ field_input(field, type.kind, prefix, setup) }}
             {% endfor %}
-            {% if type.kind in ('aliyun', 'baidu', 'pan123') %}
-                <p class="{{ 'small text-body-secondary mb-0' if setup else 'drive-note' }}">默认令牌续期服务由 OpenList 团队提供。可在 <a href="https://api.oplist.org/" target="_blank" rel="noopener">OpenList Token 获取工具</a> 获取令牌，或在高级选项中使用自己的凭据。</p>
+            {% if type.kind in ('aliyun', 'pan123', 'onedrive', 'gdrive') %}
+                <p class="{{ 'small text-body-secondary mb-0' if setup else 'drive-note' }}">默认令牌续期服务由 OpenList 团队提供。手动填写时，可在 <a href="https://api.oplist.org/" target="_blank" rel="noopener">OpenList Token 获取工具</a> 获取令牌，或在高级选项中使用自己的凭据。</p>
             {% endif %}
-            {% set advanced = type.fields|selectattr('advanced')|list %}
+            {# 已有扫码 / 授权登录时，令牌类凭据一般不用手填，收进这里 #}
+            {% set manual = type.fields|selectattr('manual')|list %}
+            {% if manual %}
+                {% if setup %}
+                    <details class="onboard-more">
+                        <summary>手动填写凭据</summary>
+                        <div class="vstack gap-3 mt-3">
+                            {% for field in manual %}{{ field_input(field, type.kind, prefix, setup) }}{% endfor %}
+                        </div>
+                    </details>
+                {% else %}
+                    <details class="ui-disclosure">
+                        <summary>{{ ui_icon('key', '') }}<span>手动填写凭据</span><span class="ui-disclosure-count">{{ manual|length }} 项</span>{{ ui_icon('chevron-right', 'ui-disclosure-chevron') }}</summary>
+                        {% for field in manual %}{{ field_input(field, type.kind, prefix, setup) }}{% endfor %}
+                    </details>
+                {% endif %}
+            {% endif %}
+            {% set advanced = type.fields|selectattr('advanced')|rejectattr('manual')|list %}
             {% if advanced %}
                 {% if setup %}
                     <details class="onboard-more">

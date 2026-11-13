@@ -94,6 +94,9 @@
 | POST | `/manager/drives/<mount>/toggle` | 启用 / 停用 |
 | POST | `/manager/drives/<mount>/delegate` · `/reclaim` | 改由透传提供 / 收回 |
 | POST | `/manager/drives/<mount>/delete` | 删除挂载 |
+| POST | `/manager/drives/qr-login` | 扫码登录（夸克、UC、阿里、百度、115）：`action=start` 返回二维码与登录编号，`poll` 查询；确认后服务端直接保存挂载，令牌不返回页面 |
+| POST | `/manager/drives/oauth` | 网页授权完成（OneDrive、Google Drive）：`url` 为授权结束后的网址或其 # 部分，解码出令牌后保存挂载 |
+| POST | `/manager/drives/import-alist` | 从 AList 的 `data.db` / 备份 JSON 导入：`action=preview` 列出处理方式，`apply` 导入所选挂载 |
 
 改变路由的操作返回 `rerouted: true` 时，服务端会在后台重新扫描。
 

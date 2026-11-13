@@ -9,7 +9,10 @@
         {% endif %}
         <div class="drive-toolbar">
             <span class="drive-toolbar-meta">{{ drives|length }} 个网盘</span>
-            <button class="btn btn-sm media-primary-action is-compact" type="button" data-drive-add>{{ ui_icon('plus', '') }}<span>添加网盘</span></button>
+            <div class="drive-item-actions">
+                <button class="btn btn-sm chip-btn" type="button" data-drive-import>{{ ui_icon('download', '') }}<span>从 AList 导入</span></button>
+                <button class="btn btn-sm media-primary-action is-compact" type="button" data-drive-add>{{ ui_icon('plus', '') }}<span>添加网盘</span></button>
+            </div>
         </div>
         <div class="ui-card" data-drive-list>
             {% for drive in drives %}
@@ -19,7 +22,7 @@
                         <span class="ui-tile"{% if inactive %} data-hue="gray"{% endif %} aria-hidden="true">{{ ui_icon(drive.icon, '') }}</span>
                         <div class="ui-group-text">
                             <h2 class="ui-row-title">{{ drive.display_name }}</h2>
-                            <p class="ui-row-hint text-truncate">{{ drive.label }} · {{ drive.scope }}</p>
+                            <p class="ui-row-hint text-truncate">{{ drive.label }} · {{ drive.scope }}{% if drive.keepalive_text %} · {{ drive.keepalive_text }}{% endif %}</p>
                             <p class="ui-row-hint drive-item-detail" data-drive-status-detail{% if not drive.status_detail %} hidden{% endif %}>{{ drive.status_detail }}</p>
                         </div>
                         <span class="ui-pill" data-drive-status data-state="{{ drive.status_state }}"><span data-drive-status-text>{{ drive.status_text }}</span></span>
@@ -72,6 +75,45 @@
                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
                 </div>
                 <div class="modal-body">{{ drive_form('drive') }}</div>
+            </div>
+        </div>
+    </div>
+
+    {# 从 AList / OpenList 导入：先读取并预览每个存储的处理方式，勾选后再导入 #}
+    <div class="modal fade drive-modal" id="drive-import" tabindex="-1" aria-labelledby="drive-import-heading" data-hue="blue" data-drive-import-modal>
+        <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-lg">
+            <div class="modal-content">
+                <div class="modal-header align-items-center">
+                    <span class="ui-tile" aria-hidden="true">{{ ui_icon('database', '') }}</span>
+                    <div class="ui-group-text">
+                        <h2 class="ui-group-title" id="drive-import-heading">从 AList 导入</h2>
+                        <p class="ui-group-desc">读取 AList / OpenList 的存储配置，原文件不会改动。</p>
+                    </div>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+                </div>
+                <div class="modal-body">
+                    <div class="ui-card">
+                        <div class="ui-row">
+                            <div class="ui-row-label">
+                                <label for="drive-import-path">配置文件</label>
+                                <p class="ui-row-hint">AList 数据目录下的 data.db，或后台“备份”导出的 JSON。</p>
+                            </div>
+                            <div class="ui-row-control">
+                                <div class="settings-path">
+                                    <input class="form-control" id="drive-import-path" type="text" value="{{ alist_path }}" placeholder="例如：C:/alist/data/data.db" autocomplete="off" spellcheck="false" data-drive-import-path>
+                                    <button class="settings-inline-btn" type="button" data-drive-import-pick hidden>选择…</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="ui-card mt-3" data-drive-import-list hidden></div>
+                    <div class="settings-result" data-drive-import-result role="status" aria-live="polite"></div>
+                    <div class="drive-form-actions">
+                        <button class="btn btn-sm chip-btn" type="button" data-bs-dismiss="modal"><span>取消</span></button>
+                        <button class="btn btn-sm chip-btn" type="button" data-drive-import-read>{{ ui_icon('search', '') }}<span>读取</span></button>
+                        <button class="btn btn-sm media-primary-action is-compact" type="button" data-drive-import-apply hidden>{{ ui_icon('download', '') }}<span>导入</span></button>
+                    </div>
+                </div>
             </div>
         </div>
     </div>

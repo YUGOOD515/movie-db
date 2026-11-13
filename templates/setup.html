@@ -74,6 +74,23 @@
                 <div class="onboard-fields">
                     {{ drive_form('setup-drive', setup=true, action=action) }}
                 </div>
+                {# 已经在用 AList / OpenList：直接导入其中的网盘，与网盘页“从 AList 导入”共用 drives.js #}
+                <details class="onboard-more mt-3" data-drive-import-inline>
+                    <summary>已有 AList / OpenList？从它导入网盘</summary>
+                    <div class="vstack gap-3">
+                        <div class="onboard-field">
+                            <label for="setup-import-path">配置文件</label>
+                            <input class="form-control" id="setup-import-path" type="text" value="{{ alist_path }}" placeholder="例如：C:/alist/data/data.db" autocomplete="off" spellcheck="false" data-drive-import-path>
+                            <small>AList 数据目录下的 data.db，或后台“备份”导出的 JSON，原文件不会改动。</small>
+                        </div>
+                        <div class="drive-import-list" data-drive-import-list hidden></div>
+                        <div class="onboard-result" data-drive-import-result role="status" aria-live="polite"></div>
+                        <div class="d-flex gap-2">
+                            <button class="btn onboard-link onboard-btn" type="button" data-drive-import-read>读取</button>
+                            <button class="btn media-primary-action" type="button" data-drive-import-apply hidden><span>导入</span></button>
+                        </div>
+                    </div>
+                </details>
                 <div class="onboard-result" data-result="save" role="status" aria-live="polite"></div>
                 <div class="onboard-actions">
                     <button class="btn onboard-link" type="button" data-go="welcome">返回</button>

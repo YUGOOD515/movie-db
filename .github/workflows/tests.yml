@@ -37,6 +37,7 @@ jobs:
       MOVIEDB_TONES_DISABLED: "1"
       MOVIEDB_SYNC_DISABLED: "1"
       MOVIEDB_IMPORTS_DISABLED: "1"
+      MOVIEDB_KEEPALIVE_DISABLED: "1"
       PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@v4

@@ -83,3 +83,33 @@ def test_auth_error_has_no_credentials(payload, status):
     with pytest.raises(AuthError) as caught:
         drive(session).check()
     assert "a=1" not in str(caught.value) and "http" not in str(caught.value)
+
+
+def test_keepalive_requests_without_puus_and_saves_reissued_value():
+    session = Mock()
+    session.request.return_value = response({"code": 0, "status": 200, "data": {}},
+                                            headers={"Set-Cookie": "__puus=fresh; Path=/; HttpOnly"})
+    saved = Mock()
+    driver = drive(session, saved)
+    assert driver.keepalive() == "已连接"
+    sent = session.request.call_args.kwargs["headers"]["Cookie"]
+    assert "__puus" not in sent and "a=1" in sent
+    assert driver.cookie == "a=1; __puus=fresh"
+    assert saved.call_args.args[0]["cookie"] == "a=1; __puus=fresh"
+    # 之后的普通请求带上新的会话 Cookie
+    driver.check()
+    assert session.request.call_args.kwargs["headers"]["Cookie"] == "a=1; __puus=fresh"
+
+
+def test_keepalive_keeps_cookie_when_not_reissued_and_reports_expired_login():
+    session = Mock()
+    session.request.return_value = response({"code": 0, "status": 200, "data": {}})
+    saved = Mock()
+    driver = drive(session, saved)
+    driver.keepalive()
+    assert driver.cookie == "a=1; __puus=old" and not saved.called
+    session.request.return_value = response({"code": 1, "status": 401, "message": "未登录"}, status=401)
+    with pytest.raises(AuthError):
+        driver.keepalive()
+    assert driver.cookie == "a=1; __puus=old"
+    assert QuarkDrive.keepalive_interval == 100 * 60

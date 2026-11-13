@@ -77,6 +77,7 @@ class Field:
     options: tuple = ()
     hint: str = ""
     advanced: bool = False
+    manual: bool = False  # 有扫码 / 授权登录时，这类凭据收进“手动填写凭据”，一般不用填
 
 
 class DriveError(RuntimeError):
@@ -87,6 +88,23 @@ class AuthError(DriveError):
     pass
 
 
+def renew_online(session, service, url, refresh_token, driver_txt, label):
+    """通过 OpenList 令牌服务（或兼容的 AList 在线续期地址）用 refresh_token 换新令牌，返回 (access, refresh)。"""
+    from connectors import throttle
+
+    response = throttle.call(service, lambda: session.get(
+        url, params={"refresh_ui": refresh_token, "server_use": "true", "driver_txt": driver_txt}, timeout=20,
+    ))
+    try:
+        payload = response.json()
+    except ValueError:
+        payload = {}
+    access, refresh = payload.get("access_token") or "", payload.get("refresh_token") or ""
+    if not access or not refresh:
+        raise AuthError(f"{label} refresh_token 已失效，请重新获取")
+    return access, refresh
+
+
 THROTTLED_MESSAGE = re.compile(r"频繁|过快|稍后再试|too many|rate.?limit|\b429\b", re.IGNORECASE)
 
 
@@ -95,6 +113,8 @@ class Drive:
     label: ClassVar[str]
     fields: ClassVar[tuple[Field, ...]] = ()
     root_id: ClassVar[str] = ""
+    # 保活间隔（秒）：services/drive_keepalive.py 按这个间隔调用 keepalive()
+    keepalive_interval: ClassVar[int] = 12 * 3600
 
     def __init__(self, config: dict, save: Callable[[dict], None], session=None):
         self.config = dict(config)
@@ -106,6 +126,13 @@ class Drive:
 
     def check(self) -> str:
         raise NotImplementedError
+
+    def keepalive(self) -> str:
+        """让凭据保持有效，返回与 check() 相同的状态文字。
+
+        默认做一次检测：令牌类驱动会在请求失败时自动续期并写回新令牌，长期不用的 refresh_token 也因此保持有效。
+        """
+        return self.check()
 
     def list(self, directory: Entry) -> list[Entry]:
         raise NotImplementedError

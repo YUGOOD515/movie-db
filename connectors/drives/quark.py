@@ -14,13 +14,21 @@ def _iso(milliseconds):
     return datetime.fromtimestamp(milliseconds / 1000, timezone.utc).isoformat()
 
 
+def _without(cookie, name):
+    return "; ".join(part.strip() for part in cookie.split(";")
+                     if part.strip() and not part.strip().startswith(f"{name}="))
+
+
 class QuarkDrive(Drive):
     kind = "quark"
-    label = "夸克网盘"
+    label = "夸克网盘（Cookie）"
+    name = "夸克网盘"  # 用于提示文字
     api = "https://drive.quark.cn/1/clouddrive"
     referer = "https://pan.quark.cn"
     pr = "ucpro"
     ua = UA
+    # Cookie 里的 __puus 是会话凭证，约 3 小时过期（过期后能列目录、不能下载），比照 AList 每 100 分钟续一次
+    keepalive_interval = 100 * 60
     fields = (
         Field("cookie", "Cookie", "secret", required=True, hint="浏览器登录网页版后复制完整 Cookie"),
         Field("root_id", "根目录 ID", default="0", advanced=True),
@@ -54,10 +62,10 @@ class QuarkDrive(Drive):
             return False
         return bool(THROTTLED_MESSAGE.search(str(payload.get("message") or "")))
 
-    def _request(self, method, path, *, params=None, body=None, headers=None):
+    def _request(self, method, path, *, params=None, body=None, headers=None, cookie=None):
         query = {"pr": self.pr, "fr": "pc", **(params or {})}
         request_headers = {
-            "Cookie": self.cookie,
+            "Cookie": self.cookie if cookie is None else cookie,
             "Accept": "application/json, text/plain, */*",
             "Referer": self.referer,
             **(headers or {}),
@@ -70,11 +78,11 @@ class QuarkDrive(Drive):
         )
         self._save_cookie(response)
         if response.status_code == 401:
-            raise AuthError(f"{self.label} Cookie 已失效，请重新复制")
+            raise AuthError(f"{self.name} Cookie 已失效，请重新复制")
         try:
             payload = response.json()
         except ValueError:
-            raise DriveError(f"{self.label}返回了无法识别的响应") from None
+            raise DriveError(f"{self.name}返回了无法识别的响应") from None
         message = str(payload.get("message") or "")
         try:
             status = int(payload.get("status") or 0)
@@ -82,12 +90,20 @@ class QuarkDrive(Drive):
             status = 0
         if response.status_code >= 400 or status >= 400 or payload.get("code") != 0:
             if re.search(r"登录|login|token", message, re.IGNORECASE):
-                raise AuthError(f"{self.label} Cookie 已失效，请重新复制")
-            raise DriveError(f"{self.label}请求失败，请检查配置")
+                raise AuthError(f"{self.name} Cookie 已失效，请重新复制")
+            raise DriveError(f"{self.name}请求失败，请检查配置")
         return payload
 
     def check(self):
         self._request("GET", "/config")
+        return "已连接"
+
+    def keepalive(self):
+        """服务端只在请求不带 __puus 时下发新值（见 AlistGo/alist#830）：去掉它请求一次，新值由 _save_cookie 写回。
+
+        服务端没有下发时 self.cookie 保持原样；只用长期凭证 __pus 也通不过时按 Cookie 失效报错。
+        """
+        self._request("GET", "/config", cookie=_without(self.cookie, "__puus"))
         return "已连接"
 
     def list(self, directory):
@@ -126,7 +142,8 @@ class QuarkDrive(Drive):
 
 class UCDrive(QuarkDrive):
     kind = "uc"
-    label = "UC 网盘"
+    label = "UC 网盘（Cookie）"
+    name = "UC 网盘"
     api = "https://pc-api.uc.cn/1/clouddrive"
     referer = "https://drive.uc.cn"
     pr = "UCBrowser"

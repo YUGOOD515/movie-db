@@ -120,6 +120,7 @@
 | `PLAYER_PATH` | 非 MPC-HC 播放器的程序路径，macOS 可以填 `.app` |
 | `MPC_PATH`、`MPC_WEB_URL` | MPC-HC 程序路径与 Web 接口地址（默认 `http://127.0.0.1:13579`） |
 | `MOVIEDB_TONES_DISABLED` | 设为 `1` 时启动不补算海报环境色与 BlurHash |
+| `MOVIEDB_KEEPALIVE_DISABLED` | 设为 `1` 时不自动续期网盘凭据（测试用） |
 
 **云端只读快照**（见[远程访问](remote-access.md)）
 

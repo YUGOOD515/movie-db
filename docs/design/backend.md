@@ -64,7 +64,11 @@
 
 - 播放器和 ffprobe 只访问 MovieDB 自己的 `/stream` 地址，由 `services/media_stream.py` 转发；不把网盘直链交给外部程序，因为直链会过期且可能带令牌。
 - 由哪个网盘提供路径由 `services/media_source.route` 决定：第一级目录由同名网盘提供；网盘停用后路径不可用，只有用户在网盘页选择“改由透传提供”时才交给透传（`*`）。改变路由的操作会触发重新扫描。
-- 网盘驱动实现 `connectors/drives/base.py` 的 `Drive` 接口（`root` / `check` / `list` / `link`）。驱动返回的时间统一转为 UTC（`base.utc_iso`），比较版本时用 `same_instant` 按时刻比较，因为不同网盘的时区和格式不同。
+- 网盘驱动实现 `connectors/drives/base.py` 的 `Drive` 接口（`root` / `check` / `list` / `link` / `keepalive`）。
+- 凭据保活由 `services/drive_keepalive.py` 调度：启动后执行一次，之后按驱动的 `keepalive_interval` 执行，使用 `media_source.drive_for` 里与播放共用的实例，续期结果直接对播放生效。新驱动有会过期的会话或令牌时，要实现 `keepalive()` 并设置间隔；没有凭据的驱动把间隔设为 0。夸克只在请求不带 `__puus` 时下发新值，续期见 `QuarkDrive.keepalive`。
+- 从 AList 导入：`connectors/drives/alist_config.py` 只读解析 `data.db` / 备份 JSON，`services/alist_import.py` 把 AList 驱动名和字段映射到内置驱动（字段名以 AList 源码 `drivers/<驱动>/meta.go` 的 json 标签为准）。新增内置驱动时，在 `MAPPERS` 里补上对应关系。
+- 登录方式由驱动声明：扫码实现 `start_login()`（返回二维码、内部状态和可选提示）/ `finish_login(state)` 并设置 `qr_app`；网页授权设置 `oauth_txt`（OpenList 授权页的驱动标识）和 `oauth_embedded`（桌面版能否在内嵌窗口完成，Google 不能）。有这类登录方式时，令牌字段标 `manual=True`，收进“手动填写凭据”。登录会话保存在 `services/drives.py` 的服务端字典里（5 分钟有效），令牌不经过页面。
+- 一次性的 refresh_token（如 115）：续期后立即写回，并发请求只续期一次（比较发起时的 access_token），否则会把刚换到的新令牌作废。驱动返回的时间统一转为 UTC（`base.utc_iso`），比较版本时用 `same_instant` 按时刻比较，因为不同网盘的时区和格式不同。
 - `/stream` 地址跟随实际监听端口（`media_source.remember_local_port`），不要写死端口。
 
 ## 配置与路径

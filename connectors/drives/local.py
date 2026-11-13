@@ -16,6 +16,7 @@ class LocalDrive(Drive):
     label = "本机目录"
     fields = (Field("root", "目录", "path", required=True),)
     root_id = ""
+    keepalive_interval = 0  # 本机目录没有需要续期的凭据
 
     def __init__(self, config, save, session=None):
         super().__init__(config, save, session)

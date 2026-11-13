@@ -11,7 +11,11 @@
     const modalNode = page?.querySelector("[data-drive-modal]");
     if (modalNode) document.body.append(modalNode);
     const modal = modalNode ? bootstrap.Modal.getOrCreateInstance(modalNode) : null;
-    const defaultMounts = { local: "本机", quark: "夸克", uc: "UC", aliyun: "阿里", baidu: "百度", pan123: "123", alist: "*" };
+    const defaultMounts = {
+        local: "本机", quark: "夸克", quark_tv: "夸克", uc: "UC", uc_tv: "UC", aliyun: "阿里", baidu: "百度",
+        pan115: "115", pan123: "123", onedrive: "OneDrive", gdrive: "Google", webdav: "WebDAV", alist: "*",
+    };
+    let qrTimer = null;
     let editingMount = "";
 
     const el = (tag, className, text) => {
@@ -44,7 +48,15 @@
         renderResult(resultBox, result);
     }
 
+    function stopQr() {
+        clearTimeout(qrTimer);
+        qrTimer = null;
+        form.querySelectorAll("[data-drive-qr], [data-drive-oauth-paste]").forEach(box => { box.hidden = true; });
+        form.querySelectorAll("[data-drive-qr-start] span").forEach(label => { label.textContent = "获取二维码"; });
+    }
+
     function syncKind(prefill = false) {
+        stopQr();
         const kind = kindInput.value;
         form.querySelectorAll("[data-drive-fields]").forEach(node => { node.hidden = node.dataset.driveFields !== kind; });
         form.querySelector("[data-drive-mount]").hidden = setup || kind === "alist";
@@ -114,6 +126,10 @@
         const result = await post("/manager/drives/save", { mount: mountInput.value.trim(), kind, config, create: !editingMount && !setup });
         saveButton.disabled = false;
         saveButton.removeAttribute("aria-busy");
+        return finishSave(result);
+    }
+
+    async function finishSave(result) {
         if (result.ok && page) {
             try { await refreshDrives(); } catch {}
             modal?.hide();
@@ -190,6 +206,86 @@
         if (result.message) window.showAppToast?.(result.message, "warning");
     }
 
+    // 扫码登录：获取二维码后每 2 秒查询一次，确认后服务端已保存挂载，这里按保存成功处理
+    form.querySelectorAll("[data-drive-qr-start]").forEach(button => button.addEventListener("click", async () => {
+        const fields = button.closest("[data-drive-fields]");
+        const box = fields.querySelector("[data-drive-qr]");
+        const image = fields.querySelector("[data-drive-qr-image]");
+        const status = fields.querySelector("[data-drive-qr-status]");
+        const hint = fields.querySelector("[data-drive-qr-hint]");
+        stopQr();
+        renderResult(resultBox, null);
+        button.disabled = true;
+        const started = await post("/manager/drives/qr-login", {
+            action: "start", kind: kindInput.value, mount: mountInput.value.trim(), create: !editingMount && !setup,
+        });
+        button.disabled = false;
+        if (!started.ok) { showResult(started); return; }
+        image.src = started.qr;
+        image.classList.remove("is-expired");
+        hint.textContent = started.hint || "";
+        hint.hidden = !started.hint;
+        status.textContent = "请扫码并在手机上确认登录…";
+        box.hidden = false;
+        button.querySelector("span").textContent = "重新获取";
+        const deadline = Date.now() + (started.expires_in || 300) * 1000;
+        const poll = async () => {
+            if (Date.now() > deadline) {
+                image.classList.add("is-expired");
+                status.textContent = "二维码已过期，请重新获取。";
+                return;
+            }
+            const result = await post("/manager/drives/qr-login", { action: "poll", login_id: started.login_id });
+            if (result.ok && result.pending) { qrTimer = setTimeout(poll, 2000); return; }
+            if (!result.ok) {
+                image.classList.add("is-expired");
+                status.textContent = result.message || "登录失败，请重新获取二维码。";
+                return;
+            }
+            status.textContent = "登录成功，已保存。";
+            await finishSave(result);
+        };
+        qrTimer = setTimeout(poll, 2000);
+    }));
+
+    // 网页授权：桌面版（OneDrive）在 MovieDB 窗口内完成并自动读取；其余打开浏览器，授权后粘贴网址
+    async function finishOauth(text) {
+        renderResult(resultBox, null, true);
+        const result = await post("/manager/drives/oauth", {
+            kind: kindInput.value, mount: mountInput.value.trim(), url: text, create: !editingMount && !setup,
+        });
+        if (!result.ok) { showResult(result); return; }
+        await finishSave(result);
+    }
+
+    form.querySelectorAll("[data-drive-oauth-start]").forEach(button => button.addEventListener("click", async () => {
+        const fields = button.closest("[data-drive-fields]");
+        const paste = fields.querySelector("[data-drive-oauth-paste]");
+        const page = button.dataset.oauthPage;
+        renderResult(resultBox, null);
+        if (button.dataset.oauthEmbedded === "true" && window.pywebview?.api?.authorize) {
+            button.disabled = true;
+            const result = await window.pywebview.api.authorize(button.dataset.oauthUrl);
+            button.disabled = false;
+            if (result) { await finishOauth(result); return; }
+            showResult({ ok: false, message: "没有完成授权。可以重试，或在浏览器里授权后粘贴 Refresh Token。" });
+            if (window.pywebview?.api?.open_external) window.pywebview.api.open_external(page);
+        } else if (window.pywebview?.api?.open_external) {
+            window.pywebview.api.open_external(page);
+        } else {
+            window.open(page, "_blank", "noopener");
+        }
+        paste.hidden = false;
+        paste.querySelector("[data-drive-oauth-input]").focus();
+    }));
+    form.querySelectorAll("[data-drive-oauth-finish]").forEach(button => button.addEventListener("click", async () => {
+        const input = button.closest("[data-drive-oauth-paste]").querySelector("[data-drive-oauth-input]");
+        if (!input.value.trim()) { input.focus(); return; }
+        button.disabled = true;
+        await finishOauth(input.value.trim());
+        button.disabled = false;
+    }));
+
     kindInput.addEventListener("change", () => syncKind(true));
     saveButton.addEventListener("click", save);
     page?.querySelector("[data-drive-add]")?.addEventListener("click", () => { resetEditor(); modal?.show(); });
@@ -263,5 +359,121 @@
     if (pickers.length) {
         enablePickers();
         addEventListener("pywebviewready", enablePickers);
+    }
+
+    // 从 AList / OpenList 导入：读取 → 预览每个存储的处理方式 → 勾选后导入。
+    // 网盘页在弹窗里，首次引导页是可折叠的内联区域
+    const importNode = page?.querySelector("[data-drive-import-modal]") || document.querySelector("[data-drive-import-inline]");
+    if (importNode) {
+        const inModal = importNode.hasAttribute("data-drive-import-modal");
+        if (inModal) document.body.append(importNode);
+        const importModal = inModal ? bootstrap.Modal.getOrCreateInstance(importNode) : null;
+        const pathInput = importNode.querySelector("[data-drive-import-path]");
+        const list = importNode.querySelector("[data-drive-import-list]");
+        const importResult = importNode.querySelector("[data-drive-import-result]");
+        const readButton = importNode.querySelector("[data-drive-import-read]");
+        const applyButton = importNode.querySelector("[data-drive-import-apply]");
+        const pickButton = importNode.querySelector("[data-drive-import-pick]");
+        const PILL = { create: "ok", update: "ok", skip: "off" };
+
+        const selected = () => [...list.querySelectorAll("[data-import-mount]:checked")].map(input => input.dataset.importMount);
+        const syncApply = () => {
+            const count = selected().length;
+            applyButton.disabled = !count;
+            applyButton.querySelector("span").textContent = count ? `导入 ${count} 个` : "导入";
+        };
+
+        function renderPreview(items) {
+            list.replaceChildren();
+            for (const item of items) {
+                const row = el("label", "drive-item drive-import-item");
+                const main = el("div", "drive-item-main");
+                const check = el("input", "form-check-input m-0");
+                check.type = "checkbox";
+                check.dataset.importMount = item.mount;
+                check.checked = item.action !== "skip";
+                check.disabled = item.action === "skip";
+                check.addEventListener("change", syncApply);
+                const text = el("div", "ui-group-text");
+                const hint = [item.label, item.reason, item.note].filter(Boolean).join(" · ");
+                text.append(el("h3", "ui-row-title", item.mount_path || item.mount), el("p", "ui-row-hint", hint));
+                const pill = el("span", "ui-pill", item.action_label);
+                pill.dataset.state = PILL[item.action] || "off";
+                main.append(check, text, pill);
+                row.append(main);
+                list.append(row);
+            }
+            if (!items.length) list.append(el("p", "drive-note", "这个配置里没有存储。"));
+            list.hidden = false;
+            applyButton.hidden = !items.some(item => item.action !== "skip");
+            syncApply();
+        }
+
+        async function readConfig() {
+            readButton.disabled = true;
+            renderResult(importResult, null, true);
+            const result = await post("/manager/drives/import-alist", { action: "preview", path: pathInput.value.trim() });
+            readButton.disabled = false;
+            if (!result.ok) {
+                list.hidden = true;
+                applyButton.hidden = true;
+                renderResult(importResult, result);
+                return;
+            }
+            renderResult(importResult, null);
+            renderPreview(result.items || []);
+        }
+
+        async function applyImport() {
+            const mounts = selected();
+            if (!mounts.length) return;
+            applyButton.disabled = readButton.disabled = true;
+            renderResult(importResult, null, true);
+            const result = await post("/manager/drives/import-alist", { action: "apply", path: pathInput.value.trim(), mounts });
+            readButton.disabled = false;
+            syncApply();
+            const failed = (result.results || []).filter(item => !item.ok);
+            if (!result.ok || failed.length) {
+                const detail = failed.map(item => `/${item.mount}：${item.message}`).join("；");
+                renderResult(importResult, { ok: false, message: [result.message, detail].filter(Boolean).join(" ") });
+            } else if (inModal) {
+                renderResult(importResult, null);
+                importModal.hide();
+            } else {
+                renderResult(importResult, { ok: true, status: result.message });
+            }
+            if (!result.results) return;
+            if (!page) {
+                // 首次引导：导入成功即视为片源已就绪，交给 setup.js 进入下一步
+                if (result.ok) document.dispatchEvent(new CustomEvent("drive-saved", { detail: result }));
+                return;
+            }
+            try { await refreshDrives(); } catch {}
+            if (result.ok) window.showAppToast?.(result.message);
+            if (result.route_message) window.showAppToast?.(result.route_message, "warning");
+            if (result.alist_unused) window.showAppToast?.("AList 中启用的存储已全部由 MovieDB 接管，可以停止 AList 服务并停用默认（透传）。", "warning");
+        }
+
+        page?.querySelector("[data-drive-import]")?.addEventListener("click", () => importModal?.show());
+        readButton.addEventListener("click", readConfig);
+        applyButton.addEventListener("click", applyImport);
+        pathInput.addEventListener("keydown", event => { if (event.key === "Enter") { event.preventDefault(); readConfig(); } });
+        importNode.addEventListener("shown.bs.modal", () => pathInput.focus());
+        importNode.addEventListener("hidden.bs.modal", () => {
+            list.hidden = true;
+            applyButton.hidden = true;
+            renderResult(importResult, null);
+        });
+        const enablePick = () => {
+            if (!pickButton || !window.pywebview?.api?.pick_path) return;
+            pickButton.hidden = false;
+            pickButton.parentElement.classList.add("has-picker");
+        };
+        pickButton?.addEventListener("click", async () => {
+            const picked = await window.pywebview.api.pick_path("file", pathInput.value.trim());
+            if (picked) { pathInput.value = picked; readConfig(); }
+        });
+        enablePick();
+        addEventListener("pywebviewready", enablePick);
     }
 })();

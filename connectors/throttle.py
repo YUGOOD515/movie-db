@@ -111,7 +111,9 @@ def _policies() -> dict[str, Policy]:
         "tmdb": Policy(rate=min(30, _env_float("TMDB_RATE", 25)), burst=1, concurrency=16, max_wait=30),
         "tmdb-image": Policy(rate=20, burst=1, concurrency=6, max_wait=30),
         "alist": drive,
-        "drive": drive, "quark": drive, "baidu": drive,
+        "drive": drive, "quark": drive, "baidu": drive, "onedrive": drive, "gdrive": drive,
+        # 115 开放平台对频率敏感，与 OpenList 默认值一致：每秒 1 次
+        "pan115": Policy(rate=1, burst=1, concurrency=1, max_wait=30),
         "aliyun-list": Policy(rate=3.9, burst=1, concurrency=2, max_wait=30),
         "aliyun-link": Policy(rate=0.9, burst=1, concurrency=1, max_wait=30),
         "aliyun": Policy(rate=14.9, burst=1, concurrency=2, max_wait=30),

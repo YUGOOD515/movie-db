@@ -4625,6 +4625,8 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
 
 .ui-stack {
     display: grid;
+    /* 列宽不随内容撑开：一段不能换行的长文字也不会把整页撑出屏幕 */
+    grid-template-columns: minmax(0, 1fr);
     gap: var(--ui-group-gap);
 }
 
@@ -4657,9 +4659,10 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
 
 .ui-group-side {
     display: flex;
-    flex: 0 0 auto;
+    flex: 0 1 auto;
     align-items: center;
     gap: 8px;
+    min-width: 0;
     margin-left: auto;
 }
 
@@ -4709,6 +4712,15 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
     line-height: 1;
     color: var(--bs-secondary-color);
     white-space: nowrap;
+    min-width: 0;
+    max-width: 100%;
+}
+
+/* 空间不够时状态文字以省略号结尾，标签不超出所在行 */
+.ui-pill > span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .ui-pill:not([data-state]) {
@@ -5246,6 +5258,57 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
     border-top: 1px solid var(--ui-line);
     font-size: 0.8125rem;
     color: var(--bs-secondary-color);
+}
+
+/* 扫码登录：二维码固定尺寸并保留白底，深色主题下也能识别 */
+.drive-qr {
+    display: grid;
+    justify-items: start;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.drive-qr[hidden] {
+    display: none;
+}
+
+.drive-qr-image {
+    width: 180px;
+    height: 180px;
+    padding: 8px;
+    border-radius: var(--radius-item);
+    background: #fff;
+}
+
+.drive-qr-image.is-expired {
+    opacity: 0.35;
+}
+
+.drive-modal [data-drive-import-result]:not(:empty) {
+    margin: 12px var(--ui-modal-edge) 0;
+}
+
+/* 从 AList 导入的预览：整行可点；跳过的存储不可勾选，标题降为次要色 */
+.drive-import-item {
+    display: block;
+    cursor: pointer;
+}
+
+.drive-import-item:has(input:disabled) {
+    cursor: default;
+}
+
+.drive-import-item:has(input:disabled) .ui-row-title {
+    color: var(--bs-secondary-color);
+}
+
+/* 首次引导里的导入预览：不在卡片内，行不再缩进 */
+.drive-import-list .drive-item {
+    margin: 0;
+}
+
+.drive-import-list .drive-item:first-child {
+    border-top: 0;
 }
 
 @media (max-width: 767.98px) {

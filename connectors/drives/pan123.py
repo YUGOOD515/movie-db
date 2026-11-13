@@ -23,7 +23,7 @@ def _iso(value):
 
 class Pan123Drive(Drive):
     kind = "pan123"
-    label = "123 云盘 Open"
+    label = "123 云盘（开放平台）"
     fields = (
         Field("refresh_token", "refresh_token", "secret", hint="任选一种凭据"),
         Field("client_id", "client_id", "secret", hint="与 client_secret 一起填写"),

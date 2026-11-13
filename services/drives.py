@@ -1,17 +1,52 @@
 from __future__ import annotations
 
+import base64
+import json
+import secrets
+import threading
+import time
+from datetime import datetime
+
 import requests
 
 from connectors.drives import DRIVERS
 from connectors.drives.base import DriveError
 from models import drive_store
-from services import media_source
+from services import drive_keepalive, media_source
 
 
 def types():
     has_passthrough = drive_store.get_drive("*") is not None
-    return [{"kind": kind, "label": driver.label, "fields": driver.fields}
+    return [{"kind": kind, "label": driver.label, "fields": driver.fields,
+             "qr_app": getattr(driver, "qr_app", "") if hasattr(driver, "start_login") else "",
+             "oauth": oauth_url(driver), "oauth_page": oauth_page(driver),
+             "oauth_embedded": bool(getattr(driver, "oauth_embedded", False))}
             for kind, driver in DRIVERS.items() if kind != "alist" or not has_passthrough]
+
+
+def _oplist_base(driver):
+    renew = next((field.default for field in driver.fields if field.name == "renew_api"), "")
+    return renew.rsplit("/", 2)[0] if renew else "https://api.oplist.org"
+
+
+def oauth_url(driver):
+    """OpenList 的授权入口：返回 JSON {"text": 授权地址}，并在打开它的窗口里设置回调要用的 Cookie。
+
+    桌面版的授权窗口先打开它、再跳到授权地址；驱动没有 oauth_txt 时为空。
+    """
+    driver_txt = getattr(driver, "oauth_txt", "")
+    if not driver_txt:
+        return ""
+    return f"{_oplist_base(driver)}/{driver_txt.split('_')[0]}/requests?driver_txt={driver_txt}&server_use=true"
+
+
+def oauth_page(driver):
+    """OpenList 令牌页，# 后的回调数据预先选好网盘类型并勾选“使用官方参数”；浏览器里在这里完成授权。"""
+    driver_txt = getattr(driver, "oauth_txt", "")
+    if not driver_txt:
+        return ""
+    preset = base64.b64encode(json.dumps({"driver_txt": driver_txt, "server_use": "true"}).encode()).decode()
+    return f"{_oplist_base(driver)}/#{preset}"
 
 
 def _secret_fields(kind):
@@ -46,7 +81,16 @@ def public(row, *, passthrough_names=frozenset(), passthrough=None):
     status = (row["status"] or "").strip()
     # 停用后旧的检测结果已不代表当前状态，不再显示
     result["status_detail"] = status if row["enabled"] and status and status != result["status_text"] else ""
+    result["keepalive_text"] = _keepalive_text(row) if row["enabled"] else ""
     return result
+
+
+def _keepalive_text(row):
+    kept = drive_keepalive.state(row["mount"])
+    if not kept.get("ok"):
+        return ""
+    moment = datetime.fromisoformat(kept["at"]).astimezone()
+    return f"{moment:%H:%M} 已续期" if row["kind"] != "alist" else f"{moment:%H:%M} 已检测"
 
 
 def _route_view(row, passthrough_names, passthrough):
@@ -102,7 +146,7 @@ def rerouted(before):
     return sorted(key for key in set(before) | set(after) if before.get(key) != after.get(key))
 
 
-def _route_message(changed):
+def route_message(changed):
     if not changed:
         return ""
     names = "、".join("其余路径" if key == "*" else f"/{key}" for key in changed)
@@ -115,7 +159,7 @@ def missing_mounts(paths):
     return sorted(mounts - configured) if "*" not in configured else []
 
 
-def _error(error):
+def describe_error(error):
     if isinstance(error, DriveError):
         return str(error)
     if isinstance(error, ValueError):
@@ -159,6 +203,8 @@ def save(mount, kind, values, enabled=None, create=False):
             continue
         config[field.name] = value or field.default
         if field.required and not config[field.name]:
+            if field.manual:
+                raise ValueError(f"请先完成扫码或授权登录，或在“手动填写凭据”里填写 {field.label}。")
             raise ValueError(f"请填写{field.label}。")
         changed = changed or config[field.name] != previous_value
     if changed:
@@ -168,13 +214,14 @@ def save(mount, kind, values, enabled=None, create=False):
     try:
         status = driver.check()
     except Exception as error:
-        raise DriveError(_error(error)) from None
+        raise DriveError(describe_error(error)) from None
     before = routes()
     drive_store.save_drive(mount, kind, candidate, enabled)
     drive_store.set_status(mount, status)
     media_source.forget()
+    drive_keepalive.forget(mount)
     changed = rerouted(before)
-    return {"ok": True, "status": status, "rerouted": changed, "message": _route_message(changed)}
+    return {"ok": True, "status": status, "rerouted": changed, "message": route_message(changed)}
 
 
 def test(mount):
@@ -184,7 +231,7 @@ def test(mount):
     try:
         status = _driver(row["kind"], row["config"], lambda config: drive_store.update_config(mount, config)).check()
     except Exception as error:
-        message = _error(error)
+        message = describe_error(error)
         drive_store.set_status(mount, message)
         media_source.forget(mount)
         return {"ok": False, "message": message}
@@ -200,8 +247,9 @@ def toggle(mount):
     before = routes()
     drive_store.save_drive(mount, row["kind"], row["config"], not row["enabled"])
     media_source.forget()
+    drive_keepalive.forget(mount)
     changed = rerouted(before)
-    return {"ok": True, "enabled": not row["enabled"], "rerouted": changed, "message": _route_message(changed)}
+    return {"ok": True, "enabled": not row["enabled"], "rerouted": changed, "message": route_message(changed)}
 
 
 def delegate(mount, delegated):
@@ -217,13 +265,124 @@ def delegate(mount, delegated):
         # “改回由本网盘提供”意味着要用它：一并启用，否则路径会直接变成不可用
         drive_store.save_drive(mount, row["kind"], row["config"], True)
     media_source.forget()
+    drive_keepalive.forget(mount)
     changed = rerouted(before)
-    return {"ok": True, "delegated": delegated, "rerouted": changed, "message": _route_message(changed)}
+    return {"ok": True, "delegated": delegated, "rerouted": changed, "message": route_message(changed)}
 
 
 def delete(mount):
     before = routes()
     drive_store.delete_drive(mount)
     media_source.forget()
+    drive_keepalive.forget(mount)
     changed = rerouted(before)
-    return {"ok": True, "rerouted": changed, "message": _route_message(changed)}
+    return {"ok": True, "rerouted": changed, "message": route_message(changed)}
+
+
+# ---- 扫码登录（夸克 / UC 电视版）：会话只在服务端，页面拿到二维码与随机编号，令牌不经过浏览器 ----
+
+QR_TTL = 300
+_qr_lock = threading.Lock()
+_qr_logins: dict[str, dict] = {}
+
+
+def _mount_for(kind, mount, create):
+    mount = str(mount or "").strip()
+    if not mount or "/" in mount or mount in (".", "..", "*"):
+        raise ValueError("请填写有效的挂载名，且不要包含 /。")
+    previous = drive_store.get_drive(mount)
+    if create and previous:
+        raise ValueError("挂载名已存在，请换一个或编辑原挂载")
+    if previous and previous["kind"] != kind:
+        raise ValueError("编辑时不能更改网盘类型。")
+    return mount, previous
+
+
+def qr_start(kind, mount, create=False):
+    driver_class = DRIVERS.get(kind)
+    if driver_class is None or not hasattr(driver_class, "start_login"):
+        raise ValueError("这种网盘不支持扫码登录。")
+    mount, previous = _mount_for(kind, mount, create)
+    # 编辑时沿用原设备 ID：令牌与设备绑定
+    config = dict((previous or {}).get("config") or {})
+    driver = driver_class(config, lambda updated: config.update(updated))
+    try:
+        login = driver.start_login()
+    except Exception as error:
+        raise DriveError(describe_error(error)) from None
+    if not isinstance(login.get("state"), dict):
+        raise DriveError("无法获取登录二维码，请稍后重试")
+    login_id = secrets.token_urlsafe(16)
+    now = time.monotonic()
+    with _qr_lock:
+        for key in [key for key, item in _qr_logins.items() if now - item["at"] > QR_TTL]:
+            _qr_logins.pop(key, None)
+        _qr_logins[login_id] = {"kind": kind, "mount": mount, "create": create, "driver": driver,
+                                "config": config, "state": login["state"], "at": now}
+    return {"ok": True, "login_id": login_id, "qr": _qr_source(login["qr"]), "hint": login.get("hint", ""),
+            "expires_in": QR_TTL}
+
+
+def _qr_source(value):
+    """二维码可以是图片地址、data URI 或裸 base64（夸克返回 PNG）。"""
+    if value.startswith(("data:", "https://", "http://")):
+        return value
+    return f"data:{'image/png' if value.startswith('iVBOR') else 'image/jpeg'};base64,{value}"
+
+
+def qr_poll(login_id):
+    with _qr_lock:
+        item = _qr_logins.get(str(login_id or ""))
+        if item and time.monotonic() - item["at"] > QR_TTL:
+            _qr_logins.pop(login_id, None)
+            item = None
+    if item is None:
+        return {"ok": False, "expired": True, "message": "二维码已过期，请重新获取。"}
+    # 有的网盘（百度）规定了最短查询间隔：没到时间就不去问，直接回复“等待中”
+    now = time.monotonic()
+    if now - item.get("polled", 0) < float(item["state"].get("interval") or 0):
+        return {"ok": True, "pending": True}
+    item["polled"] = now
+    try:
+        done = item["driver"].finish_login(item["state"])
+    except Exception as error:
+        with _qr_lock:
+            _qr_logins.pop(login_id, None)
+        return {"ok": False, "message": describe_error(error)}
+    if not done:
+        return {"ok": True, "pending": True}
+    with _qr_lock:
+        _qr_logins.pop(login_id, None)
+    config = item["config"]
+    # 登录得到的凭据连同驱动生成的设备 ID、应用凭据一起保存：续期时要用同一组
+    values = {field.name: config[field.name] for field in DRIVERS[item["kind"]].fields if config.get(field.name)}
+    return save(item["mount"], item["kind"], values, enabled=True, create=item["create"])
+
+
+# ---- 网页授权（OneDrive、Google Drive）：OpenList 授权页完成后跳到 https://api.oplist.org/#<base64 JSON> ----
+
+def _oauth_result(text):
+    """授权结果：OpenList 回调网址（或其 # 部分）里的 base64 JSON，或直接粘贴的 refresh_token。"""
+    fragment = text.split("#", 1)[1] if "#" in text else text
+    try:
+        data = json.loads(base64.b64decode(fragment + "=" * (-len(fragment) % 4)).decode("utf-8"))
+        if isinstance(data, dict):
+            return data
+    except (ValueError, UnicodeDecodeError):
+        pass
+    if len(text) >= 20 and "://" not in text and not any(char.isspace() for char in text):
+        return {"refresh_token": text}
+    raise ValueError("无法识别授权结果，请粘贴授权页上显示的 Refresh Token。")
+
+
+def oauth_finish(kind, mount, pasted, create=False):
+    driver_class = DRIVERS.get(kind)
+    if driver_class is None or not getattr(driver_class, "oauth_txt", ""):
+        raise ValueError("这种网盘不支持网页授权。")
+    mount, _ = _mount_for(kind, mount, create)
+    data = _oauth_result(str(pasted or "").strip())
+    if data.get("message_err"):
+        raise ValueError(f"授权失败：{data['message_err']}")
+    if not data.get("refresh_token"):
+        raise ValueError("授权结果里没有 refresh_token，请重新授权。")
+    return save(mount, kind, {"refresh_token": data["refresh_token"]}, enabled=True, create=create)

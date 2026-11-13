@@ -1,5 +1,10 @@
+import os
+
 import pytest
 import requests
+
+# 测试不启动网盘保活线程：它会在后台读写当前测试的 local.db
+os.environ.setdefault("MOVIEDB_KEEPALIVE_DISABLED", "1")
 from urllib.parse import urlparse
 
 from connectors import throttle

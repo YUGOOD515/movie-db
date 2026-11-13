@@ -89,6 +89,7 @@ jobs:
       MOVIEDB_AUTOSCAN_DISABLED: "1"
       MOVIEDB_TONES_DISABLED: "1"
       MOVIEDB_IMPORTS_DISABLED: "1"
+      MOVIEDB_KEEPALIVE_DISABLED: "1"
       PYTHONUTF8: "1"
     defaults:
       run:
@@ -306,6 +307,7 @@ jobs:
       MOVIEDB_AUTOSCAN_DISABLED: "1"
       MOVIEDB_TONES_DISABLED: "1"
       MOVIEDB_IMPORTS_DISABLED: "1"
+      MOVIEDB_KEEPALIVE_DISABLED: "1"
     steps:
       - uses: actions/checkout@v4
 
