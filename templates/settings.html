@@ -70,24 +70,23 @@
     </header>
 {% endmacro %}
 
+{% block main_class %}settings-main{% endblock %}
+
 {% block main %}
 <div class="container-xl management-shell settings-shell" data-settings>
-    <header class="settings-header">
-        <h1 class="h3 fw-bold mb-0">设置</h1>
-    </header>
-    <p class="settings-lead">修改后在底部保存，大部分设置立即生效。已保存的密码和密钥不会显示，留空即保持不变。</p>
-
-    {% if remote %}
-        <div class="settings-banner">{{ ui_icon('shield-check', '') }}<span>出于安全考虑，设置只能在运行 MovieDB 的电脑上修改。</span></div>
-    {% endif %}
-
-    <div class="management-layout mt-4">
-        <nav class="management-sidebar settings-nav nav nav-pills" role="tablist" aria-label="设置分区" aria-orientation="vertical">
+    <div class="management-layout settings-layout">
+        <aside class="management-sidebar settings-sidebar" aria-label="设置导航">
+            <header class="settings-header mb-3 mb-lg-4"><h1 class="h3 fw-bold mb-0">设置</h1></header>
+        <nav class="settings-nav nav nav-pills" role="tablist" aria-label="设置分区" aria-orientation="vertical">
             {% for section in sections %}
                 <button class="nav-link d-flex align-items-center gap-2 text-start" type="button" role="tab" id="tab-{{ section.id }}" aria-controls="section-{{ section.id }}" data-tab="{{ section.id }}">{% if section.icon %}{{ ui_icon(section.icon, '') }}{% endif %}<span>{{ section.title }}</span></button>
             {% endfor %}
         </nav>
+        </aside>
     <form class="settings-form management-content" data-settings-form autocomplete="off" novalidate>
+        {% if remote %}
+            <div class="settings-banner mt-0 mb-4">{{ ui_icon('shield-check', '') }}<span>出于安全考虑，设置只能在运行 MovieDB 的电脑上修改。</span></div>
+        {% endif %}
         {% for section in sections %}
             <section class="settings-section ui-stack" id="section-{{ section.id }}" role="tabpanel" aria-labelledby="tab-{{ section.id }}" data-section="{{ section.id }}" data-hue="{{ section.hue }}" hidden>
                 {% for group in section.groups %}

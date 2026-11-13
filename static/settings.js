@@ -75,7 +75,9 @@
 
     function showSection(id, { focus = false } = {}) {
         if (!sections.some(section => section.dataset.section === id)) id = sections[0].dataset.section;
+        const changed = sections.some(section => !section.hidden && section.dataset.section !== id);
         sections.forEach(section => { section.hidden = section.dataset.section !== id; });
+        if (changed) form.scrollTo({ top: 0 });
         tabs.forEach(tab => {
             const active = tab.dataset.tab === id;
             tab.classList.toggle("active", active);
