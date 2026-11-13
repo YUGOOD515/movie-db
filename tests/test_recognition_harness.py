@@ -255,3 +255,58 @@ def test_hangul_original_title_is_not_a_conflicting_english_filename(monkeypatch
                                      {"kind": "other", "candidates": [{"title": "A"}]}])
 def test_invalid_structured_answers_are_rejected(answer):
     assert recognition._normalize_answer(answer) is None
+
+
+def edgerunners_s02_files():
+    """《赛博朋克：边缘行者》S02 的实际布局：同一季四个画质目录，中文名、英文名、只有单集标题三种命名。"""
+    root = "/drive/来自：分享/B.【4K.完结.全10集】缘行.者.S02"
+    files = []
+    for n in range(1, 3):
+        files.append(video(f"{root}/4K SDR 内封字幕/赛博朋克 边缘行者.S02E{n:02}.2026.2160p.WEB-DL.H265.SDR.24fps.10bit.DDP5.1.2Audios.mkv"))
+        files.append(video(f"{root}/4K DV.HDR 内封字幕/Cyberpunk.Edgerunners.S02E{n:02}.2026.2160p.NF.WEB-DL.H265.DV.HDR.DDP5.1.2Audio.mkv"))
+        files.append(video(f"{root}/4K HDR 内封字幕/S02E{n:02}.Episode.Title.{n}.2160p.NF.WEB-DL.DDP5.1.HDR.H.265.mkv"))
+    return root, files
+
+
+EDGERUNNERS = {"title_id": "tt12590266", "tmdb_id": 105248, "name": "赛博朋克：边缘行者",
+               "original_name": "Cyberpunk: Edgerunners", "media_type": "tv", "year": 2022}
+
+
+def test_split_quality_folders_marked_for_review_become_ready_once_episodes_verify(configured, monkeypatch, tmp_path):
+    """AI 因命名不同把同一季的画质目录拆开并标 review；身份与季集全部核对通过后不应再卡在“目录分组仍需核对”。"""
+    root, files = edgerunners_s02_files()
+    drafts = media_grouping.partition(root, files)
+    def plan(system, user, **kwargs):
+        packet = json.loads(user)
+        return {"groups": [{"name": unit["name"], "unit_ids": [unit["id"]], "review": True} for unit in packet["drafts"]]}
+    monkeypatch.setattr(llm, "complete_json", plan)
+    groups = harness.plan_groups(tmp_path / "library.db", root, drafts) if len(drafts) > 1 else [{**drafts[0], "grouping_review": True}]
+    assert groups and all(group["grouping_review"] for group in groups)
+    monkeypatch.setattr(media_association, "title_metadata", lambda *args: {"episodes": [
+        {"season_number": 2, "episode_number": n, "title_id": f"tt9{n}"} for n in range(1, 11)]})
+    monkeypatch.setattr(harness, "repair", lambda *args, **kwargs: pytest.fail("verified groups need no AI repair"))
+    for group in groups:
+        context = {"record": group, "result": {}, "hints": {"season": 2}, "title": EDGERUNNERS,
+                   "confidence": 0.9, "method": "ai", "ranked": [], "harness_enabled": True}
+        result = recognition.complete(None, context)
+        assert result["coverage"] == 1 and "issues" not in result, group["name"]
+        assert result["status"] == "ready"
+
+
+def test_grouping_review_still_blocks_when_episodes_do_not_verify(monkeypatch):
+    record = {**media_grouping.partition("/r/Show", [video("/r/Show/Show.S01E01.mkv"), video("/r/Show/Show.S01E09.mkv")])[0],
+              "grouping_review": True}
+    monkeypatch.setattr(media_association, "title_metadata", lambda *args: {"episodes": [
+        {"season_number": 1, "episode_number": 1, "title_id": "tt91"}]})
+    result = recognition.finish(None, {"record": record, "result": {}, "hints": {"season": 1}, "title": {
+        "title_id": "tt1", "tmdb_id": 1, "name": "Show", "original_name": "Show", "media_type": "tv"},
+        "confidence": 0.95, "method": "rule", "ranked": []})
+    assert result["status"] == "review" and "目录分组仍需核对" in result["issues"]
+
+
+def test_grouping_review_still_blocks_movies(monkeypatch):
+    record = {**media_grouping.partition("/r/Arrival", [video("/r/Arrival/Arrival.2016.mkv")])[0], "grouping_review": True}
+    result = recognition.finish(None, {"record": record, "result": {}, "hints": {"year": 2016}, "title": {
+        "title_id": "tt2543164", "tmdb_id": 329865, "name": "Arrival", "original_name": "Arrival", "media_type": "movie", "year": 2016},
+        "confidence": 0.95, "method": "rule", "ranked": []})
+    assert result["status"] == "review" and result["issues"] == ["目录分组仍需核对"]

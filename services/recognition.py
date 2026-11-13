@@ -432,10 +432,14 @@ def finish(library_database, context: dict, answer: dict | None = None) -> dict:
             issues.append("部分季集无法在该作品中对应")
     if title["media_type"] == "movie" and hints.get("year") and title.get("year") and abs(hints["year"] - title["year"]) > 1:
         issues.append("文件年份与候选作品不符")
-    if record.get("grouping_review"):
-        issues.append("目录分组仍需核对")
     if record.get("incomplete"):
         issues.append("目录未读取完整")
+    # AI 分组时标了“不确定”的组：剧集的每个文件都对上了该作品的单集、片名一致且没有别的问题时，
+    # 分组已被季集核对证实（例如同一季因命名不同被拆成几个画质目录，各组只是同一作品的不同版本），不再要求核对；
+    # 电影没有季集可以佐证，仍需人工核对。这条问题身份核验修不掉，留着只会让补查 AI 被迫返回 review。
+    verified = title["media_type"] == "tv" and complete and not issues and confidence >= READY
+    if record.get("grouping_review") and not verified:
+        issues.append("目录分组仍需核对")
     if issues:
         result["issues"] = issues
     result["status"] = "ready" if confidence >= READY and complete and not issues and not (answer or {}).get("review") else "review"
