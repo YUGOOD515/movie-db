@@ -168,4 +168,6 @@ def build_home_viewmodel(raw: dict) -> dict:
             build_poster_card(row, show_rating=True)
             for row in raw["top_movies"]
         ],
+        # 新装还没有任何作品：首页只放一张引导卡，不铺满七个“暂无”
+        "empty_library": not raw["recent_added"] and not raw["recent_watch"] and not raw["collections"],
     }

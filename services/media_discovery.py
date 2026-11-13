@@ -49,9 +49,10 @@ def find_share_root():
         if len(found) == 1:
             return found[0]
         if len(found) > 1:
-            raise ValueError("发现多个「来自：分享」目录，请配置 MEDIA_IMPORT_ROOT。")
+            raise ValueError("找到多个「来自：分享」目录，请点“管理扫描目录”选择要扫描的目录。")
         parents = following[:50]
-    raise ValueError("未找到「来自：分享」目录，请配置 MEDIA_IMPORT_ROOT。")
+    # 面向界面的提示：新用户还没选目录时最常见，不提 .env 里的 MEDIA_IMPORT_ROOT
+    raise ValueError("还没有选择扫描目录，请点“管理扫描目录”选择存放影视文件的目录。")
 
 
 def _timestamp(item):
@@ -261,6 +262,9 @@ def _recognize_pending(key, database, records=None):
         if stats["failed"]:
             state["warnings"].append(
                 f"AI 识别失败 {stats['failed']} 项：{stats['error']} 这些项暂用规则结果，重新扫描会再试。")
+        if stats.get("offline"):
+            state["warnings"].append(
+                f"暂时连不上 TMDB，{stats['offline']} 项未能识别。请检查网络，或在设置里填写代理后重新扫描。")
 
 
 @contextmanager

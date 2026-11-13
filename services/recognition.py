@@ -504,7 +504,7 @@ def recognize_many(library_database, records: list[dict], *, titles: list[dict] 
     """
     from concurrent.futures import ThreadPoolExecutor
 
-    stats = {"needs_ai": 0, "requests": 0, "ai": 0, "deferred": 0, "failed": 0, "error": "", "usage": {}}
+    stats = {"needs_ai": 0, "requests": 0, "ai": 0, "deferred": 0, "failed": 0, "offline": 0, "error": "", "usage": {}}
     streaming = not isinstance(records, (list, tuple))
     progress = {"total": 0 if streaming else len(records), "done": 0, "rules": 0, "ai": 0, "verifying": 0}
     lock = threading.Lock()
@@ -528,7 +528,9 @@ def recognize_many(library_database, records: list[dict], *, titles: list[dict] 
             errors.append(error)
             return None
         except Exception:
-            return None  # TMDB 网络错误：不缓存，下次扫描重试
+            with lock:
+                stats["offline"] += 1  # TMDB 网络错误：不缓存，下次扫描重试；扫描结果里提示一次
+            return None
         finally:
             bump(done=1)
         if result.get("method") == "ai":
@@ -549,6 +551,8 @@ def recognize_many(library_database, records: list[dict], *, titles: list[dict] 
         except RuntimeError as error:
             errors.append(error)
         except Exception:
+            with lock:
+                stats["offline"] += 1
             bump(done=1)  # TMDB 网络错误：不缓存，下次扫描重试
         if context is not None and context["needs_ai"]:
             bump(ai=1)

@@ -53,6 +53,12 @@ class DiscoveryTest(unittest.TestCase):
             listing.side_effect = [[{"name": "a", "is_dir": True}, {"name": "b", "is_dir": True}], [{"name": "来自：分享", "is_dir": True}], [{"name": "来自：分享", "is_dir": True}]]
             with self.assertRaisesRegex(ValueError, "多个"):
                 discovery.find_share_root()
+            # 新用户还没选目录：提示去“管理扫描目录”，不出现只有 .env 里才有的配置名
+            listing.side_effect = None
+            listing.return_value = []
+            with self.assertRaisesRegex(ValueError, "管理扫描目录") as caught:
+                discovery.find_share_root()
+            self.assertNotIn("MEDIA_IMPORT_ROOT", str(caught.exception))
 
     def test_timestamp_fallback_and_invalid_paths(self):
         self.assertEqual(discovery._timestamp({"created": "0001-01-01T00:00:00Z", "modified": "2026-01-01T00:00:00Z"})[2], "modified")

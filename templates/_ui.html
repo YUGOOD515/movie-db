@@ -24,12 +24,12 @@
 {% endmacro %}
 
 {# 无提示和操作时为紧凑卡片；否则居中显示提示与按钮。 #}
-{% macro empty_state(message, icon=none, hint=none, href=none, label=none) %}
+{% macro empty_state(message, icon=none, hint=none, href=none, label=none, primary=false) %}
     {% if hint or href %}
         <div class="empty-state squircle-card border bg-body-tertiary p-5 text-center my-4">
             <p class="text-body-secondary fs-5 mb-2">{% if icon %}{{ ui_icon(icon, 'me-2') }}{% endif %}{{ message }}</p>
             {% if hint %}<p class="small text-body-secondary mb-0">{{ hint }}</p>{% endif %}
-            {% if href %}<a class="btn btn-sm btn-outline-secondary mt-3" href="{{ href }}">{{ label }}</a>{% endif %}
+            {% if href %}<a class="btn btn-sm {{ 'media-primary-action' if primary else 'btn-outline-secondary' }} mt-3" href="{{ href }}">{{ label }}</a>{% endif %}
         </div>
     {% else %}
         <div class="empty-state squircle-card border bg-body-tertiary p-4">

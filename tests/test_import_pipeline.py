@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
+import requests
 import test_library_app as fixtures
 from connectors import llm, media_probe, throttle, tmdb, mdblist
 from models import api_usage
@@ -577,3 +578,13 @@ def test_live_rate_configuration_preserves_active_requests_and_circuit(monkeypat
         assert throttle.limiter("tmdb") is gate
         assert gate._active == 1 and gate.blocked_for() > 59
         assert gate.policy.rate == 10 and gate.concurrency == 2
+
+
+def test_tmdb_network_errors_are_counted_for_the_scan_warning(monkeypatch):
+    """TMDB 连不上时不缓存结果，但要计数，扫描结果里提示“暂时连不上 TMDB”，免得新用户只看到一堆“未识别”。"""
+    def prepare(db, record, **kwargs):
+        raise requests.ConnectionError("offline")
+    monkeypatch.setattr(recognition, "prepare", prepare)
+    saved = []
+    stats = recognition.recognize_many(None, [{"path": "a"}, {"path": "b"}], on_result=lambda *args: saved.append(args))
+    assert stats["offline"] == 2 and not saved

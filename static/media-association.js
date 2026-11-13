@@ -123,6 +123,7 @@
     const scanning = () => ["running", "recognizing"].includes(scan.status);
     const stateOf = item => item.recognition?.status || "unknown";
     const query = () => $("[data-discovery-filter]").value.trim().toLowerCase();
+    const noDrives = () => !document.querySelector("[data-drive-summary]");
     const isPassthroughPath = path => {
         if (!path.startsWith("/")) return false;
         const mount = path.split("/")[1];
@@ -468,12 +469,22 @@
         const empty = $("[data-discovery-empty]");
         const loading = tab === "linked" ? linkedLoading : scanning() || !scan.status;
         const message = loading ? (tab === "linked" ? "正在加载已关联内容…" : scan.status === 'recognizing' ? '正在识别…' : '正在扫描…')
-            : scan.status === 'error' ? '扫描失败，请重试' : search ? '没有匹配的内容'
+            : noDrives() && !records.length && tab !== 'linked' ? '还没有网盘。先添加网盘，再选择存放影视文件的目录，扫描后就能在这里确认关联。'
+            : scan.status === 'error' ? (scan.error || '扫描失败，请重试') : search ? '没有匹配的内容'
             : pendingPaths().size ? '正在关联…'
             : {ready:'暂无可确认项', review:'暂无待核对项', unknown:'暂无未识别项', linked:'此范围暂无已关联内容', ignored:'暂无已忽略项'}[tab];
-        empty.querySelector("span").textContent = message;
+        empty.querySelector("[data-discovery-empty-text]").textContent = message;
         const marker = empty.querySelector('[data-discovery-empty-icon]');
-        marker.replaceChildren(loading ? spinner() : icon(scan.status === 'error' ? 'circle-alert' : 'inbox'));
+        marker.replaceChildren(loading ? spinner() : icon(scan.status === 'error' && !noDrives() ? 'circle-alert' : 'inbox'));
+        // 新用户还没有网盘：空状态里直接给“添加网盘”，打开左栏“＋”里的同一个弹窗
+        let addDrive = empty.querySelector('[data-empty-add-drive]');
+        if (!loading && noDrives() && !records.length && tab !== 'linked') {
+            if (!addDrive) {
+                addDrive = button('添加网盘', () => document.querySelector('[data-drive-add]')?.click(), 'btn btn-sm media-primary-action is-compact ms-auto flex-shrink-0');
+                addDrive.dataset.emptyAddDrive = '';
+                empty.append(addDrive);
+            }
+        } else addDrive?.remove();
         container.setAttribute('aria-busy', String(loading));
         show(empty, !list.childElementCount);
         const missing = $("[data-discovery-missing]");
@@ -1724,6 +1735,7 @@
     discover().then(data => {
         pollJobs(true);
         if (wantsRoot) $("[data-root-add]").click();
-        if (data && (data.status === "idle" || data.restored)) discover(true);
+        // 还没有任何网盘时不自动扫描：扫了也只会报“没有目录”，空状态会引导先添加网盘
+        if (data && (data.status === "idle" || data.restored) && !noDrives()) discover(true);
     });
 })();
