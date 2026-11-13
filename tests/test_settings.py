@@ -263,3 +263,11 @@ def test_discovery_polling_returns_not_modified_when_unchanged(env):
     assert first.status_code == 200 and first.headers["ETag"]
     again = client.get("/manager/discovery", headers={"If-None-Match": first.headers["ETag"]})
     assert again.status_code == 304 and not again.get_data()
+
+
+def test_ffprobe_status_uses_short_version():
+    from services.settings import _short_version
+    assert _short_version("2026-02-04-git-627da1111c-full_build-www.gyan.dev") == "2026-02-04"
+    assert _short_version("7.1.1-essentials_build-www.gyan.dev") == "7.1.1"
+    assert _short_version("n8.1.3") == "8.1.3"
+    assert _short_version("") == ""

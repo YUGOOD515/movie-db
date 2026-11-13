@@ -278,6 +278,12 @@ def _player_status() -> dict:
     return {"state": "ok", "text": f"已找到 {player.label(kind)}"}
 
 
+def _short_version(version: str) -> str:
+    """状态标签只放简短版本号：7.1.1-essentials_build-… → 7.1.1，2026-02-04-git-627da11…-full_build → 2026-02-04。"""
+    match = re.match(r"n?(\d+(?:\.\d+)+)|(\d{4}-\d{2}-\d{2})", version or "")
+    return (match.group(1) or match.group(2)) if match else (version or "")[:16]
+
+
 def statuses() -> dict:
     env = os.environ.get
     ffprobe = setup_wizard.ffprobe_status()
@@ -290,7 +296,7 @@ def statuses() -> dict:
     return {
         "scan": configured(FIELDS["MOVIEDB_AUTOSCAN"].display(), "已开启", "已关闭"),
         "player": _player_status(),
-        "ffprobe": {"state": "ok", "text": f"已就绪{' · ' + ffprobe['version'] if ffprobe['version'] else ''}"}
+        "ffprobe": {"state": "ok", "text": f"已就绪{' · ' + _short_version(ffprobe['version']) if ffprobe['version'] else ''}"}
         if ffprobe["ok"] else {"state": "warn", "text": "未找到"},
         "sync": {"state": "ok", "text": "自动同步中"} if cloud_sync.is_enabled()
         else {"state": "off", "text": "已暂停" if sync_token else "未开启"},
