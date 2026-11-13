@@ -414,6 +414,25 @@ class DiscoveryStateTest(unittest.TestCase):
         self.assertEqual(restored["records"][0]["path"], "/r/Kept")
         discovery._scans.pop(str(self.database_path))
 
+    def test_scan_request_during_scan_is_queued_and_roots_follow_config(self):
+        key = str(self.database_path)
+        discovery._scans[key] = {**discovery._empty_state("recognizing"), "roots": [{"path": "/old", "auto": True}]}
+        try:
+            store.add_root(self.database_path, "/new")
+            with patch.object(discovery, "Thread") as thread:
+                self.assertFalse(discovery.start_scan(self.database_path, refresh=True))
+                thread.assert_not_called()
+            state = discovery.scan_status(self.database_path, prune=False)
+            self.assertTrue(state["rescan"])
+            self.assertEqual(state["roots"], [{"path": "/new", "auto": False}])
+            # 当前扫描结束后自动再扫一次（带上排队时的 refresh）
+            with patch.object(discovery, "_run_scan", side_effect=lambda *args: discovery._scans[key].update(status="complete")),                  patch.object(discovery, "start_scan") as again:
+                discovery._scan_then_rescan(key, self.database_path, False)
+            again.assert_called_once_with(self.database_path, True)
+            self.assertNotIn("rescan", discovery._scans[key])
+        finally:
+            discovery._scans.pop(key, None)
+
     def test_routes_and_overview_health_filter(self):
         client = self.client
         self.assertEqual(client.post("/manager/discovery/roots", json={"path": "/Media", "action": "add"}).json["roots"], ["/Media"])

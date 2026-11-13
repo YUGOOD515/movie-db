@@ -596,7 +596,8 @@
             roots = data.roots.map(path => ({path, auto:false})); renderRoots();
         } catch (error) { feedback(error.message, "danger"); return; }
         bootstrap.Modal.getInstance(browser)?.hide();
-        discover(true);
+        const data = await discover(true);
+        if (data?.rescan) feedback("目录已更新，当前扫描结束后会自动重新扫描。", "info");
     }
 
     async function browse(path) {
@@ -1591,9 +1592,8 @@
     picker.addEventListener("hidden.bs.modal", () => { waitingForTitle = false; });
     $("[data-discovery-refresh]").addEventListener("click", () => discover(true, true));
     $("[data-root-add]").addEventListener("click", () => {
-        const first = roots.find(item => !item.auto) || roots[0];
         bootstrap.Modal.getOrCreateInstance(browser).show();
-        browse(first ? first.path.split("/").slice(0, -1).join("/") || "/" : "/");
+        browse("/");
     });
     $("[data-root-choose]").addEventListener("click", () => updateRoot(browser.dataset.path, "add"));
     $("[data-discovery-filter]").addEventListener("input", renderList);

@@ -386,13 +386,28 @@ def _empty_state(status):
 
 
 def start_scan(database, refresh=False):
+    """开始扫描。已有扫描进行中时（例如刚添加了目录）不并发，记下“待重新扫描”，当前这次结束后自动再扫。"""
     key = str(database)
     with _lock:
-        if _scans.get(key, {}).get("status") in ("running", "recognizing"):
+        current = _scans.get(key)
+        if current and current.get("status") in ("running", "recognizing"):
+            current["rescan"] = True
+            current["rescan_refresh"] = bool(current.get("rescan_refresh")) or refresh
             return False
         _scans[key] = _empty_state("running")
-    Thread(target=_run_scan, args=(key, database, refresh), daemon=True).start()
+    Thread(target=_scan_then_rescan, args=(key, database, refresh), daemon=True).start()
     return True
+
+
+def _scan_then_rescan(key, database, refresh):
+    try:
+        _run_scan(key, database, refresh)
+    finally:
+        with _lock:
+            state = _scans.get(key) or {}
+            again, refresh_again = state.pop("rescan", False), state.pop("rescan_refresh", False)
+        if again:
+            start_scan(database, refresh_again)
 
 
 def _restore(key, database):
@@ -417,6 +432,14 @@ def scan_status(database, *, prune=True):
         state = {**_empty_state(state["status"]), **state,
                  "records": list(state["records"]), "warnings": list(state["warnings"]),
                  "ignored": list(state.get("ignored") or [])}
+    state["rescan"] = bool(state.get("rescan"))
+    # 目录列表以已保存的配置为准：刚添加 / 移除的目录立即可见，扫描结果在下一轮扫描后更新
+    try:
+        configured = store.list_roots(database)
+    except Exception:
+        configured = []
+    if configured:
+        state["roots"] = [{"path": path, "auto": False} for path in configured]
     records = state["records"]
     if prune:
         try:
