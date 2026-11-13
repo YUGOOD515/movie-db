@@ -88,10 +88,6 @@ def route(mount):
     return None, f"找不到挂载：{mount}"
 
 
-def provider_label(provider):
-    return PASSTHROUGH_NAME if provider == "*" else provider
-
-
 def _select(path):
     mount, parts = split(path)
     provider, reason = route(mount)

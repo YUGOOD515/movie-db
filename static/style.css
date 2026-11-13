@@ -4284,16 +4284,6 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
     gap: 16px;
 }
 
-.onboard-pair {
-    display: flex;
-    align-items: flex-start;
-    gap: 16px;
-}
-
-.onboard-pair > * {
-    flex: 1 1 0;
-}
-
 .onboard-field {
     display: grid;
     gap: 8px;
@@ -4346,16 +4336,14 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
     color: var(--bs-body-color);
 }
 
-.onboard-more summary,
-.settings-advanced summary {
+.onboard-more summary {
     width: fit-content;
     font-size: 0.875rem;
     color: var(--bs-secondary-color);
     cursor: pointer;
 }
 
-.onboard-more summary:hover,
-.settings-advanced summary:hover {
+.onboard-more summary:hover {
     color: var(--bs-body-color);
 }
 
@@ -4567,11 +4555,6 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
 }
 
 @media (max-width: 575.98px) {
-    .onboard-pair {
-        flex-direction: column;
-        align-items: stretch;
-    }
-
     .onboard-title {
         font-size: 2rem;
     }
@@ -4931,7 +4914,6 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
     border-radius: var(--radius-pill);
 }
 
-.ui-actions,
 .drive-item-actions {
     display: flex;
     flex: 0 0 auto;

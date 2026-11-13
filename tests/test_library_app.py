@@ -415,7 +415,10 @@ class LibraryIntegrationTest(unittest.TestCase):
         ]
 
         with self.assertRaises(sqlite3.IntegrityError):
-            models.replace_library_cast(self.database_path, "tt0816692", replacement)
+            with closing(database_module.connect_writable(self.database_path)) as database, database:
+                models.enrich_media_bundle(
+                    database, "tt0816692", artwork=[], cast=replacement, ratings={}, imdb=[]
+                )
 
         with closing(self.connect()) as database:
             rows = database.execute(
@@ -571,8 +574,8 @@ class LibraryIntegrationTest(unittest.TestCase):
                    AND position = 2
                 """
             ).fetchone()[0]
-        models.set_library_primary_artwork(
-            self.database_path, "tt0816692", "poster", 2
+        models.set_library_primary_artworks(
+            self.database_path, "tt0816692", [("poster", 2)]
         )
         with closing(self.connect()) as database:
             primary = database.execute(
@@ -1624,7 +1627,7 @@ class ConnectorUnitTest(unittest.TestCase):
         self.assertEqual(records[-1]["tmdb_person_id"], 24)
         self.assertEqual(records[0]["local_path"], "images/people/1.jpg")
 
-    def test_tv_cast_uses_aggregate_credits_and_roles(self):
+    def test_tv_cast_joins_aggregate_roles(self):
         payload = {
             "aggregate_credits": {
                 "cast": [
@@ -1641,24 +1644,10 @@ class ConnectorUnitTest(unittest.TestCase):
                 ]
             }
         }
-        with patch.object(
-            tmdb_connector,
-            "fetch_detail",
-            return_value=payload,
-        ) as fetch_detail:
-            records = tmdb_connector.fetch_title_cast(
-                "tt1234567",
-                "tv",
-                42,
-                session=Mock(),
-            )
-
-        fetch_detail.assert_called_once_with(
-            unittest.mock.ANY,
-            "tv",
-            42,
-            append="aggregate_credits",
+        records = tmdb_connector.build_title_cast(
+            "tt1234567", payload["aggregate_credits"]["cast"]
         )
+
         self.assertEqual(records[0]["character_name"], "角色 A / 角色 B")
 
     def test_obsolete_omdb_connector_is_absent(self):

@@ -513,27 +513,6 @@ def build_title_cast(title_id: str, cast: list[dict]) -> list[dict]:
     return rows
 
 
-def fetch_title_cast(
-    title_id: str,
-    media_type: str,
-    tmdb_id: int,
-    session: requests.Session | None = None,
-) -> list[dict]:
-    own_session = session is None
-    session = session or _session()
-    try:
-        credits_key = "aggregate_credits" if media_type == "tv" else "credits"
-        detail = fetch_detail(session, media_type, tmdb_id, append=credits_key)
-        return build_title_cast(
-            title_id,
-            (detail.get(credits_key) or {}).get("cast") or [],
-        )
-    finally:
-        if own_session:
-            session.close()
-
-
-
 def build_episode(episode: dict, series: dict, episode_title_id: str) -> dict:
     """组装单集的 title_basic 行与 still；series 为父剧集的 title_basic 行。
 

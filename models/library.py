@@ -146,19 +146,6 @@ def toggle_library_collection_item(
         return True
 
 
-def set_library_primary_artwork(
-    database_path: str | Path,
-    title_id: str,
-    artwork_type: str,
-    position: int,
-):
-    set_library_primary_artworks(
-        database_path,
-        title_id,
-        [(artwork_type, position)],
-    )
-
-
 def set_library_primary_artworks(
     database_path: str | Path,
     title_id: str,
@@ -168,15 +155,6 @@ def set_library_primary_artworks(
     with closing(connect_writable(database_path)) as db, db:
         for artwork_type, position in selections:
             _set_primary_artwork(db, title_id, artwork_type, position)
-
-
-def replace_library_cast(
-    database_path: str | Path,
-    title_id: str,
-    cast: list[dict],
-) -> None:
-    with closing(connect_writable(database_path)) as db, db:
-        _replace_title_cast(db, title_id, cast)
 
 
 def _replace_title_cast(
