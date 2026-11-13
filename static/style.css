@@ -100,6 +100,16 @@
     --bs-btn-close-focus-shadow: 0 0 0 0.2rem var(--bs-focus-ring-color);
 }
 
+/* 键盘聚焦环：不带颜色变体的 .btn（来源列表、图标按钮、首页“详情”等）在 Bootstrap 里没有聚焦环，
+   带变体的是各自的颜色；统一成强调色。设置分类的 .nav-link 聚焦环在 Bootstrap 里是写死的蓝。 */
+.btn {
+    --bs-btn-focus-shadow-rgb: var(--media-accent-rgb);
+}
+
+.nav-link:focus-visible {
+    box-shadow: 0 0 0 0.2rem var(--bs-focus-ring-color);
+}
+
 /* 链接样式的按钮（面包屑、状态栏里的“查看”等）：Bootstrap 默认用链接蓝，悬停、按下也是蓝 */
 .btn-link {
     --bs-btn-color: var(--bs-body-color);
@@ -4277,6 +4287,9 @@ html[data-ambient] {
 
 .home-hero {
     position: relative;
+    /* 自成层叠上下文：当前幻灯片的 z-index: 2 只在轮播内部比较，
+       否则会盖住下面上移 2.5rem 的“最近观看”标题行，那一行的翻页按钮点不到 */
+    isolation: isolate;
     margin-bottom: 1rem;
 }
 
