@@ -138,4 +138,4 @@ uv run python packaging/build_macos.py [--arch arm64|x86_64] [--ffprobe-dir <目
 - 第三方库（Embla Carousel、Motion、vanilla-tilt、BlurHash，均为 MIT）随仓库放在 `static/vendor/`，不走 CDN。
 - 资源管理页与设置页使用统一的底部状态栏（`static/status-bar.js`）：固定在视口底部居中，页面底部自动留出空间，下拉菜单显示在状态栏之上。状态栏只放当前视图的操作；后台任务（扫描、刷新评分、关联结果）交给全站侧栏的任务中心（`static/task-center.js`），没有任务中心的页面才显示在状态栏上层。预设有 `selection`（已选 N 项 + 批量操作）、`check`（校验结果 + 提交）、`progress`（确定 / 不确定进度）、`result`（成功 / 警告 / 失败，可自动收起，悬停时暂停）、`notice`（建议操作）和 `pending`（未保存的修改：放弃 / 保存），按 key 调用 `StatusBar.<预设>(key, …)` 更新、`StatusBar.clear(key)` 收起。状态栏外圆角 = 内部控件圆角 + 内边距 + 边框（控件 2rem 胶囊、内边距 0.5rem），内外弧线同心。
 - 资源管理里的弹窗（选择作品、扫描目录、删除作品）统一居中、淡入并轻微放大；选择作品弹窗高度固定，从待关联打开时自动按预填名称搜索。概览卡片试用图片后，卡片标题旁显示“未保存”，底部状态栏提供“放弃 / 保存”（多部作品可一次保存），离开页面前会提醒。
-- 圆角统一使用超椭圆（`corner-shape: squircle`）。子元素继承父级圆角时需一并写 `corner-shape: inherit`，并把半径减去父级边框宽度，否则悬停底色在四角会露出缝隙。
+- 圆角与曲率（G2）的统一规则、适用范围和例外见[前端设计](../design/frontend.md#圆角与曲率g2)。
