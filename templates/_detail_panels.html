@@ -52,7 +52,8 @@
 
 {% macro overview_block(text) %}
     <div class="detail-overview-wrapper mb-0" data-detail-overview-wrap>
-        <p class="detail-overview lh-lg mb-0" data-detail-overview>{{ text or "暂无简介。" }}</p>
+        {# 默认就带 is-clamped：首屏直接按两行排版，脚本加载后不再把简介收短、把下面的剧集轨道往上拽 #}
+        <p class="detail-overview is-clamped lh-lg mb-0" data-detail-overview>{{ text or "暂无简介。" }}</p>
         {% if text %}
             <button type="button" class="btn btn-link p-0 mt-1 text-decoration-none small text-body-secondary fw-semibold detail-overview-more" data-detail-overview-toggle aria-expanded="false" hidden>展开简介</button>
         {% endif %}

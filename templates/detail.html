@@ -122,7 +122,7 @@
                                     <div class="season-summary-ratings d-inline-flex flex-wrap align-items-center gap-3 ms-1">
                                         {% if season.imdb_rating is not none and season.imdb_rating != "" %}
                                             <span class="season-rating-item d-inline-flex align-items-center gap-1" title="本季单集 IMDb 平均评分">
-                                                <img class="season-rating-logo detail-rating-logo--imdb" src="{{ url_for('static', filename='imdb.png') }}" alt="IMDb">
+                                                <img class="season-rating-logo detail-rating-logo--imdb" src="{{ url_for('static', filename='imdb.png') }}" alt="IMDb" width="2000" height="1001">
                                                 <span class="season-rating-score detail-rating-score--imdb">{{ "%.1f"|format(season.imdb_rating) }}</span>
                                             </span>
                                         {% endif %}

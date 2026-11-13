@@ -493,6 +493,13 @@ def card_image(path: str | None) -> str | None:
     return cache[path]
 
 
+@app.template_filter("image_size")
+def image_size(path: str | None) -> tuple[int, int] | None:
+    """图片固有宽高：模板写进 <img width height>，加载前就按比例占好位置。"""
+    from services.thumbnails import image_size as read_size
+    return read_size(path, app.config["MEDIA_ROOT"], paths.APP_STATIC)
+
+
 @app.template_filter("image_tone")
 def image_tone(path: str | None) -> dict | None:
     """海报 / 背景图的环境色与 BlurHash；尚未生成时返回 None。"""

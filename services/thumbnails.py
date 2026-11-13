@@ -105,6 +105,52 @@ def normalize_image_path(local_path: str) -> PurePosixPath | None:
     return path
 
 
+_SIZE_CACHE: dict[tuple[str, int], tuple[int, int] | None] = {}
+
+
+def image_size(relative: str | None, *roots: str | Path) -> tuple[int, int] | None:
+    """静态图片的固有宽高（供 <img width height> 预留位置，避免加载后页面跳动）。
+
+    relative 是相对 static 的路径，依次在 roots 里找；SVG 读 viewBox，其余用 Pillow 只读文件头。
+    按“路径 + 修改时间”缓存；路径不安全、文件不存在或读不出尺寸时返回 None（模板就不写尺寸）。
+    """
+    if not relative:
+        return None
+    path = PurePosixPath(str(relative).replace("\\", "/"))
+    if path.is_absolute() or any(part in ("", ".", "..") or ":" in part for part in path.parts):
+        return None
+    for root in roots:
+        target = Path(root) / Path(*path.parts)
+        info = _file_stat(target)
+        if info is None:
+            continue
+        key = (str(target), info.st_mtime_ns)
+        if key not in _SIZE_CACHE:
+            _SIZE_CACHE[key] = _read_size(target)
+        return _SIZE_CACHE[key]
+    return None
+
+
+def _read_size(target: Path) -> tuple[int, int] | None:
+    import re
+
+    try:
+        if target.suffix.lower() == ".svg":
+            head = target.read_text(encoding="utf-8", errors="ignore")[:2000]
+            box = re.search(r"""viewBox\s*=\s*["']\s*[-\d.]+[\s,]+[-\d.]+[\s,]+([\d.]+)[\s,]+([\d.]+)""", head)
+            if not box:
+                return None
+            width, height = float(box.group(1)), float(box.group(2))
+        else:
+            from PIL import Image
+
+            with Image.open(target) as image:
+                width, height = image.size
+    except (OSError, ValueError, ImportError):
+        return None
+    return (round(width), round(height)) if width > 0 and height > 0 else None
+
+
 def _file_stat(path: Path):
     try:
         result = path.stat()

@@ -54,13 +54,14 @@
     {% for rating in ratings %}
         {% set tag = "a" if rating.url else "span" %}
         <{{ tag }} class="detail-rating-item"{% if rating.url %} href="{{ rating.url }}" target="_blank" rel="noopener"{% endif %} title="{{ rating.title }}">
-            <img class="detail-rating-logo detail-rating-logo--{{ rating.key }}" src="{{ url_for('static', filename=rating.icon) }}" alt="{{ rating.name }}">
+            {% set icon_size = rating.icon|image_size %}
+            <img class="detail-rating-logo detail-rating-logo--{{ rating.key }}" src="{{ url_for('static', filename=rating.icon) }}" alt="{{ rating.name }}"{% if icon_size %} width="{{ icon_size[0] }}" height="{{ icon_size[1] }}"{% endif %}>
             <span class="detail-rating-score detail-rating-score--{{ rating.key }}">{{ rating.score }}</span>
         </{{ tag }}>
     {% else %}
         {% if imdb_rating is not none and imdb_rating != "" %}
             <span class="detail-rating-item" title="{{ imdb_title }}">
-                <img class="detail-rating-logo detail-rating-logo--imdb" src="{{ url_for('static', filename='imdb.png') }}" alt="IMDb">
+                <img class="detail-rating-logo detail-rating-logo--imdb" src="{{ url_for('static', filename='imdb.png') }}" alt="IMDb" width="2000" height="1001">
                 <span class="detail-rating-score detail-rating-score--imdb">{{ "%.1f"|format(imdb_rating) }}</span>
             </span>
         {% endif %}
