@@ -66,6 +66,8 @@ def build_manager_viewmodel(
     return {
         "media_items": items,
         "query": raw["query"],
+        # 列表为空时区分“筛选后没有结果”和“媒体库里还没有作品”，后者引导去关联
+        "filtered": bool(raw["query"]) or raw["title_type"] in ("movie", "series"),
         "media_type": (
             "tv" if raw["title_type"] == "series" else raw["title_type"]
         ),

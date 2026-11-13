@@ -146,8 +146,10 @@
                     {% endfor %}
                 </div>
 
-                {% if not overview.media_items %}
+                {% if not overview.media_items and overview.filtered %}
                     {{ empty_state("没有找到匹配的媒体资源。", "search", "可检查搜索关键词，或前往“关联”板块录入新媒体。", url_for('media', tab='associate'), "前往关联") }}
+                {% elif not overview.media_items %}
+                    {{ empty_state("还没有作品。", "clapperboard", "在“关联”里添加网盘、选择扫描目录并确认关联后，作品会出现在这里。", url_for('media', tab='associate'), "去关联", primary=true) }}
                 {% endif %}
             </section>
 

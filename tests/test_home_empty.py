@@ -22,3 +22,17 @@ class EmptyHomeTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EmptyOverviewTest(unittest.TestCase):
+    def render(self, query="", title_type="all"):
+        import app as module
+        from viewmodels.manager import build_manager_viewmodel
+        overview = build_manager_viewmodel({"titles": [], "artwork": [], "query": query, "title_type": title_type})
+        self.assertEqual(overview["filtered"], bool(query) or title_type != "all")
+        return overview
+
+    def test_filter_flag(self):
+        self.render()
+        self.render(query="沙丘")
+        self.render(title_type="movie")
