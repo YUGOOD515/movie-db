@@ -7,7 +7,6 @@
 | `bootstrap.min.css` | bootstrap | 5.3.8 | https://github.com/twbs/bootstrap |
 | `bootstrap.bundle.min.js` | bootstrap | 5.3.8 | 同上 |
 | `embla-carousel.umd.js` | embla-carousel | 8.6.0 | https://github.com/davidjerleke/embla-carousel |
-| `embla-carousel-autoplay.umd.js` | embla-carousel-autoplay | 8.6.0 | 同上 |
 | `embla-carousel-fade.umd.js` | embla-carousel-fade | 8.6.0 | 同上 |
 | `vanilla-tilt.min.js` | vanilla-tilt | 1.8.1 | https://github.com/micku7zu/vanilla-tilt.js |
 | `motion.min.js` | motion（`dist/motion.js`） | 14.4.0 | https://github.com/motiondivision/motion |

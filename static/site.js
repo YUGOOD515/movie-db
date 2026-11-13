@@ -34,6 +34,68 @@ window.appIcon = (name, classes = '') => {
     bindMediaFallback();
     window.bindMediaFallback = bindMediaFallback;
 
+    // 下拉选择：原生 <select> 的弹出列表由系统绘制，和站内菜单不一致。带 data-ui-select 的换成
+    // Bootstrap 下拉（.media-menu），原生 select 隐藏后继续保存取值、触发 change；
+    // 脚本直接改了 value 或选项后调用 syncSelect 刷新显示。
+    function syncSelect(select) {
+        const toggle = select.uiToggle;
+        if (!toggle) return;
+        toggle.querySelector("span").textContent = select.selectedOptions[0]?.textContent || "";
+        toggle.disabled = select.disabled;
+        toggle.classList.toggle("is-invalid", select.classList.contains("is-invalid"));
+    }
+
+    function enhanceSelect(select) {
+        if (select.uiToggle) { syncSelect(select); return; }
+        const wrap = document.createElement("div");
+        wrap.className = "dropdown ui-select";
+        const toggle = document.createElement("button");
+        toggle.type = "button";
+        toggle.className = "form-select ui-select-toggle";
+        toggle.id = `${select.id || select.name}-toggle`;
+        toggle.dataset.bsToggle = "dropdown";
+        toggle.setAttribute("aria-expanded", "false");
+        toggle.append(document.createElement("span"));
+        const menu = document.createElement("ul");
+        menu.className = "dropdown-menu media-menu ui-select-menu";
+        // 每次打开时按当前选项重建，选项由脚本动态填充时也不会过期
+        toggle.addEventListener("show.bs.dropdown", () => {
+            menu.replaceChildren(...[...select.options].map((option) => {
+                const item = document.createElement("li");
+                const choice = document.createElement("button");
+                choice.type = "button";
+                choice.className = `dropdown-item${option.selected ? " active" : ""}`;
+                choice.textContent = option.textContent;
+                choice.disabled = option.disabled;
+                if (option.selected) choice.setAttribute("aria-current", "true");
+                choice.addEventListener("click", () => {
+                    if (select.value !== option.value) {
+                        select.value = option.value;
+                        select.dispatchEvent(new Event("change", { bubbles: true }));
+                    }
+                    syncSelect(select);
+                    toggle.focus();
+                });
+                item.append(choice);
+                return item;
+            }));
+        });
+        toggle.addEventListener("shown.bs.dropdown", () => menu.querySelector(".active")?.focus());
+        select.addEventListener("change", () => syncSelect(select));
+        new MutationObserver(() => syncSelect(select)).observe(select, { attributes: true, attributeFilter: ["class", "disabled"] });
+        document.querySelectorAll(`label[for="${select.id}"]`).forEach((label) => { label.htmlFor = toggle.id; });
+        select.hidden = true;
+        select.tabIndex = -1;
+        wrap.append(toggle, menu);
+        select.after(wrap);
+        select.uiToggle = toggle;
+        syncSelect(select);
+    }
+
+    document.querySelectorAll("select[data-ui-select]").forEach(enhanceSelect);
+    window.syncSelect = syncSelect;
+    window.enhanceSelect = enhanceSelect;
+
     // Theme toggle
     const themeToggle = document.getElementById("theme-toggle");
     if (themeToggle) {

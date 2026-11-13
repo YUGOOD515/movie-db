@@ -69,6 +69,7 @@
 ## 脚本
 
 - `site.js` 只放全站行为，并通过 `window.*` 暴露公共函数（`appIcon`、`showAppToast` 等）；页面脚本按页拆分（`detail.js`、`manager.js` 等），需要公共能力时复用这些函数。
+- 下拉选择给 `<select>` 加 `data-ui-select`：`site.js` 的 `enhanceSelect` 换成 Bootstrap 下拉（`.media-menu`），因为原生弹出列表由系统绘制、和站内菜单不一致。原生 select 保留取值并触发 `change`；脚本直接改 `value` 或选项后调用 `window.syncSelect(select)`。
 - 动效集中在 `effects.js`，并在系统开启“减少动态效果”时关闭。
 - 文件名识别规则 `filename-rules.js` 有独立测试：`node --test tests/test_filename_rules.cjs`。
 

@@ -10,7 +10,7 @@
             <input class="form-check-input" id="{{ id }}" name="{{ item.name }}" type="checkbox" role="switch" data-setting>
         </div>
     {% elif item.kind == "select" %}
-        <select class="form-select" id="{{ id }}" name="{{ item.name }}" data-setting>
+        <select class="form-select" id="{{ id }}" name="{{ item.name }}" data-setting data-ui-select>
             {% for value, label in item.options %}<option value="{{ value }}">{{ label }}</option>{% endfor %}
         </select>
     {% elif item.secret %}
@@ -113,7 +113,7 @@
                                         <label for="set-preset">平台</label>
                                         <p class="ui-row-hint"><a href="#" target="_blank" rel="noopener" data-key-link hidden>获取 API Key</a></p>
                                     </div>
-                                    <div class="ui-row-control"><select class="form-select" id="set-preset" data-preset></select></div>
+                                    <div class="ui-row-control"><select class="form-select" id="set-preset" data-preset data-ui-select></select></div>
                                 </div>
                             {%- endif -%}
                             {%- for item in group.basic %}{{ row(item) }}{% endfor -%}

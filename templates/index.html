@@ -159,7 +159,6 @@
 {% block scripts %}
     {% if page.featured|length > 1 %}
         <script src="{{ url_for('static', filename='vendor/embla-carousel.umd.js') }}" defer></script>
-        <script src="{{ url_for('static', filename='vendor/embla-carousel-autoplay.umd.js') }}" defer></script>
         <script src="{{ url_for('static', filename='vendor/embla-carousel-fade.umd.js') }}" defer></script>
         <script src="{{ url_for('static', filename='home.js') }}" defer></script>
     {% endif %}

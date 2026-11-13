@@ -206,7 +206,7 @@
             if (input) {
                 input.classList.add("is-invalid");
                 input.closest("details")?.setAttribute("open", "");
-                first = first || input;
+                first = first || input.uiToggle || input;  // 下拉选择聚焦到可见的按钮
             }
         }
         if (first) {
@@ -249,6 +249,7 @@
         if (!presetsReady) select.replaceChildren(...presets.map(preset => new Option(preset.name, preset.id)), new Option("其他（自定义）", ""));
         const match = presets.find(preset => preset.base_url === base.value || (preset.id === "deepseek" && /\/\/api\.deepseek\.com(\/v1)?\/?$/.test(base.value)));
         select.value = match ? match.id : base.value ? "" : presets[0].id;
+        window.syncSelect?.(select);
         let previous = match || null;
         const apply = fill => {
             const preset = presets.find(item => item.id === select.value);
@@ -277,6 +278,7 @@
             if (input.type === "checkbox") input.checked = Boolean(value);
             else input.value = value ?? "";
             baseline[input.name] = valueOf(input);
+            if (input.tagName === "SELECT") window.syncSelect?.(input);
         }
         if (aiSwitch) { aiSwitch.checked = Boolean(data.ai_enabled); baselineAi = aiSwitch.checked; syncAi(); setupPresets(data.presets); }
         renderStatus(data.status);

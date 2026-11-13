@@ -279,6 +279,27 @@ select {
     transition: background-color 0.12s ease, color 0.12s ease;
 }
 
+/* 下拉选择（site.js 的 enhanceSelect）：按钮外观同 .form-select，弹出列表沿用 .media-menu */
+.ui-select-toggle {
+    display: block;
+    width: 100%;
+    text-align: start;
+}
+
+.ui-select-toggle > span {
+    display: block;
+    min-height: 1.5em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ui-select-menu {
+    min-width: 100%;
+    max-height: 18rem;
+    overflow-y: auto;
+}
+
 .filter-menu {
     min-width: 8.5rem;
     max-height: 18rem;
@@ -3806,6 +3827,13 @@ html[data-ambient] {
 
 .home-hero.is-playing .home-hero-dot.is-selected > span {
     animation: hero-progress 7s linear both;
+}
+
+/* 悬停即暂停：进度停在当前位置，移开后继续（home.js 在动画结束时翻页）；触屏点按后 :hover 会一直保留，所以只对鼠标生效 */
+@media (hover: hover) and (pointer: fine) {
+    .home-hero.is-playing:hover .home-hero-dot.is-selected > span {
+        animation-play-state: paused;
+    }
 }
 
 @keyframes hero-progress {

@@ -1,4 +1,4 @@
-// 首页主视觉：Embla 淡入淡出轮播、自动播放、圆点导航，以及随影片变化的环境色。
+// 首页主视觉：Embla 淡入淡出轮播、自动播放（悬停暂停）、圆点导航，以及随影片变化的环境色。
 (() => {
     const hero = document.querySelector("[data-home-hero]");
     const viewport = hero?.querySelector("[data-hero-viewport]");
@@ -7,11 +7,7 @@
     }
 
     const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const plugins = [window.EmblaCarouselFade()];
-    if (!reduceMotion) {
-        plugins.push(window.EmblaCarouselAutoplay({ delay: 7000, stopOnInteraction: false, stopOnMouseEnter: true }));
-    }
-    const embla = window.EmblaCarousel(viewport, { loop: true, duration: 28 }, plugins);
+    const embla = window.EmblaCarousel(viewport, { loop: true, duration: 28 }, [window.EmblaCarouselFade()]);
     const slides = embla.slideNodes();
     const dots = [...hero.querySelectorAll("[data-hero-dot]")];
 
@@ -48,28 +44,26 @@
         if (event.key === "ArrowLeft") embla.scrollPrev();
         if (event.key === "ArrowRight") embla.scrollNext();
     });
-    // 自动播放时显示当前圆点的进度条。
-    const autoplay = embla.plugins().autoplay;
-    if (autoplay) {
-        embla.on("autoplay:timerset", () => {
-            hero.classList.remove("is-playing");
-            void hero.offsetWidth; // 重新开始圆点进度动画
-            hero.classList.add("is-playing");
-        });
-        embla.on("autoplay:timerstopped", () => hero.classList.remove("is-playing"));
-        hero.classList.toggle("is-playing", autoplay.isPlaying());
+    // 自动播放：当前圆点的进度动画就是计时器，播完翻到下一张。
+    // 悬停时 CSS 暂停动画（见 style.css），移开后从原位置继续，进度条与翻页始终同步。
+    function restartProgress() {
+        if (reduceMotion) return;  // 减少动态效果时不自动播放
+        hero.classList.remove("is-playing");
+        void hero.offsetWidth;  // 让进度动画从头开始
+        hero.classList.add("is-playing");
     }
+    hero.addEventListener("animationend", (event) => {
+        if (event.animationName === "hero-progress" && event.target.closest(".home-hero-dot.is-selected")) embla.scrollNext();
+    });
     embla.on("select", select);
+    embla.on("select", restartProgress);
     embla.on("settle", () => slides.forEach((slide) => slide.classList.remove("is-leaving")));
 
-    // 导航快照保留当前推镜位置；从浏览器缓存返回时继续播放。
+    // 导航快照保留当前推镜位置与进度；从浏览器缓存返回时继续播放。
     let pausedAnimations = [];
-    let resumeAutoplay = false;
     hero.addEventListener("media:navigate", () => {
         if (hero.classList.contains("is-navigating")) return;
         hero.classList.add("is-navigating");
-        resumeAutoplay = autoplay?.isPlaying() || false;
-        autoplay?.stop();
         pausedAnimations = hero.getAnimations({ subtree: true }).filter((animation) => animation.playState === "running");
         pausedAnimations.forEach((animation) => animation.pause());
     });
@@ -78,7 +72,6 @@
         hero.classList.remove("is-navigating");
         pausedAnimations.forEach((animation) => animation.play());
         pausedAnimations = [];
-        if (resumeAutoplay) autoplay?.play();
     });
 
     // 首屏加载完后预载其余背景图，前后切换都不再等待下载。
@@ -90,4 +83,5 @@
     }
     hero.classList.add("is-ready");
     select();
+    restartProgress();
 })();
