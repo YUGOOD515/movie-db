@@ -81,6 +81,16 @@ uv run flask --app app run --host 127.0.0.1 --port 5000
 
 To capture a fresh snapshot, run `uv run python scripts/capture_breaking_bad.py --output local-test-data/breaking-bad-new` and start the replay server with `--data local-test-data/breaking-bad-new`. Capturing calls the remote APIs but never writes to the library; existing snapshot folders are never overwritten.
 
+### Background task orb demo
+
+After changing `task-center.js` or its styles, you can see every state without submitting real tasks:
+
+```sh
+uv run python scripts/task_center_demo.py
+```
+
+Open http://127.0.0.1:5070 to switch scenarios (single link, several links finishing in turn, link + scan + ratings, failed and attention-needed, waiting for a provider), select posters to simulate the "Link" fly-in, or trigger the live-activity pill. The demo uses the real templates, styles and scripts with time-driven mock task data; titles and posters are only read from the local library and nothing is written. Below 576px the panel becomes a bottom sheet, and `/device?w=390&h=844&scenario=multi` frames the page at a fixed phone size.
+
 ## Building installers
 
 ### Windows
@@ -136,6 +146,14 @@ In Claude Code, `/release` runs these steps.
 - Posters and backdrops show a BlurHash placeholder before fading in. The color table `static/thumbnails/tones.json` is generated on import and filled in for older images at startup (skip with `MOVIEDB_TONES_DISABLED=1`).
 - On desktop, posters tilt on hover, lists fade in as they enter the viewport, and cards morph into detail pages with shared-element View Transitions (Chrome / Edge / Safari 18+). Everything is disabled when the system asks for reduced motion.
 - Third-party libraries (Embla Carousel, Motion, vanilla-tilt, BlurHash — all MIT) are vendored in `static/vendor/`; no CDN.
-- Media management and Settings use one bottom status bar (`static/status-bar.js`), centered at the bottom of the viewport; the page reserves space for it and drop-downs open above it. It only holds the current view's actions; background tasks (scans, rating refresh, link results) go to the task center in the site sidebar (`static/task-center.js`), and only pages without a task center show them in the status bar's upper layer. Presets: `selection` (N selected + bulk actions), `check` (validation + submit), `progress` (determinate / indeterminate), `result` (success / warning / error, auto-dismiss, paused on hover), `notice` (suggested action) and `pending` (unsaved changes: discard / save). Update with `StatusBar.<preset>(key, …)` and dismiss with `StatusBar.clear(key)`. Outer radius = inner control radius + padding + border (2rem pill controls, 0.5rem padding), so the curves are concentric.
+- Media management and Settings use one bottom status bar (`static/status-bar.js`), centered at the bottom of the viewport; the page reserves space for it and drop-downs open above it. It only holds the current view's actions; background tasks (linking, scans, rating refresh, IMDb data updates) go to `static/task-center.js` (see the next item).  Presets: `selection` (N selected + bulk actions), `check` (validation + submit), `progress` (determinate / indeterminate), `result` (success / warning / error, auto-dismiss, paused on hover), `notice` (suggested action) and `pending` (unsaved changes: discard / save). Update with `StatusBar.<preset>(key, …)` and dismiss with `StatusBar.clear(key)`. Outer radius = inner control radius + padding + border (2rem pill controls, 0.5rem padding), so the curves are concentric.
+- Background task center (`static/task-center.js`):
+  - At rest it is a small orb next to the top-left menu button (a poster or task icon in the middle, a progress ring around it, a count or alert dot at the top right), fixed in that spot on every page and shown only while there are tasks. The orb and other circular buttons need `corner-shape: round`; otherwise they inherit the site-wide squircle corners for buttons and render as rounded squares.
+  - On submit, completion or failure the orb stretches into a pill describing the event, then shrinks back after a few seconds.
+  - Clicking the orb summons the panel: on desktop it grows out of the orb in place, on phones it is a bottom sheet with a scrim. Clicking a task expands its details plus stop / retry / ignore actions inside the panel.
+  - Successful tasks show "done", then slide out to the right and clear themselves; failed or attention-needed tasks stay until retried or ignored.
+  - After confirming on the Link page, `TaskCenter.arrive(groups, sources)` flies the posters along a curve into the top-left orb; the bottom confirm bar only holds the current action and does not show background tasks.
+  - On navigation it renders immediately from the state cached in sessionStorage, and the orb has a fixed `view-transition-name`, so it stays put during cross-page transitions instead of disappearing and reappearing.
+  - Read-only snapshots have no task center; only there do tasks show in the status bar's upper layer.
 - Dialogs in media management (pick a title, scan folders, delete a title) are centered and fade in with a slight zoom. The title picker has a fixed height and searches the prefilled name when opened from the pending list. After trying another image on an overview card, the card shows “unsaved” and the status bar offers discard / save (several titles at once), with a warning before leaving the page.
 - Shared G2 corner rules, scope and exceptions are maintained in [Front-end design](../design/frontend.md#圆角与曲率g2) (Chinese).

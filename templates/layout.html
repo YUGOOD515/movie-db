@@ -60,7 +60,6 @@
 
         <button class="site-menu-toggle" type="button" data-bs-toggle="offcanvas" data-bs-target="#site-sidebar" aria-controls="site-sidebar" aria-label="打开导航">
             {{ ui_icon('menu', '') }}
-            {% if not read_only %}<span class="task-indicator" data-task-indicator hidden></span>{% endif %}
         </button>
 
         <aside class="site-sidebar offcanvas offcanvas-start" tabindex="-1" id="site-sidebar" aria-label="主导航">
@@ -81,8 +80,6 @@
                     </div>
                 {% endfor %}
 
-                {% if not read_only %}{% include "_task_center.html" %}{% endif %}
-
                 <div class="mt-auto d-flex align-items-center gap-2">
                     {% if read_only %}
                         <span class="read-only-badge small text-body-secondary" title="本地 MovieDB 未连接，修改操作暂不可用">
@@ -96,8 +93,6 @@
             </div>
         </aside>
 
-        {% if not read_only %}{% include "_task_detail.html" %}{% endif %}
-
         <main class="{% block main_class %}pt-5 mt-3 pb-5{% endblock %}">
             {% block main %}{% endblock %}
         </main>
@@ -108,8 +103,10 @@
                 {% endfor %}
             </div>
         {% endwith %}
+        {% if not read_only %}{% include "_task_island.html" %}{% endif %}
         <script src="{{ url_for('static', filename='vendor/bootstrap.bundle.min.js') }}"></script>
         <script src="{{ url_for('static', filename='site.js') }}"></script>
+        <script src="{{ url_for('static', filename='rails.js') }}" defer></script>
         {% if not read_only %}
         <script src="{{ url_for('static', filename='status-bar.js') }}"></script>
         <script src="{{ url_for('static', filename='task-center.js') }}"></script>

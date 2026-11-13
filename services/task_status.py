@@ -83,7 +83,8 @@ def snapshot(database):
     if rating.get("current_title_id"):
         ids.add(rating["current_title_id"])
     names = tasks.title_names(database, ids)
-    entries = [_group(group, now, names) for group in groups.values()]
+    posters = tasks.title_posters(database, {title_id for title_id, _ in groups})
+    entries = [{**_group(group, now, names), "poster": posters.get(title_id)} for (title_id, _), group in groups.items()]
     scan = media_discovery.scan_summary(database)
     from services import imdb_identity
     index = imdb_identity.status()

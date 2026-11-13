@@ -35,6 +35,7 @@ class TaskStatusTest(unittest.TestCase):
         response = self.client.get('/manager/tasks')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(self.task(response)['state'], 'queued')
+        self.assertIn('poster', self.task(response))  # 悬浮岛的海报缩略图；作品尚未入库时为 None
         body = response.get_data(as_text=True)
         self.assertNotIn('/share/', body)
         self.assertNotIn('private', body)

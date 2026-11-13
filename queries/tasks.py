@@ -40,6 +40,26 @@ def title_names(database, ids):
         return dict(db.execute(f"SELECT title_id, display_title FROM title_basic WHERE title_id IN ({','.join('?' for _ in ids)})", list(ids)))
 
 
+def title_posters(database, ids):
+    """First local poster of each title already in the library (task island thumbnails)."""
+    if not ids:
+        return {}
+    marks = ", ".join("?" for _ in ids)
+    with closing(sqlite3.connect(Path(database).resolve().as_uri() + "?mode=ro", uri=True)) as db:
+        return dict(db.execute(f"""
+            SELECT artwork.title_id,
+                   MIN(artwork.local_path) AS poster_path
+              FROM title_artwork AS artwork
+             WHERE artwork.artwork_type = 'poster'
+               AND artwork.position = (SELECT MIN(first.position)
+                                         FROM title_artwork AS first
+                                        WHERE first.title_id = artwork.title_id
+                                          AND first.artwork_type = 'poster')
+               AND artwork.title_id IN ({marks})
+             GROUP BY artwork.title_id
+        """, list(ids)))
+
+
 def import_task_detail(database, title_id, batch):
     """One sidebar task's jobs, including file lists and probe checkpoints (detail drawer only)."""
     path = local_store.store_path(database).resolve()

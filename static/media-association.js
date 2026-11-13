@@ -83,46 +83,7 @@
         finally { jobLoading = false; }
     }
 
-    // ------------------------------------------------------------ 关联队列
-    // 进行中的关联，以及本页提交、已经结束的作品；提交后在汇总轮询到之前先显示占位。
-    const queue = $("[data-association-queue]");
-    const submitted = new Map();
-    let queueTasks = [];
-    const QUEUE_ICON = { running: "loader-circle", queued: "clock", waiting: "hourglass", complete: "circle-check", partial: "triangle-alert", failed: "circle-alert", cancelled: "ban" };
-    const QUEUE_STATE = { running: "active", queued: "pending", waiting: "pending", complete: "done", partial: "failed", failed: "failed", cancelled: "skipped" };
-    const QUEUE_TEXT = { queued: "排队中", waiting: "等待重试", complete: "已完成，可播放", partial: "已关联，部分资料未补齐", failed: "关联失败", cancelled: "已停止" };
-
-    function renderQueue() {
-        if (!queue) return;
-        const known = new Set(queueTasks.map(task => task.id));
-        const tasks = [
-            ...queueTasks.filter(task => task.kind === "import" && (window.TaskCenter?.active(task) || submitted.has(task.id))),
-            ...[...submitted.values()].filter(task => !known.has(task.id)),
-        ];
-        queue.hidden = !tasks.length;
-        const running = tasks.filter(task => ["running", "queued", "waiting"].includes(task.state)).length;
-        $("[data-association-queue-summary]").textContent = running ? `${running} 部进行中` : "全部结束";
-        $("[data-association-queue-list]").replaceChildren(...tasks.map(task => {
-            const row = el("li", "task-row");
-            const state = el("span", "task-state-icon");
-            state.dataset.state = QUEUE_STATE[task.state] || "pending";
-            state.append(icon(QUEUE_ICON[task.state] || "clock"));
-            const text = el("div", "task-row-text");
-            const caption = task.state === "running" ? (window.TaskCenter?.caption(task) || "关联中") : QUEUE_TEXT[task.state] || "";
-            text.append(el("p", "task-row-title", task.name), el("p", "task-row-hint", [caption, task.files ? `${task.files} 个视频` : ""].filter(Boolean).join(" · ")));
-            const open = el("button", "btn btn-sm chip-btn", "详情");
-            open.type = "button";
-            open.setAttribute("aria-label", `查看 ${task.name} 的关联详情`);
-            open.addEventListener("click", () => window.TaskCenter?.open(task.id));
-            row.append(state, text, open);
-            return row;
-        }));
-    }
-
     window.addEventListener('tasks:update', event => {
-        queueTasks = event.detail.tasks;
-        for (const task of queueTasks) if (submitted.has(task.id)) submitted.set(task.id, task);
-        renderQueue();
         const jobs = event.detail.tasks.flatMap(task => task.jobs || []);
         const known = jobs.filter(job => {const previous=importJobs.get(job.id);return previous && (previous.state!==job.state || previous.progress.core!==job.core || previous.error!==job.error);}).map(job => {
             const previous = importJobs.get(job.id);
@@ -133,26 +94,25 @@
     });
     window.addEventListener('tasks:action', event => { if (event.detail.kind === 'scan') discover(); });
 
-    async function enqueue(selections) {
+    // 提交前记下海报在屏幕上的位置，提交成功后交给悬浮岛做飞入动画。
+    const capture = nodes => nodes.filter(Boolean).map(node => ({
+        rect: node.getBoundingClientRect(),
+        src: node.querySelector("img")?.currentSrc || "",
+        titleId: node.dataset.titleId || "",
+    }));
+
+    async function enqueue(selections, sources = []) {
         const data = await json(root.dataset.jobsUrl, { selections });
         updateJobs(data.jobs);
-        window.TaskCenter?.watchJobs(data.jobs.map(job=>job.id));
-        // 确认后的反馈：队列里先放占位，提示条可直接打开任务详情
+        // 确认后的反馈：任务进入底部悬浮岛，海报从列表飞进去
         const groups = new Map();
         for (const job of data.jobs) {
-            const group = groups.get(job.task_id) || { id: job.task_id, kind: "import", name: job.name || job.title_id, state: "queued", files: 0 };
+            const group = groups.get(job.task_id) || { id: job.task_id, name: job.name || job.title_id, files: 0,
+                poster: sources.find(source => source.titleId === job.title_id && source.src)?.src || "" };
             group.files += job.total;
             groups.set(job.task_id, group);
         }
-        for (const group of groups.values()) if (!submitted.has(group.id)) submitted.set(group.id, group);
-        renderQueue();
-        const first = [...groups.values()][0];
-        if (first) {
-            const videos = [...groups.values()].reduce((sum, group) => sum + group.files, 0);
-            const titles = groups.size > 1 ? `${first.name} 等 ${groups.size} 部` : first.name;
-            window.showAppToast?.(`已加入关联队列 · ${titles} · ${videos} 个视频`, "success",
-                { label: "查看进度", run: () => window.TaskCenter?.open(first.id) });
-        }
+        window.TaskCenter?.arrive([...groups.values()], sources);
     }
 
     function progressSpec(total) {
@@ -270,6 +230,7 @@
 
     function poster(found, fallback, classes = "discovery-poster") {
         const frame = el("span", classes);
+        if (found?.title_id) frame.dataset.titleId = found.title_id;
         frame.append(icon(found ? (found.media_type === "tv" ? "tv" : "film") : fallback));
         if (found?.tmdb_id) {
             const image = el("img");
@@ -393,6 +354,7 @@
         const found = first.recognition?.title;
         const row = el("li", "discovery-item");
         row.dataset.state = state;
+        row.dataset.key = group.key;
         if (group.records.some(item => item.busy)) row.classList.add("is-busy");
         const label = found ? found.name : first.name;
         if (state === "ready") row.append(selectBox(group, label));
@@ -542,7 +504,7 @@
                         for (const group of groups) { if (checked) excluded.delete(group.key); else excluded.add(group.key); }
                         renderList();
                     },
-                    action: { label: picked.length ? `确认关联 ${picked.length} 项` : "确认关联", disabled: !picked.length, run: () => confirm(picked.flatMap(group => group.records)) },
+                    action: { label: picked.length ? `确认关联 ${picked.length} 项` : "确认关联", disabled: !picked.length, run: () => confirm(picked.flatMap(group => group.records), picked.map(group => group.key)) },
                 });
                 return;
             }
@@ -651,14 +613,15 @@
         });
     }
 
-    async function confirm(list) {
+    async function confirm(list, keys = []) {
         if (confirming || !list.length) return;
+        const sources = capture(keys.map(key => $(`[data-discovery-list] .discovery-item[data-key="${CSS.escape(key)}"] .discovery-poster`)));
         // 进度按视频数计算：多来源合并的一行包含多个记录，按视频数才与“已选”提示一致。
         confirming = list.reduce((sum, item) => sum + item.files.length, 0);
         renderList();
         try {
             await enqueue(list.map(item => ({ title_id: item.recognition.title.title_id, source_name: item.name,
-                items: toItems(item) })));
+                items: toItems(item) })), sources);
         } catch (error) { feedback(error.message, "danger"); }
         finally {
             confirming = null;
@@ -1667,11 +1630,12 @@
         const chosen = files.filter(file => file.included);
         if (!chosen.length) return;
         progress = chosen.length;
+        const sources = capture([editor.querySelector(".match-poster")]);
         lockEditor(true);
         renderTaskBar();
         try {
             await enqueue([{ title_id: title.title_id, source_name: task.name,
-                items: chosen.map(file => ({ path: file.path, season_number: file.season, episode_number: file.episode })) }]);
+                items: chosen.map(file => ({ path: file.path, season_number: file.season, episode_number: file.episode })) }], sources);
             closeEditor();
         } catch (error) {
             feedback(error.message, "danger");

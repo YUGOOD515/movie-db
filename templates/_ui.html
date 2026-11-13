@@ -66,3 +66,12 @@
         {% endif %}
     {% endfor %}
 {% endmacro %}
+
+{# 横向轨道的翻页按钮：只在鼠标设备上、且轨道放不下时由 static/rails.js 显示。
+   target 为空时控制同一 section 里的轨道；也可以写选择器，取其中可见的那条。 #}
+{% macro rail_nav(label, target="") %}
+<div class="rail-nav" data-rail-nav="{{ target }}" role="group" aria-label="{{ label }}翻页" hidden>
+    <button type="button" class="icon-btn rail-nav-btn" data-rail-prev aria-label="向左翻页" disabled>{{ icon('chevron-left') }}</button>
+    <button type="button" class="icon-btn rail-nav-btn" data-rail-next aria-label="向右翻页">{{ icon('chevron-right') }}</button>
+</div>
+{% endmacro %}

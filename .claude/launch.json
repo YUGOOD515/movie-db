@@ -6,6 +6,13 @@
       "runtimeExecutable": "uv",
       "runtimeArgs": ["run", "flask", "--app", "app", "run", "--host", "127.0.0.1", "--port", "5055"],
       "port": 5055
+    },
+    {
+      "name": "task-demo",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": ["run", "python", "scripts/task_center_demo.py"],
+      "port": 5070,
+      "autoPort": false
     }
   ]
 }

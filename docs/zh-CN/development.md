@@ -81,6 +81,16 @@ uv run flask --app app run --host 127.0.0.1 --port 5000
 
 重新抓取：`uv run python scripts/capture_breaking_bad.py --output local-test-data/breaking-bad-new`，再用 `--data local-test-data/breaking-bad-new` 启动回放服务器。抓取会访问远程 API，但不写业务库；已有快照目录禁止覆盖。
 
+### 后台任务圆钮演示
+
+改动 `task-center.js` 或它的样式后，可以不提交真实任务，直接在演示页里看各种状态：
+
+```sh
+uv run python scripts/task_center_demo.py
+```
+
+打开 http://127.0.0.1:5070 ，页面上可以切换场景（单个关联、多个关联依次完成、关联 + 扫描 + 评分、失败与需处理、等待接口恢复），点选海报模拟“确认关联”的飞入动画，或触发“实时活动”胶囊。演示页用的是真实的模板、样式和脚本，后台任务接口是按时间推进的模拟数据；片名和海报只从本机媒体库读取，不写任何数据。窗口窄于 576px 时面板变成底部抽屉，也可以打开 `/device?w=390&h=844&scenario=multi` 用固定尺寸的框模拟手机。
+
 ## 构建安装包
 
 ### Windows
@@ -136,6 +146,14 @@ uv run python packaging/build_macos.py [--arch arm64|x86_64] [--ffprobe-dir <目
 - 海报 / 背景图先显示 BlurHash 模糊占位，再淡入原图；色调表 `static/thumbnails/tones.json` 在录入时生成，启动时自动为旧图片补齐（`MOVIEDB_TONES_DISABLED=1` 可跳过）。
 - 桌面端海报悬停倾斜、列表进入视口时依次浮现、卡片到详情页的共享元素转场（View Transitions，Chrome / Edge / Safari 18+）。系统开启“减少动态效果”时自动关闭。
 - 第三方库（Embla Carousel、Motion、vanilla-tilt、BlurHash，均为 MIT）随仓库放在 `static/vendor/`，不走 CDN。
-- 资源管理页与设置页使用统一的底部状态栏（`static/status-bar.js`）：固定在视口底部居中，页面底部自动留出空间，下拉菜单显示在状态栏之上。状态栏只放当前视图的操作；后台任务（扫描、刷新评分、关联结果）交给全站侧栏的任务中心（`static/task-center.js`），没有任务中心的页面才显示在状态栏上层。预设有 `selection`（已选 N 项 + 批量操作）、`check`（校验结果 + 提交）、`progress`（确定 / 不确定进度）、`result`（成功 / 警告 / 失败，可自动收起，悬停时暂停）、`notice`（建议操作）和 `pending`（未保存的修改：放弃 / 保存），按 key 调用 `StatusBar.<预设>(key, …)` 更新、`StatusBar.clear(key)` 收起。状态栏外圆角 = 内部控件圆角 + 内边距 + 边框（控件 2rem 胶囊、内边距 0.5rem），内外弧线同心。
+- 资源管理页与设置页使用统一的底部状态栏（`static/status-bar.js`）：固定在视口底部居中，页面底部自动留出空间，下拉菜单显示在状态栏之上。状态栏只放当前视图的操作；后台任务（关联、扫描、刷新评分、IMDb 数据更新）交给 `static/task-center.js`（见下一条）。预设有 `selection`（已选 N 项 + 批量操作）、`check`（校验结果 + 提交）、`progress`（确定 / 不确定进度）、`result`（成功 / 警告 / 失败，可自动收起，悬停时暂停）、`notice`（建议操作）和 `pending`（未保存的修改：放弃 / 保存），按 key 调用 `StatusBar.<预设>(key, …)` 更新、`StatusBar.clear(key)` 收起。状态栏外圆角 = 内部控件圆角 + 内边距 + 边框（控件 2rem 胶囊、内边距 0.5rem），内外弧线同心。
+- 后台任务中心（`static/task-center.js`）：
+  - 平时收成左上角菜单按钮旁的小圆钮（中间是海报或任务图标，外圈是进度环，右上角是任务数或提醒点），所有页面都固定在这个位置，只在有任务时出现。圆钮和圆形按钮要写 `corner-shape: round`，否则会继承全站按钮的超椭圆圆角，变成圆角方形。
+  - 提交、完成、失败时，圆钮横向展开成胶囊显示这件事，几秒后缩回。
+  - 点圆钮唤出面板：桌面端从圆钮原地长出，手机端是带遮罩的底部抽屉。点任务在面板内展开详情和停止 / 重试 / 忽略操作。
+  - 成功结束的任务显示“完成”后向右滑出并自动清除，失败或需处理的任务留着，直到重试或忽略。
+  - 关联页确认后调用 `TaskCenter.arrive(groups, sources)`，海报沿曲线飞进左上角的圆钮；底部的确认栏只管当前操作，不显示后台任务。
+  - 换页时先用 sessionStorage 里缓存的状态立即渲染，圆钮带固定的 `view-transition-name`，跨页转场时停在原地，不会先消失再出现。
+  - 只读快照没有任务中心，任务才显示在状态栏上层。
 - 资源管理里的弹窗（选择作品、扫描目录、删除作品）统一居中、淡入并轻微放大；选择作品弹窗高度固定，从待关联打开时自动按预填名称搜索。概览卡片试用图片后，卡片标题旁显示“未保存”，底部状态栏提供“放弃 / 保存”（多部作品可一次保存），离开页面前会提醒。
 - 圆角与曲率（G2）的统一规则、适用范围和例外见[前端设计](../design/frontend.md#圆角与曲率g2)。
