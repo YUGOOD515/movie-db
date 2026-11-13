@@ -17,7 +17,7 @@ There are three ways to add media: **smart discovery** scans your drive folders 
 
 ## Drives and credentials
 
-Add mounts under **Manage → Drives** (管理 → 网盘). MovieDB only lists folders and reads playback files; it never uploads, renames or deletes drive content. Keep the mount name equal to the first segment of existing media paths; mounts can also be renamed while editing.
+Under **Media management → Link** (媒体资源管理 → 关联), use **+** in the left **Drives and linked folders** navigation to add a mount; the former Drives tab is now part of this workspace. Each connection shows its name and type on the first line and an optional account on the second. Healthy connections need no extra status; failures are highlighted in red. Click its name or **⋯** (right-click is also supported) to open connection details on the right, including configuration, status, checks, editing, enabling/disabling, passthrough switching and removal. Saved credentials show only whether they are configured. The top **⋯** menu imports from AList. MovieDB only lists folders and reads playback files; it never uploads, renames or deletes drive content. Keep the mount name equal to the first segment of existing media paths.
 
 - **Local folder** — enter an absolute path. Hidden files are skipped, and symlinks cannot escape the mount root.
 - **QR login** (Quark, UC, Aliyun Drive, Baidu Netdisk, 115) — enter a mount name, click *Get QR code*, scan it with the drive's mobile app and confirm; the mount is saved once you are signed in, with no parameters to copy.
@@ -39,11 +39,14 @@ Aliyun, Baidu, 123, OneDrive and Google Drive renew through `api.oplist.org` by 
 
 ![Discovered files ready to link](../images/discovery.webp)
 
-The pending list (待关联) scans the drive folders you pick (click **+ Add folder**; if none is picked, MovieDB uses the shared folder it finds automatically). In the background it cleans up disguised file names, searches TMDB and works out seasons and episodes. Results are split into tabs with counts; when one tab is done the next one opens:
+Use **Add folder** (添加目录) in connection details, or **⋯ → Manage scan folders** (管理扫描目录) in the association workspace to browse and add folders. If none is picked, MovieDB uses the shared folder it finds automatically. Below each connection, the sidebar lists only root folders explicitly chosen and saved by the user; it does not expand their descendants. Selecting a folder filters the right workspace. Clicking a connection opens its details: a top row shows status, account, mount path and renewal information, and **Edit configuration** enables the existing form directly below. Cancel restores the original values; saving still checks the connection and no edit dialog opens. **View this source's links** filters the whole drive. Scope changes only filter the display, and batch confirmation includes only files in that scope. **Scan all folders** (扫描全部目录) rescans every configured folder, cleans up disguised file names, searches TMDB and works out seasons and episodes. Result tabs show counts and keep the selected tab:
 
 - **Ready** (可确认) — confidence ≥ 0.8, and for series every file maps to exactly one TMDB episode. Several sources of the same title are merged into one expandable row. Rows are selected by default; the bottom bar shows how many items and videos are selected, and **Link N items** imports them in one go. Nothing is imported without your click.
 - **Review** (待核对) — an inline tag explains why (for example “6/12 episodes matched”, “duplicate of a ready item”, “same-name titles exist”, “low confidence”). **Review** opens the [link editor](#link-editor) prefilled with the match.
 - **Unrecognized** (未识别) — neither rules nor AI found a reliable match. Things that look like courses or software are tagged “probably not a video” and can be ignored one by one or all at once.
+- **Linked** (已关联) — actual file mappings stored in the library, grouped by movie or series. **View mappings** (查看映射) shows files, seasons/episodes and targets in the selected scope, with a link to the title details. An offline drive or failed scan does not turn these records into pending items.
+
+The source navigation stays available while reviewing or viewing mappings; returning preserves the scope, filter and list position. On phones, **Choose source** (选择来源) opens a drawer and file mappings stack vertically. Manual entry and JSON import remain in the right workspace's **⋯** menu.
 
 Each row's **⋯** menu offers *Change title*, *Recognize again* and *Ignore*. Ignored items move to the **Ignored** tab and can be restored at any time.
 

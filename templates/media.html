@@ -67,8 +67,8 @@
 {% endblock %}
 
 {% block main %}
-    <div class="container-xl text-start"{% if not read_only %} data-rating-status-url="{{ url_for('manager_rating_refresh_status') }}"{% endif %}>
-        <header class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-5">
+    <div class="container-xl management-shell text-start"{% if not read_only %} data-rating-status-url="{{ url_for('manager_rating_refresh_status') }}"{% endif %}>
+        <header class="management-header d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
             <div class="d-flex flex-wrap align-items-center gap-3">
                 <h1 class="h3 fw-bold mb-0 text-nowrap">媒体资源管理</h1>
                 <div class="segmented-control text-nowrap" role="group" aria-label="管理页面板块切换">
@@ -78,11 +78,6 @@
                     <a class="btn btn-sm{{ ' active' if active_tab == 'associate' }}" href="{{ url_for('media', tab='associate') }}"{% if active_tab == 'associate' %} aria-current="page"{% endif %}>
                         关联
                     </a>
-                    {% if not read_only %}
-                    <a class="btn btn-sm{{ ' active' if active_tab == 'drives' }}" href="{{ url_for('media', tab='drives') }}"{% if active_tab == 'drives' %} aria-current="page"{% endif %}>
-                        网盘
-                    </a>
-                    {% endif %}
                 </div>
             </div>
 
@@ -161,9 +156,20 @@
             {% if read_only %}
             {{ empty_state("本地 MovieDB 未连接，关联与录入暂不可用。", "cloud-off", "电脑上的 MovieDB 与 Tunnel 在线后，刷新页面即可恢复完整功能。") }}
             {% else %}
-            {% if not drives %}
-            <div class="settings-banner mb-3">{{ ui_icon('network', '') }}<span>尚未添加网盘，添加后即可关联影片。</span><a href="{{ url_for('media', tab='drives') }}">前往网盘标签</a></div>
-            {% endif %}
+            <div class="management-layout" data-association-workspace>
+                <aside class="management-sidebar association-sources offcanvas-lg offcanvas-start" tabindex="-1" id="association-sources" aria-labelledby="association-sources-heading">
+                    <div class="offcanvas-header">
+                        <h2 class="h5 mb-0" id="association-sources-heading">网盘与关联文件夹</h2>
+                        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" data-bs-target="#association-sources" aria-label="关闭来源导航"></button>
+                    </div>
+                    <div class="offcanvas-body d-block">
+                        {% include "drives.html" %}
+                    </div>
+                </aside>
+                <div class="management-content">
+                    <button class="btn btn-sm chip-btn d-lg-none mb-3" type="button" data-bs-toggle="offcanvas" data-bs-target="#association-sources" aria-controls="association-sources">
+                        {{ ui_icon('folder', '') }}<span>选择来源</span><span class="text-truncate" data-source-mobile-label>全部来源</span>{{ ui_icon('chevron-down', '') }}
+                    </button>
             {% include "_association_flow.html" %}
             <section class="association-section d-none" data-manual-panel aria-labelledby="associate-heading">
                 <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
@@ -285,9 +291,9 @@
                         </div>
                     </div>
                 </div>
+                </div>
+            </div>
             {% endif %}
-        {% elif active_tab == 'drives' %}
-            {% include "drives.html" %}
         {% endif %}
     </div>
 {% endblock %}
@@ -298,7 +304,6 @@
     <script src="{{ url_for('static', filename='title-search.js') }}" defer></script>
     <script src="{{ url_for('static', filename='filename-rules.js') }}" defer></script>
     <script src="{{ url_for('static', filename='media-association.js') }}" defer></script>
-    {% elif active_tab == 'drives' %}
-    <script src="{{ url_for('static', filename='drives.js') }}"></script>
+    <script src="{{ url_for('static', filename='drives.js') }}" defer></script>
     {% endif %}
 {% endblock %}

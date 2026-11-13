@@ -89,13 +89,22 @@
     tabs.forEach((tab, index) => {
         tab.addEventListener("click", () => showSection(tab.dataset.tab));
         tab.addEventListener("keydown", event => {
-            const step = { ArrowRight: 1, ArrowLeft: -1 }[event.key];
+            const step = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: 1, ArrowUp: -1 }[event.key];
+            if (event.key === "Home" || event.key === "End") {
+                event.preventDefault();
+                showSection(tabs[event.key === "Home" ? 0 : tabs.length - 1].dataset.tab, { focus: true });
+                return;
+            }
             if (!step) return;
             event.preventDefault();
             showSection(tabs[(index + step + tabs.length) % tabs.length].dataset.tab, { focus: true });
         });
     });
     addEventListener("hashchange", () => showSection(location.hash.slice(1)));
+    const desktopNav = matchMedia("(min-width: 992px)");
+    const syncNav = () => root.querySelector('[role="tablist"]').setAttribute("aria-orientation", desktopNav.matches ? "vertical" : "horizontal");
+    desktopNav.addEventListener("change", syncNav);
+    syncNav();
 
     // ------------------------------------------------------------ 状态
 

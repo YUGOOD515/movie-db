@@ -7,6 +7,8 @@
        `--grid-col` resolves against the nearest inline-size container where
        it is used, so span N = N columns + (N - 1) gaps of that container. */
     --grid-gap: 1rem;
+    --management-sidebar: 17rem;
+    --management-gap: 1.5rem;
     --grid-col: calc((100cqi - 11 * var(--grid-gap)) / 12);
 
     --radius-card: 24px;
@@ -4964,14 +4966,126 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
     gap: 8px;
 }
 
+/* 管理工作区：外框沿用全站 container-xl 主对齐线，分栏仅在容器内部展开。 */
+.management-layout {
+    display: grid;
+    grid-template-columns: var(--management-sidebar) minmax(0, 1fr);
+    align-items: start;
+    gap: var(--management-gap);
+}
+
+.management-content,
+.management-sidebar { min-width: 0; }
+
+.management-sidebar {
+    position: sticky;
+    top: 1.5rem;
+}
+
+.management-content { padding-bottom: 6rem; }
+
+.association-sources > .offcanvas-body { padding: 0; }
+
+.association-sources .drive-toolbar { padding: 0; gap: 0.5rem; }
+.association-sources .drive-item { margin: 0; padding-block: 0.625rem; border: 0; }
+.association-sources .drive-item-main { gap: 0.25rem; flex-wrap: nowrap; }
+.association-sources .drive-item-main > .drive-item-actions { width: auto; padding: 0; }
+.source-identity { display: flex; flex-direction: column; flex: 1 1 auto; gap: 0.125rem; }
+.source-kind, .source-account { color: var(--bs-secondary-color); font-size: 0.75rem; font-weight: 400; }
+.source-kind { flex: 0 0 auto; max-width: 45%; }
+.source-identity .ui-row-title { min-width: 0; }
+.source-account { text-align: left; }
+.association-sources .has-problem .drive-item-main > .source-choice,
+.association-sources .has-problem .source-kind { color: var(--bs-danger-text-emphasis); }
+.source-choice[aria-expanded="true"] { background: var(--media-selected-bg); }
+.source-linked-folder { padding-left: 1rem; font-size: 0.8125rem; }
+.source-linked-folder > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.source-choice {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem;
+    border: 0;
+    color: var(--bs-body-color);
+    border-radius: var(--radius-item);
+}
+
+.source-choice[aria-pressed="true"] { background: var(--media-selected-bg); color: var(--bs-emphasis-color); }
+.source-choice:hover { background: var(--bs-tertiary-bg); }
+.source-choice > .app-icon { flex-shrink: 0; }
+
+.source-root.root-chip {
+    display: flex;
+    gap: 0;
+    min-width: 0;
+    width: 100%;
+    max-width: none;
+    height: auto;
+    border: 0;
+    background: transparent;
+    padding-left: 0.75rem;
+}
+
+.source-root .source-choice { overflow: hidden; font-size: 0.8125rem; text-align: left; }
+.source-root-action { flex-shrink: 0; width: 1.75rem; height: 1.75rem; padding: 0.25rem; }
+.source-root-action .app-icon { width: 0.875rem; height: 0.875rem; }
+.linked-file { display: grid; grid-template-columns: minmax(0, 1fr) minmax(8rem, 25%); gap: 1rem; margin-inline: var(--ui-inset); padding-block: var(--ui-row-y); }
+.linked-file + .linked-file { border-top: 1px solid var(--ui-line); }
+.linked-target { min-width: 0; }
+.connection-facts dt { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.625rem; font-size: 0.8125rem; font-weight: 500; color: var(--bs-secondary-color); }
+.connection-facts dd { margin: 0; }
+.drive-inline-fields { min-width: 0; padding: 0; margin: 0; border: 0; }
+.drive-inline-fields [hidden] { display: none !important; }
+.drive-inline-fields .drive-form-actions { display: flex; align-items: center; gap: 0.5rem; justify-content: flex-end; margin-top: 1rem; }
+
+.settings-nav { flex-direction: column; gap: 0.375rem; }
+.settings-nav .nav-link { color: var(--bs-secondary-color); border-radius: var(--radius-item); }
+.settings-nav .nav-link.active { color: var(--media-accent-contrast); }
+.settings-form { container-type: inline-size; }
+.settings-section { align-items: start; }
+.settings-section > .ui-group { min-width: 0; }
+.settings-section[data-section="ai"] { max-width: 64rem; }
+.settings-section [data-reset],
+.settings-section > .tmdb-credit { grid-column: 1 / -1; }
+
+@container (min-width: 56rem) {
+    .settings-section:not([data-section="ai"]) { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2rem 1.5rem; }
+    .settings-section:not([data-section="ai"]) .ui-row:not(.is-switch):not(.is-action) > :is(.ui-row-label, .ui-row-control) { grid-column: 1 / -1; }
+}
+
+@media (max-width: 1199.98px) {
+    .management-layout { grid-template-columns: 15rem minmax(0, 1fr); }
+}
+
+@media (max-width: 991.98px) {
+    .management-layout { grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+    .management-sidebar { position: static; }
+    .association-sources { --bs-offcanvas-width: min(22rem, 100vw); }
+    .association-sources.management-sidebar { position: fixed; top: 0; }
+    .association-sources > .offcanvas-body { padding: 0 1rem 1rem; }
+    .association-sources .drive-toolbar > h2 { display: none; }
+    .settings-nav { flex-direction: row; flex-wrap: wrap; }
+    .settings-nav .nav-link { flex: 1 1 auto; justify-content: center; }
+    .management-content { padding-bottom: 5rem; }
+}
+
+@media (max-width: 575.98px) {
+    .management-content .discovery-search { width: 100%; }
+    .management-content .association-toolbar > :last-child { flex-wrap: wrap; width: 100%; }
+    .management-content .discovery-item { flex-wrap: wrap; }
+    .management-content .discovery-side { margin-left: auto; }
+    .linked-file { grid-template-columns: minmax(0, 1fr); gap: 0.5rem; }
+    .linked-target { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+    .management-content .match-actions { flex-wrap: wrap; }
+}
+
 /* ==========================================================================
    Settings（设置页）
    ========================================================================== */
 
 .settings-shell {
-    max-width: 56rem;
-    margin: 0 auto;
-    padding-inline: 24px;
+    container-type: inline-size;
 }
 
 .settings-header {
@@ -4980,7 +5094,7 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
     align-items: center;
     justify-content: space-between;
     gap: 16px 24px;
-    margin-top: 32px;
+    margin-top: 0;
 }
 
 .settings-lead {
@@ -5003,7 +5117,7 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
 }
 
 .settings-section {
-    margin-top: 40px;
+    margin-top: 0;
     padding-bottom: 96px; /* 给底部状态栏留位置 */
 }
 
@@ -5347,12 +5461,8 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
         --ui-group-gap: 32px;
     }
 
-    .settings-shell {
-        padding-inline: 16px;
-    }
-
     .settings-header {
-        margin-top: 24px;
+        margin-top: 0;
     }
 
     .settings-header .segmented-control {
@@ -5364,7 +5474,7 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
     }
 
     .settings-section {
-        margin-top: 32px;
+        margin-top: 0;
     }
 
     .ui-group-head {

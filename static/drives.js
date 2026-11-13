@@ -6,11 +6,35 @@
     const mountInput = form.querySelector("[data-drive-mount-input]");
     const resultBox = form.querySelector("[data-drive-result]");
     const saveButton = form.querySelector("[data-drive-save]");
-    const page = document.querySelector("[data-drive-page]");
+    const drivePage = document.querySelector("[data-drive-page]");
+    const page = drivePage?.closest("[data-association-workspace]") || drivePage;
+    let selectedDrive = null;
+    let inlineMode = false;
     // 弹窗挪到 body 下：页面容器的层叠上下文会把它压在内容后面
     const modalNode = page?.querySelector("[data-drive-modal]");
     if (modalNode) document.body.append(modalNode);
     const modal = modalNode ? bootstrap.Modal.getOrCreateInstance(modalNode) : null;
+    const cancelButton = form.querySelector("[data-drive-cancel-edit]");
+
+    function moveFormToModal() {
+        if (!modalNode) return;
+        modalNode.querySelector(".modal-body").append(form);
+        inlineMode = false;
+        const kindRow = kindInput.closest(".ui-row");
+        if (kindRow) kindRow.hidden = false;
+        cancelButton?.setAttribute("data-bs-dismiss", "modal");
+        const actions = form.querySelector(".drive-form-actions");
+        if (actions) actions.hidden = false;
+    }
+
+    function setInlineEditing(enabled) {
+        const card = page.querySelector("[data-drive-detail-card]");
+        if (!card) return;
+        card.querySelector("[data-drive-inline-form]").disabled = !enabled;
+        card.querySelector('[data-drive-action="edit"]').hidden = enabled;
+        form.querySelector(".drive-form-actions").hidden = !enabled;
+        if (enabled) form.querySelector(`[data-drive-fields="${kindInput.value}"] [data-drive-config]`)?.focus();
+    }
     const defaultMounts = {
         local: "本机", quark: "夸克", quark_tv: "夸克", uc: "UC", uc_tv: "UC", aliyun: "阿里", baidu: "百度",
         pan115: "115", pan123: "123", onedrive: "OneDrive", gdrive: "Google", webdav: "WebDAV", alist: "*",
@@ -102,13 +126,15 @@
     }
 
     async function refreshDrives() {
-        const response = await fetch("/media?tab=drives", { headers: { Accept: "text/html" } });
+        const response = await fetch("/media?tab=associate", { headers: { Accept: "text/html" } });
         if (!response.ok) throw new Error("refresh");
-        const document = new DOMParser().parseFromString(await response.text(), "text/html");
-        const next = document.querySelector("[data-drive-list]");
+        const nextDocument = new DOMParser().parseFromString(await response.text(), "text/html");
+        const next = nextDocument.querySelector("[data-drive-list]");
         if (!next) throw new Error("refresh");
         page.querySelector("[data-drive-list]").replaceWith(next);
         bindDriveActions();
+        if (selectedDrive) openDriveDetails(selectedDrive);
+        document.dispatchEvent(new CustomEvent("drives:updated"));
     }
 
     async function save() {
@@ -131,9 +157,10 @@
 
     async function finishSave(result) {
         if (result.ok && page) {
+            const wasInline = inlineMode, wasEditing = Boolean(editingMount);
             try { await refreshDrives(); } catch {}
-            modal?.hide();
-            window.showAppToast?.(editingMount ? `已更新 ${editingMount}` : "网盘已添加");
+            if (!wasInline) modal?.hide();
+            window.showAppToast?.(wasEditing ? "连接配置已更新" : "网盘已添加");
             if (result.message) window.showAppToast?.(result.message, "warning");
             return result;
         }
@@ -142,7 +169,7 @@
         return result;
     }
 
-    function editDrive(button) {
+    function editDrive(button, inline = false) {
         const drive = JSON.parse(button.dataset.drive);
         const mount = drive.mount;
         resetEditor();
@@ -169,7 +196,17 @@
         });
         modalNode.querySelector("[data-drive-editor-title]").textContent = `编辑 ${mount}`;
         modalNode.querySelector("[data-drive-editor-icon]").replaceChildren(icon("pencil"));
-        modal?.show();
+        if (inline) {
+            inlineMode = true;
+            page.querySelector("[data-drive-inline-form]").append(form);
+            kindInput.closest(".ui-row").hidden = true;
+            form.querySelector("[data-drive-mount]").hidden = true;
+            cancelButton?.removeAttribute("data-bs-dismiss");
+            setInlineEditing(true);
+        } else {
+            moveFormToModal();
+            openFromSidebar(() => modal?.show());
+        }
     }
 
     function cardResult(card, result, pending = false) {
@@ -179,7 +216,7 @@
             status.dataset.state = result.ok ? "ok" : "fail";
             card.querySelector("[data-drive-status-text]").textContent = result.ok ? "已连接" : "检测失败";
             // 详情只在比状态标签多出信息时显示
-            const detail = result.ok ? (result.status || "") : (result.message || "操作失败");
+            const detail = result.ok ? "" : (result.message || "操作失败");
             const detailBox = card.querySelector("[data-drive-status-detail]");
             detailBox.textContent = detail;
             detailBox.hidden = !detail || detail === "已连接" || card.classList.contains("is-disabled");
@@ -190,7 +227,7 @@
         const card = button.closest("[data-drive-card]");
         const action = button.dataset.driveAction;
         const mount = button.dataset.mount;
-        if (action === "edit") { editDrive(button); return; }
+        if (action === "edit") { editDrive(button, card.hasAttribute("data-drive-detail-card")); return; }
         if (action === "delete") {
             card.querySelector("[data-drive-delete-confirm]").hidden = false;
             return;
@@ -199,8 +236,16 @@
         cardResult(card, null, true);
         const result = await post(`/manager/drives/${encodeURIComponent(mount)}/${action}`);
         button.disabled = false;
+        if (action === "test") {
+            cardResult(card, result);
+            try {
+                await refreshDrives();
+                const fresh = page.querySelector("[data-drive-detail-card]");
+                if (fresh) cardResult(fresh, result);
+            } catch {}
+            return;
+        }
         if (!result.ok) { cardResult(card, result); return; }
-        if (action === "test") { cardResult(card, result); return; }
         try { await refreshDrives(); } catch { cardResult(card, { ok: false, message: "操作已完成，请刷新页面查看。" }); }
         // 路由变化（停用、移交透传等）后服务端已开始重新扫描
         if (result.message) window.showAppToast?.(result.message, "warning");
@@ -288,9 +333,52 @@
 
     kindInput.addEventListener("change", () => syncKind(true));
     saveButton.addEventListener("click", save);
-    page?.querySelector("[data-drive-add]")?.addEventListener("click", () => { resetEditor(); modal?.show(); });
+    const openFromSidebar = open => {
+        const sidebar = document.getElementById("association-sources");
+        if (sidebar?.classList.contains("show") && matchMedia("(max-width: 991.98px)").matches) {
+            sidebar.addEventListener("hidden.bs.offcanvas", open, { once: true });
+            bootstrap.Offcanvas.getInstance(sidebar)?.hide();
+        } else open();
+    };
+    function openDriveDetails(mount) {
+        const template = page.querySelector(`template[data-drive-details="${CSS.escape(mount)}"]`);
+        if (!template) {
+            selectedDrive = null;
+            document.dispatchEvent(new CustomEvent("drives:details-closed"));
+            return;
+        }
+        selectedDrive = mount;
+        moveFormToModal();
+        page.querySelector("[data-drive-details-body]").replaceChildren(template.content.cloneNode(true));
+        bindDriveActions();
+        editDrive(page.querySelector('[data-drive-detail-card] [data-drive-action="edit"]'), true);
+        setInlineEditing(false);
+        page.querySelectorAll("[data-drive-details-open]").forEach(node => node.setAttribute("aria-expanded", String(node.dataset.driveDetailsOpen === mount)));
+        openFromSidebar(() => document.dispatchEvent(new CustomEvent("drives:details", {detail:{mount}})));
+    }
+    page?.addEventListener("click", event => {
+        const button = event.target.closest("[data-drive-details-open]");
+        if (button) openDriveDetails(button.dataset.driveDetailsOpen);
+    });
+    page?.addEventListener("contextmenu", event => {
+        const button = event.target.closest("[data-drive-details-open]");
+        if (!button) return;
+        event.preventDefault(); openDriveDetails(button.dataset.driveDetailsOpen);
+    });
+    document.addEventListener("association:view", event => {
+        if (!page || event.detail.view === "drive") return;
+        selectedDrive = null;
+        page.querySelectorAll("[data-drive-details-open]").forEach(node => node.setAttribute("aria-expanded", "false"));
+    });
+    page?.querySelector("[data-drive-add]")?.addEventListener("click", () => openFromSidebar(() => { moveFormToModal(); resetEditor(); modal?.show(); }));
+    cancelButton?.addEventListener("click", event => {
+        if (!inlineMode) return;
+        event.preventDefault();
+        editDrive(page.querySelector('[data-drive-detail-card] [data-drive-action="edit"]'), true);
+        setInlineEditing(false);
+    });
     // 关闭弹窗即放弃编辑；下次打开从干净的表单开始
-    modalNode?.addEventListener("hidden.bs.modal", resetEditor);
+    modalNode?.addEventListener("hidden.bs.modal", () => { if (selectedDrive) openDriveDetails(selectedDrive); else resetEditor(); });
     modalNode?.addEventListener("shown.bs.modal", () => (editingMount ? form.querySelector(`[data-drive-fields="${kindInput.value}"] [data-drive-config]`) : kindInput)?.focus());
     syncKind(true);
 
@@ -454,7 +542,7 @@
             if (result.alist_unused) window.showAppToast?.("AList 中启用的存储已全部由 MovieDB 接管，可以停止 AList 服务并停用默认（透传）。", "warning");
         }
 
-        page?.querySelector("[data-drive-import]")?.addEventListener("click", () => importModal?.show());
+        page?.querySelector("[data-drive-import]")?.addEventListener("click", () => openFromSidebar(() => importModal?.show()));
         readButton.addEventListener("click", readConfig);
         applyButton.addEventListener("click", applyImport);
         pathInput.addEventListener("keydown", event => { if (event.key === "Enter") { event.preventDefault(); readConfig(); } });

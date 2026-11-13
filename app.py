@@ -34,6 +34,7 @@ from queries.home import (
     query_home,
 )
 from queries.manager import get_media_paths, get_rating_title_ids, query_manager
+from queries.association import query_associated_files
 from queries.title import (
     get_playable_file,
     get_title,
@@ -51,6 +52,7 @@ from viewmodels.catalog import (
 from viewmodels.collection import build_collection_viewmodel
 from viewmodels.home import build_home_viewmodel
 from viewmodels.manager import build_manager_viewmodel
+from viewmodels.association import build_associated_viewmodel
 from viewmodels.title import build_title_viewmodel
 
 # 外部接口与写入服务（requests、Pillow、GuessIt 等）在首次使用时才导入，
@@ -757,17 +759,20 @@ def media():
     if title_type not in ("all", "movie", "series"):
         title_type = "all"
     requested_tab = request.args.get("tab", "overview")
-    allowed_tabs = {"overview", "associate"} if app.config["READ_ONLY"] else {"overview", "associate", "drives"}
+    # 旧网盘链接继续可用，页面入口统一为“关联”。
+    if requested_tab == "drives" and not app.config["READ_ONLY"]:
+        requested_tab = "associate"
+    allowed_tabs = {"overview", "associate"}
     active_tab = requested_tab if requested_tab in allowed_tabs else "overview"
     drive_list = _drives.listing() if active_tab in ("associate", "drives") and not app.config["READ_ONLY"] else []
-    drive_types = _drives.types() if active_tab == "drives" else []
+    drive_types = _drives.types() if active_tab == "associate" and not app.config["READ_ONLY"] else []
     alist_path = ""
-    if active_tab == "drives" and not app.config["READ_ONLY"]:
+    if active_tab == "associate" and not app.config["READ_ONLY"]:
         from connectors.drives.alist_config import guess_path
 
         alist_path = guess_path()
     missing_mounts = []
-    if active_tab == "drives":
+    if active_tab == "associate" and not app.config["READ_ONLY"]:
         raw = {"titles": [], "artwork": [], "query": "", "title_type": title_type}
         missing = {}
         health = ""
@@ -800,6 +805,16 @@ def media():
         missing_mounts=missing_mounts,
         alist_path=alist_path,
     )
+
+
+@app.get("/manager/association/linked")
+def linked_association_files():
+    rows = query_associated_files(get_db()) if _setup.library_ready(app.config["DATABASE"]) else []
+    response = jsonify(build_associated_viewmodel(rows))
+    response.set_etag(hashlib.sha256(response.get_data()).hexdigest())
+    response.cache_control.private = True
+    response.cache_control.no_cache = True
+    return response.make_conditional(request)
 
 
 @app.get("/manager/titles/search")

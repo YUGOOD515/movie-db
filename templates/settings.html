@@ -71,14 +71,9 @@
 {% endmacro %}
 
 {% block main %}
-<div class="container-xl settings-shell" data-settings>
+<div class="container-xl management-shell settings-shell" data-settings>
     <header class="settings-header">
         <h1 class="h3 fw-bold mb-0">设置</h1>
-        <div class="segmented-control text-nowrap" role="tablist" aria-label="设置分区">
-            {% for section in sections %}
-                <button class="btn btn-sm" type="button" role="tab" id="tab-{{ section.id }}" aria-controls="section-{{ section.id }}" data-tab="{{ section.id }}">{% if section.icon %}{{ ui_icon(section.icon, '') }}{% endif %}<span>{{ section.title }}</span></button>
-            {% endfor %}
-        </div>
     </header>
     <p class="settings-lead">修改后在底部保存，大部分设置立即生效。已保存的密码和密钥不会显示，留空即保持不变。</p>
 
@@ -86,7 +81,13 @@
         <div class="settings-banner">{{ ui_icon('shield-check', '') }}<span>出于安全考虑，设置只能在运行 MovieDB 的电脑上修改。</span></div>
     {% endif %}
 
-    <form class="settings-form" data-settings-form autocomplete="off" novalidate>
+    <div class="management-layout mt-4">
+        <nav class="management-sidebar settings-nav nav nav-pills" role="tablist" aria-label="设置分区" aria-orientation="vertical">
+            {% for section in sections %}
+                <button class="nav-link d-flex align-items-center gap-2 text-start" type="button" role="tab" id="tab-{{ section.id }}" aria-controls="section-{{ section.id }}" data-tab="{{ section.id }}">{% if section.icon %}{{ ui_icon(section.icon, '') }}{% endif %}<span>{{ section.title }}</span></button>
+            {% endfor %}
+        </nav>
+    <form class="settings-form management-content" data-settings-form autocomplete="off" novalidate>
         {% for section in sections %}
             <section class="settings-section ui-stack" id="section-{{ section.id }}" role="tabpanel" aria-labelledby="tab-{{ section.id }}" data-section="{{ section.id }}" data-hue="{{ section.hue }}" hidden>
                 {% for group in section.groups %}
@@ -148,6 +149,7 @@
             </section>
         {% endfor %}
     </form>
+    </div>
 </div>
 {% endblock %}
 

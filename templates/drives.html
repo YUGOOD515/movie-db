@@ -1,66 +1,40 @@
 {% from "_ui.html" import icon as ui_icon, empty_state %}
 {% from "_drive_form.html" import drive_form with context %}
 
-{# 网盘页：居中的 8 栏列，一张卡片列出全部挂载；添加与编辑在弹窗里完成。网盘属于“连接”分区，沿用蓝色图标块。 #}
-<div class="row justify-content-center" data-drive-page data-hue="blue">
-    <div class="col-12 col-xl-8 drive-list">
-        {% if missing_mounts %}
-            <div class="settings-banner mt-0 mb-3">{{ ui_icon('triangle-alert', '') }}<span>尚未添加网盘的挂载名：{{ missing_mounts|join('、') }}。添加时使用相同名称即可继续播放。</span></div>
-        {% endif %}
+{# 关联工作区的来源导航；登录、凭据和导入复用原有弹窗。 #}
+<div data-drive-page data-hue="blue">
+    <div class="drive-list">
         <div class="drive-toolbar">
-            <span class="drive-toolbar-meta">{{ drives|length }} 个网盘</span>
+            <h2 class="h6 mb-0">网盘与关联文件夹</h2>
             <div class="drive-item-actions">
-                <button class="btn btn-sm chip-btn" type="button" data-drive-import>{{ ui_icon('download', '') }}<span>从 AList 导入</span></button>
-                <button class="btn btn-sm media-primary-action is-compact" type="button" data-drive-add>{{ ui_icon('plus', '') }}<span>添加网盘</span></button>
+                <button class="btn btn-sm icon-btn" type="button" data-drive-add aria-label="添加网盘" title="添加网盘">{{ ui_icon('plus', '') }}</button>
+                <div class="dropdown">
+                    <button class="btn btn-sm icon-btn" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="来源管理" title="来源管理">{{ ui_icon('ellipsis', '') }}</button>
+                    <ul class="dropdown-menu media-menu">
+                        <li><button class="dropdown-item d-flex align-items-center gap-2" type="button" data-drive-import>{{ ui_icon('download', '') }}<span>从 AList 导入</span></button></li>
+                    </ul>
+                </div>
             </div>
         </div>
-        <div class="ui-card" data-drive-list>
+        <button class="btn source-choice w-100 text-start mb-2" type="button" data-source-path="/" aria-pressed="true">{{ ui_icon('network', '') }}<span>全部来源</span></button>
+        <nav aria-label="网盘来源" data-drive-list>
             {% for drive in drives %}
-                {% set inactive = not drive.enabled or drive.route_state != 'self' %}
-                <div class="drive-item{% if inactive %} is-disabled{% endif %}" data-drive-card="{{ drive.mount }}" data-route="{{ drive.route_state }}">
+                <div class="drive-item{% if not drive.enabled %} is-disabled{% endif %}{% if drive.has_problem %} has-problem{% endif %}" data-drive-card="{{ drive.mount }}" data-drive-summary data-route="{{ drive.route_state }}" data-source-provider="{{ drive.provider or '' }}">
                     <div class="drive-item-main">
-                        <span class="ui-tile"{% if inactive %} data-hue="gray"{% endif %} aria-hidden="true">{{ ui_icon(drive.icon, '') }}</span>
-                        <div class="ui-group-text">
-                            <h2 class="ui-row-title">{{ drive.display_name }}</h2>
-                            <p class="ui-row-hint text-truncate">{{ drive.label }} · {{ drive.scope }}{% if drive.keepalive_text %} · {{ drive.keepalive_text }}{% endif %}</p>
-                            <p class="ui-row-hint drive-item-detail" data-drive-status-detail{% if not drive.status_detail %} hidden{% endif %}>{{ drive.status_detail }}</p>
-                        </div>
-                        <span class="ui-pill" data-drive-status data-state="{{ drive.status_state }}"><span data-drive-status-text>{{ drive.status_text }}</span></span>
-                        <div class="drive-item-actions">
-                            <button class="btn btn-sm chip-btn" type="button" data-drive-action="test" data-mount="{{ drive.mount }}">{{ ui_icon('refresh-cw', '') }}<span>检测</span></button>
-                            <div class="dropdown">
-                                <button class="btn icon-btn discovery-icon-btn" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="{{ drive.display_name }} 的更多操作" title="更多操作">{{ ui_icon('ellipsis', '') }}</button>
-                                <ul class="dropdown-menu dropdown-menu-end media-menu">
-                                    <li><button class="dropdown-item d-flex align-items-center gap-2" type="button" data-drive-action="edit" data-mount="{{ drive.mount }}" data-drive='{{ drive|tojson }}'>{{ ui_icon('pencil', '') }}<span>编辑</span></button></li>
-                                    <li><button class="dropdown-item d-flex align-items-center gap-2" type="button" data-drive-action="toggle" data-mount="{{ drive.mount }}">{{ ui_icon('ban' if drive.enabled else 'play', '') }}<span>{{ '停用' if drive.enabled else '启用' }}</span></button></li>
-                                    {% if drive.can_delegate %}
-                                        {% if drive.route_state == 'delegated' %}
-                                            <li><button class="dropdown-item d-flex align-items-center gap-2" type="button" data-drive-action="reclaim" data-mount="{{ drive.mount }}">{{ ui_icon('undo-2', '') }}<span>改回由本网盘提供</span></button></li>
-                                        {% else %}
-                                            <li><button class="dropdown-item d-flex align-items-center gap-2" type="button" data-drive-action="delegate" data-mount="{{ drive.mount }}">{{ ui_icon('arrow-left-right', '') }}<span>改由默认（透传）提供</span></button></li>
-                                        {% endif %}
-                                    {% endif %}
-                                    <li><hr class="dropdown-divider"></li>
-                                    <li><button class="dropdown-item d-flex align-items-center gap-2 is-danger" type="button" data-drive-action="delete" data-mount="{{ drive.mount }}">{{ ui_icon('trash-2', '') }}<span>删除</span></button></li>
-                                </ul>
-                            </div>
-                        </div>
+                        <button class="btn source-choice flex-grow-1 text-start min-w-0" type="button" data-drive-details-open="{{ drive.mount }}" aria-expanded="false" aria-controls="drive-connection-details" aria-label="查看 {{ drive.display_name }} 的连接详情">
+                            {{ ui_icon(drive.icon, '') }}<span class="min-w-0 source-identity"><span class="d-flex align-items-baseline gap-2 min-w-0"><span class="ui-row-title text-truncate">{{ drive.display_name }}</span><small class="source-kind text-truncate">{{ drive.category }}</small></span>{% if drive.account %}<span class="source-account text-truncate">{{ drive.account }}</span>{% endif %}</span>
+                            {% if drive.has_problem %}{{ ui_icon('circle-alert', 'flex-shrink-0') }}<span class="visually-hidden">连接异常</span>{% endif %}
+                        </button>
+                        <button class="btn icon-btn discovery-icon-btn" type="button" data-drive-details-open="{{ drive.mount }}" aria-label="{{ drive.display_name }} 的连接详情与操作" title="连接详情与操作">{{ ui_icon('ellipsis', '') }}</button>
                     </div>
-                    <div class="drive-item-extra">
-                        <div class="settings-result" data-drive-card-result role="status" aria-live="polite"></div>
-                        <div class="drive-confirm" data-drive-delete-confirm hidden>
-                            <p class="drive-confirm-text m-0"><strong>删除挂载“{{ drive.display_name }}”？</strong><small>媒体库记录不会删除，之后重新添加同名挂载即可继续播放。</small></p>
-                            <div class="drive-item-actions">
-                                <button class="btn btn-sm chip-btn" type="button" data-drive-cancel-delete><span>取消</span></button>
-                                <button class="btn btn-sm chip-btn text-danger" type="button" data-drive-confirm-delete>{{ ui_icon('trash-2', '') }}<span>删除</span></button>
-                            </div>
-                        </div>
-                    </div>
+                    <div class="vstack gap-1" data-source-folders="{{ drive.source_path }}"></div>
+                    <template data-drive-details="{{ drive.mount }}">{% include "_drive_details.html" %}</template>
                 </div>
             {% else %}
-                {{ empty_state("尚未添加网盘。", "network") }}
+                <p class="small text-body-secondary my-3">尚未添加网盘。点击上方“＋”添加后，即可选择扫描目录。</p>
             {% endfor %}
-        </div>
+        </nav>
+        <div class="vstack gap-1" data-source-folders="/" aria-label="其他已选择目录"></div>
     </div>
 
     <div class="modal fade drive-modal" id="drive-editor" tabindex="-1" aria-labelledby="drive-editor-heading" data-hue="blue" data-drive-modal>

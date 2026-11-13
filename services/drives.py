@@ -61,6 +61,7 @@ def public(row, *, passthrough_names=frozenset(), passthrough=None):
         for field in fields if field.kind != "secret"
     }}
     result["label"] = DRIVERS[row["kind"]].label
+    result["category"] = result["label"].split("（", 1)[0]
     result["saved"] = {name: bool(row["config"].get(name)) for name in _secret_fields(row["kind"])}
     if not row["enabled"]:
         result["status_state"], result["status_text"] = "off", "已停用"
@@ -73,6 +74,7 @@ def public(row, *, passthrough_names=frozenset(), passthrough=None):
     # 网盘页展示：透传挂载 "*" 没有可读的名字，按用途命名；详情只在比状态标签多出信息时显示。
     is_passthrough = row["mount"] == "*"
     result["display_name"] = media_source.PASSTHROUGH_NAME if is_passthrough else row["mount"]
+    result["source_path"] = "*" if is_passthrough else f"/{row['mount']}"
     result["icon"] = "folder" if row["kind"] == "local" else "network"
     result.update(_route_view(row, passthrough_names, passthrough))
     if result["route_state"] == "delegated":
@@ -82,6 +84,12 @@ def public(row, *, passthrough_names=frozenset(), passthrough=None):
     # 停用后旧的检测结果已不代表当前状态，不再显示
     result["status_detail"] = status if row["enabled"] and status and status != result["status_text"] else ""
     result["keepalive_text"] = _keepalive_text(row) if row["enabled"] else ""
+    # 仅复用已有账号/检测结果；本机路径和服务地址不能当成账号，也不解析 Cookie 或令牌。
+    account = str(result["config"].get("username") or "").strip()
+    if status.startswith("已连接：") and row["kind"] not in ("local", "webdav", "alist"):
+        account = status.removeprefix("已连接：").split("（会员类型", 1)[0].strip() or account
+    result["account"] = account
+    result["has_problem"] = result["status_state"] == "fail" or (row["enabled"] and result["route_state"] == "unavailable")
     return result
 
 
@@ -99,7 +107,7 @@ def _route_view(row, passthrough_names, passthrough):
         delegated = sorted(item["mount"] for item in drive_store.list_drives()
                            if item.get("delegated") and media_source.route(item["mount"])[0] == "*")
         scope = "未匹配挂载的路径" + (f"，以及 {'、'.join('/' + mount for mount in delegated)}" if delegated else "")
-        return {"scope": scope, "route_state": "self", "can_delegate": False, "overlap": False}
+        return {"scope": scope, "provider": "*", "route_state": "self", "can_delegate": False, "overlap": False}
     provider, reason = media_source.route(row["mount"])
     overlap = row["mount"] in passthrough_names
     if provider == "*":
@@ -110,7 +118,7 @@ def _route_view(row, passthrough_names, passthrough):
         state, text = "self", "由本网盘提供"
     if overlap and state == "self":
         text += f"（{media_source.PASSTHROUGH_NAME}里也有同名目录）"
-    return {"scope": f"/{row['mount']} · {text}", "route_state": state, "route_reason": reason,
+    return {"scope": f"/{row['mount']} · {text}", "provider": provider, "route_state": state, "route_reason": reason,
             "overlap": overlap, "can_delegate": bool(passthrough) and (overlap or row.get("delegated"))}
 
 

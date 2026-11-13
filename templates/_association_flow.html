@@ -3,25 +3,28 @@
          data-discovery-url="{{ url_for('discover_import_media') }}"
          data-metadata-url="{{ url_for('import_title_metadata') }}"
          data-jobs-url="{{ url_for('association_jobs') }}"
+         data-linked-url="{{ url_for('linked_association_files') }}"
          data-roots-url="{{ url_for('update_discovery_roots') }}"
          data-browse-url="{{ url_for('browse_discovery_folders') }}"
          data-ignore-url="{{ url_for('ignore_discovery_record') }}"
          data-recognize-url="{{ url_for('recognize_discovery_record') }}"
          data-poster-url="{{ url_for('import_title_poster') }}">
     <div data-discovery-panel>
-        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
+        {% if missing_mounts %}<div class="settings-banner mt-0 mb-3">{{ ui_icon('triangle-alert', '') }}<span>尚未添加网盘的挂载名：{{ missing_mounts|join('、') }}。添加时使用相同名称即可继续播放。</span></div>{% endif %}
+        <div class="association-toolbar d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
             <div class="d-flex align-items-center gap-3 min-w-0">
-                <h2 class="h5 mb-0 d-flex align-items-center gap-2">待关联<span class="discovery-count" data-discovery-count></span></h2>
+                <div class="min-w-0"><h2 class="h5 mb-1 text-break" data-source-heading>全部来源</h2><p class="small text-body-secondary mb-0">文件与作品关联<span class="discovery-count ms-2" data-discovery-count></span></p></div>
             </div>
             <div class="d-flex align-items-center gap-2">
                 <label class="discovery-search">
                     {{ ui_icon('search', '') }}
-                    <input class="form-control form-control-sm" type="search" placeholder="筛选" aria-label="筛选待关联内容" data-discovery-filter>
+                    <input class="form-control form-control-sm" type="search" placeholder="筛选名称或路径" aria-label="筛选关联内容" data-discovery-filter>
                 </label>
-                <button type="button" class="btn icon-btn discovery-icon-btn" data-discovery-refresh aria-label="重新扫描" title="重新扫描">{{ ui_icon('rotate-cw', '') }}</button>
+                <button type="button" class="btn btn-sm chip-btn" data-discovery-refresh aria-label="重新扫描全部目录" title="重新扫描全部已配置目录，来源选择只筛选显示">{{ ui_icon('rotate-cw', '') }}<span>扫描全部目录</span></button>
                 <div class="dropdown">
                     <button type="button" class="btn icon-btn discovery-icon-btn" data-bs-toggle="dropdown" aria-expanded="false" aria-label="更多" title="更多">{{ ui_icon('ellipsis', '') }}</button>
                     <ul class="dropdown-menu dropdown-menu-end media-menu">
+                        <li><button class="dropdown-item" type="button" data-bs-toggle="collapse" data-bs-target="#association-scan-roots" aria-expanded="false" aria-controls="association-scan-roots">管理扫描目录</button></li>
                         <li><button type="button" class="dropdown-item d-flex align-items-center gap-2" data-manual-open>{{ ui_icon('square-pen', '') }}手动录入</button></li>
                         <li><button type="button" class="dropdown-item d-flex align-items-center gap-2" data-manual-upload>{{ ui_icon('upload', '') }}上传 JSON</button></li>
                         <li><a class="dropdown-item d-flex align-items-center gap-2" href="{{ url_for('static', filename='templates/media_import_template.json') }}" download>{{ ui_icon('download', '') }}JSON 模板</a></li>
@@ -29,23 +32,30 @@
                 </div>
             </div>
         </div>
-        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-4">
-            <div class="d-flex flex-wrap align-items-center gap-2" data-discovery-roots aria-label="扫描目录">
-                <button type="button" class="btn btn-sm chip-btn root-add" data-root-add title="添加扫描目录">{{ ui_icon('plus', '') }}<span>添加目录</span></button>
-            </div>
-            <a class="discovery-missing d-none" href="{{ url_for('media', tab='overview', health='missing') }}" data-discovery-missing>{{ ui_icon('triangle-alert', '') }}<span></span>{{ ui_icon('chevron-right', '') }}</a>
-        </div>
+        <section class="collapse mb-3" id="association-scan-roots" aria-label="扫描目录管理"><div class="ui-card p-3"><h3 class="h6 mb-3">扫描目录</h3><div class="vstack gap-1" data-discovery-roots></div><button class="btn btn-sm chip-btn mt-3" type="button" data-root-add>{{ ui_icon('plus', '') }}<span>添加扫描目录</span></button></div></section>
+        <a class="discovery-missing d-none mb-3" href="{{ url_for('media', tab='overview', health='missing') }}" data-discovery-missing>{{ ui_icon('triangle-alert', '') }}<span></span>{{ ui_icon('chevron-right', '') }}</a>
         {# 关联队列：确认后的作品立刻出现在这里，点“详情”打开任务抽屉 #}
         <section class="association-queue" data-association-queue hidden aria-labelledby="association-queue-title">
             <h3 class="association-queue-head" id="association-queue-title"><span>关联队列</span><span class="fw-normal" data-association-queue-summary></span></h3>
             <ul class="ui-card task-rows" data-association-queue-list></ul>
         </section>
-        <div class="discovery-tabs d-flex flex-wrap gap-2 mb-3" role="tablist" aria-label="待关联分组" data-discovery-tabs></div>
-        <div role="tabpanel" data-discovery-list></div>
+        <div class="discovery-tabs d-flex flex-wrap gap-2 mb-3" role="tablist" aria-label="关联状态" data-discovery-tabs></div>
+        <div id="association-results" role="tabpanel" data-discovery-list></div>
         <div class="discovery-empty text-body-secondary d-none" data-discovery-empty role="status">
             <span data-discovery-empty-icon>{{ ui_icon('circle-check', '') }}</span><span></span>
         </div>
     </div>
+
+    <section class="d-none" id="drive-connection-details" data-drive-details-panel aria-label="网盘连接详情">
+        <button class="btn btn-sm chip-btn mb-3" type="button" data-drive-details-close>{{ ui_icon('chevron-left', '') }}返回关联列表</button>
+        <div data-drive-details-body></div>
+    </section>
+
+    <section class="d-none" data-linked-editor aria-labelledby="linked-heading">
+        <button class="btn btn-sm chip-btn mb-3" type="button" data-linked-close>{{ ui_icon('chevron-left', '') }}返回关联列表</button>
+        <div class="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3"><div><h2 class="h5 mb-1" id="linked-heading" data-linked-title></h2><p class="small text-body-secondary mb-0" data-linked-summary></p></div><a class="btn btn-sm chip-btn" data-linked-detail>查看作品{{ ui_icon('external-link', '') }}</a></div>
+        <div class="ui-card"><div class="linked-files" data-linked-files></div></div>
+    </section>
 
     <div class="modal fade" id="root-browser" tabindex="-1" aria-labelledby="root-browser-heading" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable">

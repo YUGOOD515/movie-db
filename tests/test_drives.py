@@ -68,9 +68,11 @@ def test_existing_passthrough_is_hidden_from_type_options(env):
     assert '<option value="alist">' not in text
 
 
-def test_association_without_drives_links_to_drives_tab(env):
+def test_association_without_drives_offers_inline_source_setup(env):
     text = env["client"].get("/media?tab=associate", headers=HTML).get_data(as_text=True)
-    assert "尚未添加网盘" in text and 'href="/media?tab=drives"' in text
+    assert "尚未添加网盘" in text and "data-drive-add" in text
+    assert 'href="/media?tab=drives"' not in text
+    assert 'id="association-sources"' in text and 'data-association-workspace' in text
 
 
 def test_read_only_snapshot_hides_drives_tab(env):
@@ -165,7 +167,8 @@ def test_media_source_fields_use_mount_path_guidance(env):
 
 def test_drive_editor_responsive_markup_and_script_contract(env):
     text = env["client"].get("/media?tab=drives", headers=HTML).get_data(as_text=True)
-    assert 'col-12 col-xl-8 drive-list' in text and 'data-drive-modal' in text
+    assert 'management-layout' in text and 'data-drive-modal' in text
+    assert 'col-12 col-xl-8 drive-list' not in text
     assert 'data-drive-add' in text and 'data-drive-editor-icon' in text
     assert '默认（透传）' in text or 'data-drive-card="*"' not in text
     script = (Path(movie_app.app.static_folder) / "drives.js").read_text(encoding="utf-8")
@@ -173,3 +176,23 @@ def test_drive_editor_responsive_markup_and_script_contract(env):
     assert ': input.dataset.drivePlaceholder || ""' in script
     assert "mountInput.disabled = true" in script
     assert 'replaceChildren(icon("pencil"))' in script
+
+
+def test_compact_connection_summary_uses_account_without_exposing_credentials(env):
+    drive_store.save_drive("Cookie盘", "quark", {"cookie": "private-cookie-value"}, True)
+    drive_store.set_status("Cookie盘", "Cookie 已失效")
+    failed = drives.public(drive_store.get_drive("Cookie盘"))
+    assert failed["has_problem"] is True and failed["account"] == ""
+    assert "private-cookie-value" not in str(failed)
+    assert failed["saved"]["cookie"] is True
+    drive_store.save_drive("本机", "local", {"root": str(env["tmp"])}, True)
+    drive_store.set_status("本机", "已连接：" + str(env["tmp"]))
+    assert drives.public(drive_store.get_drive("本机"))["account"] == ""
+    drive_store.save_drive("115", "pan115", {}, True)
+    drive_store.set_status("115", "已连接：测试账号")
+    account = drives.public(drive_store.get_drive("115"))
+    assert account["account"] == "测试账号" and not account["has_problem"]
+    text = env["client"].get("/media?tab=associate", headers=HTML).get_data(as_text=True)
+    assert 'data-drive-details-open="Cookie盘"' in text
+    assert 'has-problem" data-drive-card="Cookie盘"' in text
+    assert 'data-source-folders="/Cookie盘"' in text

@@ -54,7 +54,7 @@
 | GET | `/favorites` · `/collection/<id>` | HTML | 收藏 |
 | GET | `/title/<title_id>` | HTML | 详情页；`season`、`episode` 选集，`resume=1` 定位到续播集 |
 | GET | `/title/<title_id>/episode-panel` | HTML 片段 | 单集面板 |
-| GET | `/media` | HTML | 资源管理；`tab=overview\|associate\|drives`，`type`、`q`、`health=missing` |
+| GET | `/media` | HTML | 资源管理；`tab=overview\|associate`（旧 `drives` 兼容进入关联），`type`、`q`、`health=missing`；关联页 `source` 保存来源筛选 |
 
 ### 播放与收藏
 
@@ -79,6 +79,7 @@
 | GET | `/manager/titles/poster` | 重定向 | 搜索结果的中文海报 |
 | GET | `/manager/titles/episodes` | JSON | 作品的季集资料 |
 | GET/POST | `/manager/association/jobs` | JSON（POST 返回 202） | 查询 / 提交 / 取消（`cancel`）/ 重试（`retry`）关联任务 |
+| GET | `/manager/association/linked` | JSON | 实际入库文件按作品聚合的映射，保留多个来源和季集，支持 ETag；本机离线的只读快照不提供 |
 | POST | `/manager/import/batch` | 重定向 | 表单或 JSON 文件批量录入，全部成功才写入 |
 | GET | `/manager/tasks` · `/manager/tasks/detail?id=` | JSON | 后台任务列表与详情 |
 | GET/POST | `/manager/ratings/refresh` | JSON | 评分刷新状态 / 开始刷新 |

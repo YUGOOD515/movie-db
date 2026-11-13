@@ -1,6 +1,30 @@
 """Read the source ownership and series context used by media discovery."""
 
 
+def query_associated_files(db) -> list[dict]:
+    """实际入库映射；与扫描结果及网盘是否在线无关。"""
+    rows = db.execute("""
+        SELECT media.file_id,
+               media.alist_path AS path,
+               title.title_id AS file_title_id,
+               title.display_title AS file_title,
+               COALESCE(series.title_id, title.title_id) AS title_id,
+               COALESCE(series.display_title, title.display_title) AS name,
+               COALESCE(series.start_year, title.start_year) AS year,
+               COALESCE(series.title_type, title.title_type) AS title_type,
+               COALESCE(series.tmdb_id, title.tmdb_id) AS tmdb_id,
+               relation.season_number,
+               relation.episode_number
+          FROM media_file AS media
+          JOIN title_basic AS title ON title.title_id = media.title_id
+          LEFT JOIN title_relation AS relation ON relation.episode_id = title.title_id
+          LEFT JOIN title_basic AS series ON series.title_id = relation.series_id
+         ORDER BY name COLLATE NOCASE, title_id, relation.season_number,
+                  relation.episode_number, media.alist_path, media.file_id
+    """).fetchall()
+    return [dict(row) for row in rows]
+
+
 def get_associated_paths(db) -> dict[str, dict]:
     rows = db.execute("""
         SELECT media.alist_path,

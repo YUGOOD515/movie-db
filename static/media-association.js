@@ -1,7 +1,8 @@
 (() => {
     const root = document.getElementById("media-association");
     if (!root) return;
-    const $ = selector => root.querySelector(selector);
+    const workspace = root.closest("[data-association-workspace]") || root;
+    const $ = selector => workspace.querySelector(selector);
     const show = (node, visible) => node.classList.toggle("d-none", !visible);
     const el = (tag, classes = "", text = "") => {
         const node = document.createElement(tag);
@@ -27,6 +28,8 @@
 
     let records = [], ignored = [], roots = [], scan = {}, confirming = null, pollTimer = null;
     let tab = null, listScroll = 0, rootsSignature = null;
+    let sourcePath = new URL(location.href).searchParams.get("source") || "/";
+    let linkedRecords = [], linkedLoading = false, linkedError = "";
     const excluded = new Set(), expanded = new Set();
     let files = [], title = null, task = null, blocks = [], waitingForTitle = false;
     let useGuess = false, busy = false, taskVersion = 0, onlyErrors = false, ruleOpen = false, progress = null;
@@ -67,6 +70,7 @@
             }
         }
         renderList();
+        if (jobs.some(job => job.state === "complete")) loadLinked();
     }
 
     // Paths are fetched once; subsequent state changes come from the global summary.
@@ -155,14 +159,22 @@
         return { text: "正在提交关联", detail: `${total} 个视频` };
     }
 
-    const TABS = [["ready", "可确认"], ["review", "待核对"], ["unknown", "未识别"], ["ignored", "已忽略"]];
+    const TABS = [["ready", "可确认"], ["review", "待核对"], ["unknown", "未识别"], ["linked", "已关联"], ["ignored", "已忽略"]];
     const scanning = () => ["running", "recognizing"].includes(scan.status);
     const stateOf = item => item.recognition?.status || "unknown";
     const query = () => $("[data-discovery-filter]").value.trim().toLowerCase();
+    const isPassthroughPath = path => {
+        if (!path.startsWith("/")) return false;
+        const mount = path.split("/")[1];
+        const owner = workspace.querySelector(`[data-drive-card="${CSS.escape(mount)}"]`);
+        return !owner || owner.dataset.sourceProvider === "*";
+    };
+    const matchesSource = path => sourcePath === "/" || (sourcePath === "*" ? isPassthroughPath(path)
+        : path === sourcePath || path.startsWith(sourcePath + "/"));
     const availableRecords = () => {
         const pending = pendingPaths();
         return records.flatMap(item => {
-            const remaining = item.files.filter(file => !pending.has(file.path));
+            const remaining = item.files.filter(file => !pending.has(file.path) && matchesSource(file.path));
             if (!remaining.length) return [];
             const error = remaining.map(file => importErrors.get(file.path)).find(Boolean);
             return [{ ...item, files: remaining, ...(error ? { importError: error, recognition: { ...item.recognition, status: "review" } } : {}) }];
@@ -170,6 +182,91 @@
     };
     const visibleRecords = () => availableRecords().filter(item => `${item.name} ${item.path} ${item.recognition?.title?.name || ""}`.toLowerCase().includes(query()));
     const kindLabel = type => type === "tv" ? "剧集" : "电影";
+
+    function syncSource() {
+        workspace.querySelectorAll("[data-source-path]").forEach(node => {
+            const active = node.dataset.sourcePath === sourcePath;
+            node.setAttribute("aria-pressed", String(active));
+        });
+        const label = sourcePath === "/" ? "全部来源" : sourcePath === "*" ? "默认（透传）" : sourcePath;
+        $("[data-source-heading]").textContent = label;
+        $("[data-source-mobile-label]").textContent = label;
+    }
+
+    function selectSource(path) {
+        if (busy || confirming) { feedback("当前操作完成后再切换来源。", "info"); return; }
+        sourcePath = path;
+        if (currentView() !== "list") { taskVersion++; waitingForTitle = false; showView("list"); }
+        const url = new URL(location.href);
+        if (path === "/") url.searchParams.delete("source"); else url.searchParams.set("source", path);
+        history.replaceState(history.state, "", url);
+        syncSource(); renderList();
+        const sidebar = document.getElementById("association-sources");
+        if (matchMedia("(max-width: 991.98px)").matches) bootstrap.Offcanvas.getInstance(sidebar)?.hide();
+    }
+
+    async function loadLinked() {
+        if (linkedLoading) return;
+        linkedLoading = true;
+        try { linkedRecords = (await json(root.dataset.linkedUrl)).records; linkedError = ""; }
+        catch (error) { linkedError = error.message; }
+        finally { linkedLoading = false; renderList(); }
+    }
+
+    const visibleLinked = () => linkedRecords.flatMap(record => {
+        const matching = record.files.filter(file => matchesSource(file.path));
+        const search = query();
+        if (!matching.length || !`${record.name} ${record.title_id} ${matching.map(file => file.path).join(" ")}`.toLowerCase().includes(search)) return [];
+        return [{ ...record, files: matching }];
+    });
+
+    function renderSourceFolders() {
+        const slots = [...workspace.querySelectorAll("[data-source-folders]")];
+        slots.forEach(slot => slot.replaceChildren());
+        // 只显示用户保存的关联根目录，不从媒体文件路径推导、展开子目录。
+        const paths = new Set(roots.filter(item => !item.auto).map(item => item.path));
+        for (const path of [...paths].sort((a, b) => a.localeCompare(b, "zh-CN", { numeric: true }))) {
+            const mount = "/" + path.split("/")[1];
+            const slot = slots.find(node => node.dataset.sourceFolders === mount)
+                || slots.find(node => node.dataset.sourceFolders === "*") || slots.find(node => node.dataset.sourceFolders === "/");
+            if (!slot) continue;
+            const choice = el("button", "btn source-choice source-linked-folder w-100 text-start");
+            choice.type = "button"; choice.dataset.sourcePath = path; choice.dataset.sourceFolder = "true";
+            choice.title = path;
+            choice.setAttribute("aria-label", `选择关联目录：${path}`);
+            const label = slot.dataset.sourceFolders === mount ? path.slice(mount.length + 1) || "根目录" : path;
+            choice.append(icon("folder"), el("span", "min-w-0", label.replaceAll("/", " / ")));
+            slot.append(choice);
+        }
+        syncSource();
+    }
+
+    function openLinked(record) {
+        listScroll = window.scrollY;
+        $("[data-linked-title]").textContent = record.name;
+        $("[data-linked-summary]").textContent = `${record.year || ""} · ${kindLabel(record.media_type)} · ${record.files.length} 个视频`;
+        $("[data-linked-detail]").href = record.detail_url;
+        const list = $("[data-linked-files]");
+        list.replaceChildren();
+        for (const file of record.files) {
+            const row = el("div", "linked-file");
+            const text = el("div", "min-w-0");
+            text.append(el("div", "fw-medium text-break", file.name), el("div", "small text-body-secondary text-break mt-1", file.path));
+            const target = el("div", "linked-target");
+            target.append(el("div", "fw-medium", file.position), el("div", "small text-body-secondary text-break", file.target));
+            row.append(text, target); list.append(row);
+        }
+        showView("linked");
+        $("[data-linked-title]").scrollIntoView({ block: "nearest" });
+    }
+
+    function linkedRow(record) {
+        const row = el("li", "discovery-item");
+        const main = button("", () => openLinked(record), "discovery-main btn text-start");
+        main.append(poster(record, "film"), textBlock(record.name, [record.year, kindLabel(record.media_type)].filter(Boolean).join(" · "), [], [`${record.files.length} 个视频`, "已关联"], ""));
+        row.append(main, button("查看映射", () => openLinked(record), "btn btn-sm chip-btn flex-shrink-0"));
+        return row;
+    }
 
     function poster(found, fallback, classes = "discovery-poster") {
         const frame = el("span", classes);
@@ -357,13 +454,16 @@
             let node = box.querySelector(`[data-tab="${key}"]`);
             if (key === "ignored" && !counts.ignored && tab !== "ignored") { node?.remove(); continue; }
             if (!node) {
-                node = button("", () => { tab = key; renderList(); }, "btn btn-sm chip-btn discovery-tab");
+                node = button("", () => { tab = key; renderList(); if (key === "linked") loadLinked(); }, "btn btn-sm chip-btn discovery-tab");
                 node.dataset.tab = key; node.setAttribute("role", "tab");
+                node.id = `association-tab-${key}`;
+                node.setAttribute("aria-controls", "association-results");
                 node.append(el("span", "", label), el("span", "discovery-tab-count"));
                 box.append(node);
             }
             node.setAttribute("aria-selected", String(tab === key));
             node.classList.toggle("active", tab === key);
+            node.tabIndex = tab === key ? 0 : -1;
             node.querySelector('.discovery-tab-count').textContent = String(counts[key]);
         }
     }
@@ -372,19 +472,22 @@
         const visible = visibleRecords(), search = query();
         const byState = { ready: [], review: [], unknown: [] };
         for (const item of visible) byState[stateOf(item)]?.push(item);
-        const hidden = ignored.filter(item => item.name.toLowerCase().includes(search));
+        const hidden = ignored.filter(item => matchesSource(item.path) && `${item.name} ${item.path}`.toLowerCase().includes(search));
+        const linked = visibleLinked();
         const counts = {
-            ready: grouped(byState.ready).length, review: byState.review.length, unknown: byState.unknown.length, ignored: hidden.length,
+            ready: grouped(byState.ready).length, review: byState.review.length, unknown: byState.unknown.length, linked: linked.length, ignored: hidden.length,
         };
         // Keep the user's selected group even when it is empty or scanning.
         if (!tab) tab = TABS.map(([key]) => key).find(key => counts[key]) || "ready";
         renderTabs(counts);
+        $("[data-discovery-list]").setAttribute("aria-labelledby", `association-tab-${tab}`);
 
         const readyTitles = new Set(byState.ready.map(item => item.recognition.title.title_id));
         const container = $("[data-discovery-list]");
         container.replaceChildren();
         const list = el("ul", "discovery-list list-unstyled mb-0 squircle-card");
         if (tab === "ignored") hidden.forEach(entry => list.append(ignoredRow(entry)));
+        else if (tab === "linked") linked.forEach(record => list.append(linkedRow(record)));
         else {
             const items = tab === "ready" ? byState.ready : byState[tab];
             const groups = tab === "ready" ? grouped(items) : items.map(item => ({ key: `p:${item.path}`, records: [item] }));
@@ -392,13 +495,17 @@
         }
         if (list.childElementCount) container.append(list);
 
-        $("[data-discovery-count]").textContent = records.length ? String(records.length) : "";
+        $("[data-discovery-count]").textContent = String(tab === "linked" ? linked.length : visible.length);
+        if (tab === "linked" && linkedError) {
+            const error = el("div", "alert alert-warning py-2", `无法更新已关联内容：${linkedError}`);
+            error.setAttribute("role", "alert"); container.prepend(error);
+        }
         const empty = $("[data-discovery-empty]");
-        const loading = scanning() || !scan.status;
-        const message = loading ? (scan.status === 'recognizing' ? '正在识别…' : '正在扫描…')
+        const loading = tab === "linked" ? linkedLoading : scanning() || !scan.status;
+        const message = loading ? (tab === "linked" ? "正在加载已关联内容…" : scan.status === 'recognizing' ? '正在识别…' : '正在扫描…')
             : scan.status === 'error' ? '扫描失败，请重试' : search ? '没有匹配的内容'
             : pendingPaths().size ? '正在关联…'
-            : {ready:'暂无可确认项', review:'暂无待核对项', unknown:'暂无未识别项', ignored:'暂无已忽略项'}[tab];
+            : {ready:'暂无可确认项', review:'暂无待核对项', unknown:'暂无未识别项', linked:'此范围暂无已关联内容', ignored:'暂无已忽略项'}[tab];
         empty.querySelector("span").textContent = message;
         const marker = empty.querySelector('[data-discovery-empty-icon]');
         marker.replaceChildren(loading ? spinner() : icon(scan.status === 'error' ? 'circle-alert' : 'inbox'));
@@ -460,25 +567,33 @@
         const signature = JSON.stringify(roots);
         if (signature === rootsSignature) return;
         rootsSignature = signature;
-        const box = $("[data-discovery-roots]"), add = $("[data-root-add]");
-        box.querySelectorAll(".root-chip").forEach(node => node.remove());
+        const box = $("[data-discovery-roots]");
+        workspace.querySelectorAll(".root-chip").forEach(node => node.remove());
         for (const item of roots) {
-            const chip = el("span", "root-chip");
+            const owners = [...workspace.querySelectorAll("[data-source-roots]")].filter(node => node.dataset.sourceRoots === "*" ? isPassthroughPath(item.path)
+                : item.path === node.dataset.sourceRoots || item.path.startsWith(node.dataset.sourceRoots + "/"));
+            for (const target of [box, ...owners]) {
+            const chip = el("div", "root-chip source-root");
             chip.title = item.auto ? `${item.path}（自动）` : item.path;
-            const name = button('', () => {
-                bootstrap.Modal.getOrCreateInstance(browser).show(); browse(item.path);
-            }, 'root-name');
-            name.setAttribute('aria-label', `浏览目录：${item.path}`);
+            const name = button('', () => selectSource(item.path), 'btn source-choice min-w-0 flex-grow-1');
+            name.dataset.sourcePath = item.path;
+            name.setAttribute('aria-label', `选择扫描目录：${item.path}`);
             name.append(icon(item.auto ? "wand-sparkles" : "folder"), el("span", "text-truncate", item.path.split("/").filter(Boolean).pop() || "/"));
             chip.append(name);
+            const browseButton = button("", () => openBrowser(item.path), "btn icon-btn source-root-action");
+            browseButton.setAttribute("aria-label", `浏览目录：${item.path}`);
+            browseButton.append(icon("folder")); chip.append(browseButton);
             if (!item.auto) {
-                const remove = button("", () => updateRoot(item.path, "remove"), "root-remove");
+                const remove = button("", () => updateRoot(item.path, "remove"), "btn icon-btn source-root-action");
                 remove.setAttribute("aria-label", `移除 ${item.path}`);
                 remove.append(icon("x"));
                 chip.append(remove);
             }
-            box.insertBefore(chip, add);
+            target.append(chip);
+            }
         }
+        renderSourceFolders();
+        syncSource();
     }
 
     function scanProgress() {
@@ -593,7 +708,9 @@
     async function updateRoot(path, action) {
         try {
             const data = await json(root.dataset.rootsUrl, { path, action });
-            roots = data.roots.map(path => ({path, auto:false})); renderRoots();
+            roots = data.roots.map(path => ({path, auto:false}));
+            if (action === "remove" && sourcePath === path) selectSource("/");
+            renderRoots();
         } catch (error) { feedback(error.message, "danger"); return; }
         bootstrap.Modal.getInstance(browser)?.hide();
         const data = await discover(true);
@@ -634,6 +751,15 @@
         choose.disabled = data.path === "/" || added;
         choose.textContent = added ? "已添加" : "添加此目录";
         $("[data-root-target]").textContent = data.path === "/" ? "进入一个目录后添加" : added ? "这个目录已在扫描列表中" : `将扫描 ${parts[parts.length - 1]} 及其子目录`;
+    }
+
+    function openBrowser(path) {
+        const sidebar = document.getElementById("association-sources");
+        const open = () => { bootstrap.Modal.getOrCreateInstance(browser).show(); browse(path); };
+        if (sidebar.classList.contains("show") && matchMedia("(max-width: 991.98px)").matches) {
+            sidebar.addEventListener("hidden.bs.offcanvas", open, { once: true });
+            bootstrap.Offcanvas.getInstance(sidebar)?.hide();
+        } else open();
     }
 
     // ---- 单项匹配 --------------------------------------------------------
@@ -1484,6 +1610,9 @@
         show(panel, view === "list");
         show(editor, view === "editor");
         if (manual) show(manual, view === "manual");
+        show($("[data-linked-editor]"), view === "linked");
+        show($("[data-drive-details-panel]"), view === "drive");
+        document.dispatchEvent(new CustomEvent("association:view", {detail:{view}}));
         syncBar();
     }
 
@@ -1591,9 +1720,27 @@
     });
     picker.addEventListener("hidden.bs.modal", () => { waitingForTitle = false; });
     $("[data-discovery-refresh]").addEventListener("click", () => discover(true, true));
-    $("[data-root-add]").addEventListener("click", () => {
-        bootstrap.Modal.getOrCreateInstance(browser).show();
-        browse("/");
+    $("[data-root-add]").addEventListener("click", () => openBrowser(sourcePath === "*" ? "/" : sourcePath));
+    workspace.addEventListener("click", event => {
+        const browseButton = event.target.closest("[data-root-open]");
+        if (browseButton) openBrowser(browseButton.dataset.rootOpen);
+        const choice = event.target.closest("[data-source-path]");
+        // 动态扫描目录自身已绑定选择事件，挂载与“全部来源”通过事件委托处理。
+        if (choice && !choice.closest(".source-root")) {
+            selectSource(choice.dataset.sourcePath);
+        }
+    });
+    document.addEventListener("drives:updated", () => { rootsSignature = null; renderRoots(); renderList(); discover(); });
+    document.addEventListener("drives:details", () => { rootsSignature = null; showView("drive"); renderRoots(); });
+    document.addEventListener("drives:details-closed", () => showView("list"));
+    $("[data-drive-details-close]").addEventListener("click", () => { showView("list"); renderList(); });
+    $("[data-linked-close]").addEventListener("click", () => { showView("list"); renderList(); window.scrollTo({ top: listScroll }); });
+    $("[data-discovery-tabs]").addEventListener("keydown", event => {
+        const nodes = [...event.currentTarget.querySelectorAll('[role="tab"]')];
+        const index = nodes.indexOf(event.target);
+        const step = { ArrowRight: 1, ArrowLeft: -1 }[event.key];
+        if (index < 0 || !step) return;
+        event.preventDefault(); const next = nodes[(index + step + nodes.length) % nodes.length]; next.click(); next.focus();
     });
     $("[data-root-choose]").addEventListener("click", () => updateRoot(browser.dataset.path, "add"));
     $("[data-discovery-filter]").addEventListener("input", renderList);
@@ -1605,7 +1752,7 @@
     const pageUrl = new URL(location.href), wantsRoot = pageUrl.searchParams.has("add_root");
     if (wantsRoot) { pageUrl.searchParams.delete("add_root"); history.replaceState(history.state, "", pageUrl); }
     // 打开页面先显示已有结果（启动时的后台扫描或上次快照），没有结果时才开始扫描。
-    renderList();
+    syncSource(); renderList(); loadLinked();
     discover().then(data => {
         pollJobs(true);
         if (wantsRoot) $("[data-root-add]").click();
