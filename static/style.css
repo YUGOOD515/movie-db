@@ -100,6 +100,14 @@
     --bs-btn-close-focus-shadow: 0 0 0 0.2rem var(--bs-focus-ring-color);
 }
 
+/* 链接样式的按钮（面包屑、状态栏里的“查看”等）：Bootstrap 默认用链接蓝，悬停、按下也是蓝 */
+.btn-link {
+    --bs-btn-color: var(--bs-body-color);
+    --bs-btn-hover-color: var(--bs-emphasis-color);
+    --bs-btn-active-color: var(--bs-emphasis-color);
+    --bs-btn-focus-shadow-rgb: var(--media-accent-rgb);
+}
+
 /* ==========================================================================
    Base & utilities
    ========================================================================== */
@@ -184,6 +192,7 @@ select {
     gap: 0.35rem;
     white-space: nowrap;
     border-radius: var(--radius-pill);
+    corner-shape: round;
     transition: all 0.15s var(--ease-out);
 }
 
@@ -208,6 +217,7 @@ select {
     --bs-btn-active-bg: var(--bs-emphasis-color);
     --bs-btn-active-border-color: transparent;
     border-radius: var(--radius-pill);
+    corner-shape: round;
     transition: all 0.15s var(--ease-out);
 }
 
@@ -221,7 +231,7 @@ select {
     display: inline-flex;
     padding: 2px;
     border-radius: var(--radius-pill);
-    corner-shape: squircle;
+    corner-shape: round;
     background-color: var(--bs-tertiary-bg);
 }
 
@@ -240,6 +250,7 @@ select {
     --bs-btn-active-bg: var(--bs-body-bg);
     --bs-btn-active-border-color: transparent;
     border-radius: var(--radius-pill);
+    corner-shape: round;
     transition: all 0.15s var(--ease-out);
 }
 
@@ -270,6 +281,7 @@ select {
     --bs-btn-disabled-opacity: 0.5;
     height: 1.85rem;
     border-radius: var(--radius-pill);
+    corner-shape: round;
     backdrop-filter: blur(8px);
     -webkit-backdrop-filter: blur(8px);
 }
@@ -1579,6 +1591,7 @@ a.detail-rating-item:focus-visible .detail-rating-score {
     padding-inline: 0.85rem;
     font-size: 0.8125rem;
     border-radius: var(--radius-pill);
+    corner-shape: round;
 }
 
 .overview-card {
@@ -1785,6 +1798,7 @@ a.detail-rating-item:focus-visible .detail-rating-score {
     height: 2rem;
     padding-left: 2rem;
     border-radius: var(--radius-pill);
+    corner-shape: round;
     font-size: 0.8125rem;
 }
 
@@ -1856,6 +1870,7 @@ a.detail-rating-item:focus-visible .detail-rating-score {
     padding: 0 0.75rem;
     border: 1px solid var(--bs-border-color);
     border-radius: var(--radius-pill);
+    corner-shape: round;
     font-size: 0.8125rem;
 }
 
@@ -1876,6 +1891,7 @@ a.detail-rating-item:focus-visible .detail-rating-score {
     padding: 0;
     border: 0;
     border-radius: var(--radius-pill);
+    corner-shape: round;
     background: transparent;
     color: var(--bs-secondary-color);
     transition: background-color 0.15s ease, color 0.15s ease;
@@ -3132,9 +3148,10 @@ body.has-status-dock {
     font-variant-numeric: tabular-nums;
 }
 
+/* 季号用中性的强调色（不用 Bootstrap 的 info 青蓝），集号用黄色，两者仍能一眼分开 */
 .rule-season {
-    color: var(--bs-info-text-emphasis);
-    background-color: var(--bs-info-bg-subtle);
+    color: var(--bs-emphasis-color);
+    background-color: rgba(var(--bs-emphasis-color-rgb), 0.12);
 }
 
 .rule-episode {
@@ -3379,7 +3396,7 @@ body.has-status-dock {
     border-color: currentColor;
 }
 
-.rule-token.is-digit.rule-season { background-color: var(--bs-info-bg-subtle); }
+.rule-token.is-digit.rule-season { background-color: rgba(var(--bs-emphasis-color-rgb), 0.12); }
 .rule-token.is-digit.rule-episode { background-color: var(--bs-warning-bg-subtle); }
 
 .rule-token.is-digit.is-linked {
@@ -3401,7 +3418,7 @@ body.has-status-dock {
     background-color: currentColor;
 }
 
-.rule-token.rule-season[data-role]::after { background-color: var(--bs-info-text-emphasis); }
+.rule-token.rule-season[data-role]::after { background-color: var(--bs-emphasis-color); }
 .rule-token.rule-episode[data-role]::after { background-color: var(--bs-warning-text-emphasis); }
 
 .rule-pattern {
@@ -4452,6 +4469,7 @@ html[data-ambient] {
     overflow: hidden;
     border: 0;
     border-radius: var(--radius-pill);
+    corner-shape: round;
     background: rgba(var(--bs-body-color-rgb), 0.3);
     transition: width 0.35s var(--ease-out), background-color 0.2s ease;
 }
@@ -4498,6 +4516,7 @@ html[data-ambient] {
     background: rgba(var(--bs-body-color-rgb), 0.1);
     backdrop-filter: blur(12px);
     border-radius: var(--radius-pill);
+    corner-shape: round;
 }
 
 .library-section--after-hero {
@@ -4949,6 +4968,7 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
     width: 8px;
     height: 8px;
     border-radius: 50%;
+    corner-shape: round;
     background: var(--bs-secondary-color);
     opacity: 0.5;
 }
@@ -5178,6 +5198,11 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
     width: 2.5em;
     height: 1.35em;
     cursor: pointer;
+}
+
+/* 开关是胶囊（G2 几何例外）：全站 input 默认的超椭圆会把两端压扁 */
+.form-switch .form-check-input {
+    corner-shape: round;
 }
 
 
@@ -5424,6 +5449,7 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
 
 .ui-card {
     border-radius: var(--radius-panel);
+    corner-shape: squircle;
     background: var(--ui-surface);
 }
 
@@ -5588,6 +5614,7 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
     gap: 6px;
     height: 2rem;
     border-radius: var(--radius-pill);
+    corner-shape: round;
 }
 
 .drive-item-actions {
@@ -5751,6 +5778,7 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
     margin: 24px 0 0;
     padding: 12px var(--ui-inset);
     border-radius: var(--radius-panel);
+    corner-shape: squircle;
     background: rgba(var(--bs-warning-rgb), 0.1);
     font-size: 0.875rem;
     color: var(--bs-warning-text-emphasis);
@@ -5999,6 +6027,7 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
 .drive-modal .modal-content {
     border: 0;
     border-radius: var(--radius-card);
+    corner-shape: squircle;
     background: var(--bs-body-bg);
 }
 

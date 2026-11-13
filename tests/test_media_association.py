@@ -46,6 +46,17 @@ class DiscoveryTest(unittest.TestCase):
         self.assertEqual(len(warnings), 1)
         self.assertNotIn("private", warnings[0])
 
+    def test_deleted_subfolder_only_warns(self):
+        """目录在缓存期内被删除时 media_source 抛 FileNotFoundError，只记一条读取失败，不让整次扫描报错。"""
+        def listing(path, *args, **kwargs):
+            if path.endswith("gone"):
+                raise FileNotFoundError(f"找不到：{path}")
+            return [{"name": "gone", "is_dir": True}, {"name": "good.MKV"}]
+        with patch.object(media_source, "list_directory", side_effect=listing):
+            files, warnings = discovery.collect_folder("/share")
+        self.assertEqual([item["path"] for item in files], ["/share/good.MKV"])
+        self.assertEqual(len(warnings), 1)
+
     def test_root_resolution_and_ambiguous_mounts(self):
         with patch.dict(os.environ, {"MEDIA_IMPORT_ROOT": ""}), patch.object(media_source, "list_directory") as listing:
             listing.side_effect = [[{"name": "Quark", "is_dir": True}], [{"name": "来自：分享", "is_dir": True}]]

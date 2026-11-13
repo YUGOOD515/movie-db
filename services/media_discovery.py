@@ -1,5 +1,6 @@
 """Progressive, read-only drive discovery. A failed subtree stays visibly incomplete."""
 
+import logging
 import os
 import re
 import queue
@@ -17,6 +18,8 @@ from models import local_store as store
 from models.database import connect_database
 from queries.association import get_associated_paths
 from services import media_source
+
+logger = logging.getLogger(__name__)
 
 _lock = Lock()
 _scans = {}
@@ -86,7 +89,8 @@ def collect_folder(path, refresh=False, pool=None):
     def read(parent):
         try:
             return parent, media_source.list_directory(parent, refresh=refresh)
-        except (requests.RequestException, RuntimeError, ValueError):
+        except (requests.RequestException, RuntimeError, ValueError, FileNotFoundError):
+            # 目录在两次扫描之间被删除或改名：只记这一处读取失败，不让整次扫描报错
             return parent, None
 
     while pending:
@@ -275,6 +279,12 @@ def _recognition_pipeline(key, database):
         records = iter(arrivals.get, None)
         try:
             _recognize_pending(key, database, records)
+        except Exception:
+            # 识别出了意料之外的错（例如接口返回结构异常）：目录已经扫完，保留扫描结果，
+            # 只提示部分条目未识别，下次扫描会重试，不让整次扫描变成“失败”
+            logger.exception("扫描中的识别出错")
+            with _lock:
+                _scans[key]["warnings"].append("识别中途出错，部分条目未识别；重新扫描会再试。")
         finally:
             # Even a missing TMDB configuration must drain the bounded input so
             # the scanner can finish and report its directory warnings.
@@ -300,7 +310,7 @@ def _run_scan(key, database, refresh):
         for root, _ in roots:
             try:
                 entries = media_source.list_directory(root, refresh=refresh)
-            except (requests.RequestException, RuntimeError, ValueError):
+            except (requests.RequestException, RuntimeError, ValueError, FileNotFoundError):
                 with _lock:
                     _scans[key]["warnings"].append(f"{root}：读取失败，请检查目录是否存在。")
                 continue

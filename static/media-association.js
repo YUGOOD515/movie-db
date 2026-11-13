@@ -1095,7 +1095,7 @@
             file.copies = 1;
             file.issue = null;
             file.target = null;
-            if (!file.included || !title || title.media_type !== "tv" || file.issue) continue;
+            if (!file.included || !title || title.media_type !== "tv") continue;
             const key = `${Number(file.season)}:${Number(file.episode)}`;
             if (!validNumber(file.season, 0) || !validNumber(file.episode, 1)) file.issue = ISSUES.empty;
             else if (!positions.get(key)) file.issue = ISSUES.absent;
@@ -1628,6 +1628,8 @@
 
     function closeEditor() {
         taskVersion++; waitingForTitle = false; busy = false; progress = null;
+        // 提交成功后也要解开 lockEditor(true) 锁住的控件，否则下一次打开编辑器时返回、规则、季号等按钮仍是禁用的
+        editor.querySelectorAll("button, input, select").forEach(node => { node.disabled = false; });
         showView("list");
         renderList();
         window.scrollTo({ top: listScroll });

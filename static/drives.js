@@ -40,6 +40,8 @@
         pan115: "115", pan123: "123", onedrive: "OneDrive", gdrive: "Google", webdav: "WebDAV", alist: "*",
     };
     let qrTimer = null;
+    // 每次获取二维码一个编号：重新获取、切换类型或关闭弹窗后，已发出的那一轮轮询返回时直接作废
+    let qrSession = 0;
     let editingMount = "";
 
     const el = (tag, className, text) => {
@@ -75,6 +77,7 @@
     function stopQr() {
         clearTimeout(qrTimer);
         qrTimer = null;
+        qrSession++;
         form.querySelectorAll("[data-drive-qr], [data-drive-oauth-paste]").forEach(box => { box.hidden = true; });
         form.querySelectorAll("[data-drive-qr-start] span").forEach(label => { label.textContent = "获取二维码"; });
     }
@@ -259,12 +262,14 @@
         const status = fields.querySelector("[data-drive-qr-status]");
         const hint = fields.querySelector("[data-drive-qr-hint]");
         stopQr();
+        const session = qrSession;
         renderResult(resultBox, null);
         button.disabled = true;
         const started = await post("/manager/drives/qr-login", {
             action: "start", kind: kindInput.value, mount: mountInput.value.trim(), create: !editingMount && !setup,
         });
         button.disabled = false;
+        if (session !== qrSession) return;
         if (!started.ok) { showResult(started); return; }
         image.src = started.qr;
         image.classList.remove("is-expired");
@@ -281,6 +286,7 @@
                 return;
             }
             const result = await post("/manager/drives/qr-login", { action: "poll", login_id: started.login_id });
+            if (session !== qrSession) return;
             if (result.ok && result.pending) { qrTimer = setTimeout(poll, 2000); return; }
             if (!result.ok) {
                 image.classList.add("is-expired");
