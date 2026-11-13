@@ -44,6 +44,8 @@ def test_linked_files_use_library_identity_and_keep_multiple_sources(workspace):
     assert {file["path"].split("/")[1] for file in pilots} == {"TV", "Other"}
     assert records["tt0816692"]["files"][0]["position"] == "电影"
     assert series["detail_url"] == "/title/tt6226232"
+    # 已入库的作品用本地海报，没有本地海报时留空（前端再按 TMDB ID 现查）
+    assert records["tt0816692"]["poster"] == "/static/imdb.png"
     assert client.get("/manager/association/linked", headers={"If-None-Match": response.headers["ETag"]}).status_code == 304
     assert database.read_bytes() == before
 

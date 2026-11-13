@@ -1,34 +1,17 @@
-{% from "_ui.html" import icon %}
-{# 后台任务：平时收成左上角菜单按钮旁的小圆钮（有任务才出现），有事件时短暂展开成胶囊；
-   点击唤出面板（手机上是底部抽屉），点任务在面板内展开详情。关联页的任务区嵌在底部状态栏里，
-   由 static/task-center.js 生成。 #}
+{# 后台任务：平时收成左上角菜单按钮旁的圆钮（有任务才出现），排队的任务叠成一串圆形海报，有事件时短暂展开成胶囊；
+   点击后任务在圆钮下方排成一列胶囊卡片，点卡片原地展开当前进度。由 static/task-center.js 生成。 #}
 <div class="task-center" data-task-center hidden
      data-status-url="{{ url_for('background_tasks') }}"
-     data-detail-url="{{ url_for('background_task_detail') }}"
      data-jobs-url="{{ url_for('association_jobs') }}"
      data-scan-url="{{ url_for('discover_import_media') }}"
      data-rating-url="{{ url_for('refresh_manager_ratings') }}"
      data-image-base="{{ url_for('static', filename='') }}">
-    <button type="button" class="task-orb" data-task-orb aria-expanded="false" aria-controls="task-island-panel" hidden>
-        <span class="orb-core">
-            <span class="orb-art" data-orb-art aria-hidden="true"></span>
-            <span class="island-ring" data-orb-ring aria-hidden="true"></span>
-            <span class="orb-badge" data-orb-badge aria-hidden="true"></span>
-        </span>
+    <button type="button" class="task-orb" data-task-orb aria-expanded="false" aria-controls="task-island-list" hidden>
+        <span class="orb-more" data-orb-more aria-hidden="true"></span>
+        <span class="orb-stack" data-orb-stack aria-hidden="true"></span>
+        <span class="island-ring" data-orb-ring aria-hidden="true"></span>
+        <span class="orb-alert" aria-hidden="true"></span>
         <span class="orb-live" aria-hidden="true"><span class="island-title" data-orb-title></span><span class="island-caption" data-orb-caption></span></span>
     </button>
-    <div class="island-scrim" data-island-scrim hidden></div>
-    <section class="island-panel" id="task-island-panel" data-island-panel hidden tabindex="-1" aria-labelledby="task-island-heading">
-        <header class="island-head">
-            <span class="island-grip" aria-hidden="true"></span>
-            <h2 class="island-heading" id="task-island-heading">后台任务</h2>
-            <span class="island-summary" data-island-summary></span>
-            <button type="button" class="btn icon-btn island-collapse" data-island-collapse aria-label="收起后台任务">{{ icon('x') }}</button>
-        </header>
-        <div class="island-body">
-            <div class="island-services" data-task-services></div>
-            <ul class="island-list" data-task-list aria-label="后台任务列表"></ul>
-            <p class="island-empty" data-task-empty>暂无任务</p>
-        </div>
-    </section>
+    <ul class="island-list" id="task-island-list" data-task-list aria-label="后台任务" hidden></ul>
 </div>

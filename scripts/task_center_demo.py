@@ -4,7 +4,7 @@
     uv run python scripts/task_center_demo.py --port 5080
 
 只读本机媒体库的片名和海报做演示，不写任何数据库，也不调用外部服务。
-页面参数（截图也用它们）：scenario 场景、at 场景已进行的秒数、open=1 展开面板、expand=1 / failed 展开第一个（失败的）任务、
+页面参数（截图也用它们）：scenario 场景、at 场景已进行的秒数、open=1 展开任务列表、expand=1 / failed 展开第一个（失败的）任务、
 live=1 让圆钮保持“实时活动”胶囊、fly=1 冻结在海报飞行途中、theme=light 浅色主题。
 /device?w=390&h=844&scenario=… 用固定宽高的框模拟手机屏幕。
 """
@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCENARIOS = {
     "none": "无任务",
     "single": "单个关联（约 20 秒完成）",
-    "multi": "多个关联，依次完成",
+    "multi": "5 个关联排队，依次完成",
     "mixed": "关联 + 扫描 + 评分",
     "failed": "失败与需处理",
     "waiting": "等待接口恢复",
@@ -81,7 +81,9 @@ class Demo:
         plans = {
             "none": [],
             "single": [self.job(0, 0, 20, 12)],
-            "multi": [self.job(1, 0, 14, 1, series=False), self.job(2, 0, 24, 1, series=False), self.job(3, 0, 600, 40)],
+            # 一个接一个开始：前一个完成滑出，后面排队的往前接上
+            "multi": [self.job(1, 0, 10, 1, series=False), self.job(2, 10, 10, 1, series=False), self.job(4, 20, 10, 6),
+                      self.job(5, 30, 10, 1, series=False), self.job(3, 40, 600, 40)],
             "mixed": [self.job(3, 0, 600, 40)],
             "failed": [self.job(0, -30, 5, 1, "failed", series=False), self.job(4, -30, 5, 9, "partial"), self.job(5, 0, 600, 8)],
             "waiting": [self.job(2, 0, 600, 1, "waiting", series=False)],
@@ -116,7 +118,7 @@ def jobs_by_id(jobs):
 def import_task(job, now):
     files, elapsed = job["files"], now - job["start"]
     task = {"id": job["id"], "kind": "import", "name": job["name"], "poster": job["poster"], "files": files,
-            "core": 0, "done": 0, "total": 0, "current": [], "current_more": 0, "issues": [], "waits": {},
+            "core": 0, "linked": 0, "done": 0, "total": 0, "current": [], "current_more": 0, "issues": [], "waits": {},
             "retry_at": 0, "attempts": 1, "failed": 0, "cancel_ids": [], "retry_ids": [], "jobs": [],
             "updated_at": job["start"] + job["duration"]}
     if job["outcome"] == "waiting":
@@ -128,69 +130,30 @@ def import_task(job, now):
         task.update(state="queued", phase="queued", cancel_ids=[f"{job['id']}#job"])
         return task
     if elapsed < job["duration"]:
+        # 关联四步：核对资料 → 获取链接 → 读取参数 → 写入媒体库
         progress = (elapsed - 2) / max(1, job["duration"] - 2)
-        if progress < 0.2:
+        share = lambda start, end: min(files, int(files * (progress - start) / (end - start)))
+        if progress < 0.1:
             task.update(phase="metadata")
+        elif progress < 0.3:
+            task.update(phase="metadata", linked=share(0.1, 0.3))
         elif progress < 0.8:
-            done = min(files, int(files * (progress - 0.2) / 0.6))
-            task.update(phase="probe", done=done, total=files,
+            done = share(0.3, 0.8)
+            task.update(phase="probe", done=done, total=files, linked=files,
                         current=[f"S01E{done + 1:02d}" if job["series"] else job["name"]])
         else:
-            task.update(phase="write", done=files, total=files)
+            task.update(phase="write", done=files, total=files, linked=files, core=min(files - 1, share(0.8, 1.0)))
         task.update(state="running", cancel_ids=[f"{job['id']}#job"])
         return task
     outcome = job["outcome"]
-    task.update(state=outcome, phase=outcome, done=files, total=files, core=files if outcome != "failed" else 0)
+    task.update(state=outcome, phase=outcome, done=files, total=files, core=files if outcome != "failed" else 0,
+                linked=files if outcome != "failed" else 0)
     if outcome == "failed":
         task.update(failed=files, retry_ids=[f"{job['id']}#job"],
                     issues=[{"label": "S01E01" if job["series"] else "", "reason": "视频链接已失效，请重新扫描后再关联"}])
     elif outcome == "partial":
         task.update(retry_ids=[f"{job['id']}#job"], issues=[{"label": "海报", "reason": "TMDB 未返回中文海报，已保留原图"}])
     return task
-
-
-def detail(job, now):
-    task = import_task(job, now)
-    files, state = job["files"], task["state"]
-    finished = state in ("complete", "partial")
-    probe_done = files if finished else task["done"] if task["phase"] in ("probe", "write") else 0
-    order = ["check", "link", "probe", "write"]
-    reached = {"queued": -1, "waiting": 0, "metadata": 0}.get(task["phase"], 2 if task["phase"] == "probe" else 3)
-    steps = []
-    for position, (key, label) in enumerate(zip(order, ("核对资料", "获取链接", "读取参数", "写入媒体库"))):
-        if finished or position < reached:
-            step_state = "done"
-        elif position == max(reached, 0) and state in ("running", "failed"):
-            step_state = "failed" if state == "failed" else "active"
-        else:
-            step_state = "pending"
-        count = f"{probe_done}/{files}" if key == "probe" and step_state in ("active", "failed") else ""
-        steps.append({"key": key, "label": label, "state": step_state, "count": count})
-    names = [f"S01E{number:02d} · {job['name']}.S01E{number:02d}.2160p.WEB-DL.mkv" if job["series"] else f"{job['name']}.2160p.REMUX.mkv"
-             for number in range(1, files + 1)]
-    rows = []
-    for number, name in enumerate(names):
-        if state == "failed":
-            rows.append({"name": name, "position": "", "state": "failed" if number == 0 else "skipped",
-                         "detail": "视频链接已失效" if number == 0 else "同批文件出错，本文件未写入"})
-        elif finished or number < probe_done:
-            rows.append({"name": name, "position": "", "state": "done", "detail": "2160p · HEVC · HDR10 · 7.1"})
-        elif number == probe_done and state == "running":
-            rows.append({"name": name, "position": "", "state": "active", "detail": "正在读取参数…"})
-        else:
-            rows.append({"name": name, "position": "", "state": "pending", "detail": "等待中"})
-    enrich_state = "done" if finished else "pending"
-    return {
-        "id": job["id"], "name": job["name"], "poster": job["poster"], "media_type": "series" if job["series"] else "movie",
-        "meta": f"{'剧集' if job['series'] else '电影'} · {files} 个视频", "state": state,
-        "state_text": {"running": "关联中", "queued": "排队中", "waiting": "等待重试", "complete": "已完成",
-                       "partial": "已关联，部分资料未补齐", "failed": "关联失败", "cancelled": "已停止"}.get(state, ""),
-        "pill": "busy", "steps": steps, "files": rows,
-        "enrich": [{"key": key, "label": label, "state": enrich_state, "text": "已完成" if finished else "关联后开始"}
-                   for key, label in (("image", "海报与剧照"), ("rating", "评分"), ("derive", "预览图"))],
-        "issues": [" · ".join(part for part in (issue.get("label"), issue["reason"]) if part) for issue in task["issues"]],
-        "title_url": "#", "playable": finished,
-    }
 
 
 def snapshot(demo, now):
@@ -235,7 +198,7 @@ PAGE = """<!DOCTYPE html>
     </button>
     <main class="demo-shell">
         <h1 class="h3 mb-2">后台任务圆钮演示</h1>
-        <p class="text-body-secondary mb-4">左上角菜单按钮旁的小圆钮就是后台任务。任务数据是模拟的，按时间自动推进；片名和海报取自本机媒体库，不会写入任何数据。窗口窄于 576px 时面板变成底部抽屉。</p>
+        <p class="text-body-secondary mb-4">左上角菜单按钮旁的小圆钮就是后台任务。任务数据是模拟的，按时间自动推进；片名和海报取自本机媒体库，不会写入任何数据。点圆钮，任务在下方排成一列胶囊卡片；窗口窄于 576px 时卡片铺满屏宽。</p>
 
         <h2 class="h6 text-body-secondary mb-2">场景（切换会重新开始计时）</h2>
         <div class="d-flex flex-wrap gap-2 mb-4">
@@ -303,11 +266,12 @@ PAGE = """<!DOCTYPE html>
             root.dataset.bsTheme = root.dataset.bsTheme === "dark" ? "light" : "dark";
         });
 
-        // 截图用：等圆钮出现后，按参数展开面板、展开任务、保持胶囊或冻结飞行途中的一帧。
+        // 截图用：等圆钮出现后，按参数打开任务列表、展开任务、保持胶囊或冻结飞行途中的一帧。
         const ready = () => !orb.hidden && orb.getAttribute("aria-label");
         // expand=1 展开第一个任务，expand=failed 展开第一个失败的任务
-        const row = () => document.querySelector(params.get("expand") === "failed" ? ".island-task.is-failed" : ".island-task");
-        if (params.get("open") === "1") wait(() => ready() && row(), () => TaskCenter.open(params.get("expand") ? row().dataset.taskId : undefined));
+        const row = () => document.querySelector(params.get("expand") === "failed" ? ".island-card.is-failed" : ".island-card");
+        // 卡片只在列表打开后才生成：先打开，再按参数展开某一张
+        if (params.get("open") === "1") wait(ready, () => { TaskCenter.open(); if (params.get("expand")) wait(row, () => TaskCenter.open(row().dataset.taskId)); });
         if (params.get("live") === "1") wait(ready, () => { done(); setInterval(done, 2000); });
         if (params.get("fly") === "1") setTimeout(submit, 800);
     })();
@@ -331,7 +295,7 @@ def create_app():
         return render_template_string(PAGE, scenarios=SCENARIOS, scenario=demo.name, titles=demo.titles,
                                       theme=request.args.get("theme", "dark"))
 
-    # 手机尺寸预览：把演示页装进固定宽高的 iframe，窄屏规则（底部抽屉等）按 iframe 宽度生效。
+    # 手机尺寸预览：把演示页装进固定宽高的 iframe，窄屏规则（列表铺满屏宽等）按 iframe 宽度生效。
     @app.get("/device")
     def device():
         width, height = int(request.args.get("w", 390)), int(request.args.get("h", 844))
@@ -343,10 +307,6 @@ def create_app():
     def background_tasks():
         return jsonify(snapshot(demo, time.time()))
 
-    @app.get("/manager/tasks/detail")
-    def background_task_detail():
-        job = next((job for job in demo.jobs() if job["id"] == request.args.get("id")), None)
-        return (jsonify(detail(job, time.time())), 200) if job else (jsonify(error="任务已结束或已移除。"), 404)
 
     @app.post("/manager/association/jobs")
     def association_jobs():

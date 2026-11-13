@@ -16,6 +16,8 @@ def build_associated_viewmodel(rows: list[dict]) -> dict:
                 "year": row["year"],
                 "media_type": "tv" if row["title_type"] == "series" else "movie",
                 "tmdb_id": row["tmdb_id"],
+                # 已入库的作品用本地海报，不再去 TMDB 现查
+                "poster": url_for("static", filename=row["poster_path"]) if row["poster_path"] else "",
                 "detail_url": url_for("title_detail", title_id=key),
                 "files": [],
             }

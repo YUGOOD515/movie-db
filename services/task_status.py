@@ -58,6 +58,8 @@ def _group(rows, now, names):
     active_files = list(dict.fromkeys(item["label"] for item in current if item["stage"] == "probe" and item.get("label")))
     return {"id": f'import:{first["title_id"]}:{first["batch"]}', "kind": "import", "name": name,
             "state": state, "phase": phase, "done": done, "total": count, "core": core, "files": total,
+            # 已拿到播放链接的文件数：关联四步里“获取链接”这一步的进度
+            "linked": sum(row["total"] if row["state"] == "complete" else row["progress"].get("link", 0) for row in rows),
             "current": active_files[:3], "current_more": max(0, len(active_files) - 3),
             "stages": [{"key": key, "name": STAGES[key], **value} for key, value in stages.items() if key in STAGES and (value["total"] or value["done"])],
             "issues": issues[-8:], "waits": waits,

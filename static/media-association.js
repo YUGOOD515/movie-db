@@ -104,10 +104,10 @@
     async function enqueue(selections, sources = []) {
         const data = await json(root.dataset.jobsUrl, { selections });
         updateJobs(data.jobs);
-        // 确认后的反馈：任务进入底部悬浮岛，海报从列表飞进去
+        // 确认后的反馈：任务进入左上角的后台任务圆钮，海报从列表飞进去
         const groups = new Map();
         for (const job of data.jobs) {
-            const group = groups.get(job.task_id) || { id: job.task_id, name: job.name || job.title_id, files: 0,
+            const group = groups.get(job.task_id) || { id: job.task_id, titleId: job.title_id, name: job.name || job.title_id, files: 0,
                 poster: sources.find(source => source.titleId === job.title_id && source.src)?.src || "" };
             group.files += job.total;
             groups.set(job.task_id, group);
@@ -234,10 +234,11 @@
         const frame = el("span", classes);
         if (found?.title_id) frame.dataset.titleId = found.title_id;
         frame.append(icon(found ? (found.media_type === "tv" ? "tv" : "film") : fallback));
-        if (found?.tmdb_id) {
+        // 已入库的作品带本地海报（found.poster）；只有库里还没有的才按 TMDB ID 现查
+        if (found?.poster || found?.tmdb_id) {
             const image = el("img");
             image.alt = ""; image.loading = "lazy"; image.decoding = "async";
-            image.src = `${root.dataset.posterUrl}?${new URLSearchParams({ type: found.media_type, tmdb_id: found.tmdb_id })}`;
+            image.src = found.poster || `${root.dataset.posterUrl}?${new URLSearchParams({ type: found.media_type, tmdb_id: found.tmdb_id })}`;
             image.addEventListener("error", () => image.remove());
             frame.append(image);
         }

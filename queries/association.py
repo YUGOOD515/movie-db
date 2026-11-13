@@ -13,6 +13,12 @@ def query_associated_files(db) -> list[dict]:
                COALESCE(series.start_year, title.start_year) AS year,
                COALESCE(series.title_type, title.title_type) AS title_type,
                COALESCE(series.tmdb_id, title.tmdb_id) AS tmdb_id,
+               (SELECT artwork.local_path
+                  FROM title_artwork AS artwork
+                 WHERE artwork.title_id = COALESCE(series.title_id, title.title_id)
+                   AND artwork.artwork_type = 'poster'
+                 ORDER BY artwork.position
+                 LIMIT 1) AS poster_path,
                relation.season_number,
                relation.episode_number
           FROM media_file AS media

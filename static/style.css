@@ -2342,28 +2342,34 @@ body.has-status-dock {
 }
 
 /* 后台任务（templates/_task_island.html、static/task-center.js）。
-   平时：固定在左上角菜单按钮右侧的小圆钮，只在有任务时出现；有事件时横向展开成胶囊几秒再缩回。
-   点击后面板从圆钮原地长出来；手机上是底部抽屉。 */
+   平时：左上角菜单按钮右侧的圆钮，只在有任务时出现。排队的任务叠成一串圆形海报，正在处理的在最右、外圈是它的进度环；
+   有事件时横向展开成胶囊几秒再缩回。点开后，任务在圆钮下方排成一列胶囊卡片（没有外层面板），点卡片原地展开当前进度。 */
 .task-center[hidden],
 .task-orb[hidden],
-.island-panel[hidden],
-.island-scrim[hidden] {
+.island-list[hidden] {
     display: none;
 }
 
-.task-orb {
+.task-center {
     --orb-size: 2.5rem;
+    --orb-top: 1.25rem;
+    --orb-left: calc(1.25rem + 2.5rem + 0.375rem);
+}
+
+.task-orb {
     position: fixed;
-    top: 1.25rem;
-    left: calc(1.25rem + 2.5rem + 0.375rem);
+    top: var(--orb-top);
+    left: var(--orb-left);
     z-index: 1040;
     display: inline-flex;
     align-items: center;
     height: var(--orb-size);
-    padding: 0;
+    padding: 0 1px;
     border: 1px solid var(--media-card-border);
     border-radius: var(--radius-pill);
-    /* 全站按钮默认是超椭圆圆角（corner-shape: squircle），圆钮要的是正圆和半圆两端的胶囊 */
+    /* 正圆 / 半圆两端的胶囊（几何例外）：全站按钮默认是超椭圆圆角，这里要显式改回 round。
+       CSS 的 corner-shape 只在半径框内改曲线，胶囊的半径框就是半个高度，换成任何超椭圆都会把两端压扁，
+       做不出“两端仍是半圆、只把接缝做得更连续”的效果（见 docs/design/frontend.md 的 G2 一节）。 */
     corner-shape: round;
     background-color: rgba(var(--bs-body-bg-rgb), 0.78);
     box-shadow: var(--toast-shadow);
@@ -2371,102 +2377,89 @@ body.has-status-dock {
     backdrop-filter: blur(16px) saturate(1.4);
     color: var(--bs-body-color);
     text-align: left;
-    view-transition-name: task-orb;
-}
-
-.task-orb.is-covered {
-    visibility: hidden;
-    opacity: 0;
 }
 
 .task-orb:focus-visible,
-.island-task-head:focus-visible {
+.island-card-head:focus-visible {
     outline: 2px solid var(--media-accent);
     outline-offset: 2px;
 }
 
-/* 圆钮本体：海报（或任务图标）裁成圆形，外圈是进度环，右下角是任务数 */
-.orb-core {
+/* 叠放的圆形海报：越靠右越靠前，后面的缩小、变暗并被前一张压住一部分 */
+.orb-stack {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+}
+
+.orb-stack-item {
     position: relative;
     display: inline-flex;
     flex-shrink: 0;
     align-items: center;
     justify-content: center;
-    width: calc(var(--orb-size) - 2px);
-    height: calc(var(--orb-size) - 2px);
+    width: calc(var(--orb-size) - 4px);
+    height: calc(var(--orb-size) - 4px);
 }
 
-.orb-art {
-    display: flex;
-    width: calc(var(--orb-size) - 12px);
-    height: calc(var(--orb-size) - 12px);
-    overflow: hidden;
+.orb-stack-item + .orb-stack-item {
+    margin-left: -1.25rem;
+}
+
+.orb-stack-item > :is(.island-poster, .island-glyph) {
+    width: calc(var(--orb-size) - 14px);
+    height: calc(var(--orb-size) - 14px);
     border-radius: 50%;
-    transition: opacity 0.2s ease;
+    transition: transform 0.35s var(--ease-out), filter 0.35s var(--ease-out);
 }
 
-.orb-art > * {
-    width: 100%;
-    height: 100%;
-    border-radius: 50%;
-    box-shadow: none;
+.orb-stack-item:not(:last-child) > :is(.island-poster, .island-glyph) {
+    transform: scale(0.82);
+    filter: brightness(0.72);
 }
 
-.task-orb .island-ring {
+.orb-stack-item > .island-poster {
+    box-shadow: 0 0 0 2px rgba(var(--bs-body-bg-rgb), 0.9);
+}
+
+.orb-stack-item .island-glyph .app-icon {
+    width: 0.875rem;
+    height: 0.875rem;
+}
+
+/* 最前一张的进度环（脚本把它挪进最右的海报里） */
+.orb-stack-item > .island-ring {
     position: absolute;
-    inset: 1px;
-    width: auto;
-    height: auto;
+    inset: 0;
 }
 
-.task-orb .ring-icon {
-    position: absolute;
-    right: -3px;
-    bottom: -3px;
-    border-radius: 50%;
-    background: var(--bs-body-bg);
-}
-
-.task-orb .ring-icon:empty {
-    display: none;
-}
-
-.orb-badge {
-    position: absolute;
-    top: -4px;
-    right: -4px;
-    min-width: 1rem;
-    height: 1rem;
-    padding: 0 4px;
-    border-radius: var(--radius-pill);
-    background: var(--media-accent);
-    color: var(--media-accent-contrast);
-    font-size: 0.625rem;
+/* 排在后面、没画出来的任务数 */
+.orb-more {
+    padding: 0 0.125rem 0 0.5rem;
+    font-size: 0.6875rem;
     font-weight: 600;
-    line-height: 1rem;
-    text-align: center;
+    color: var(--bs-secondary-color);
     font-variant-numeric: tabular-nums;
 }
 
-.orb-badge:empty {
+.orb-more:empty {
     display: none;
 }
 
-/* 有失败或需处理的任务：右上角一个提醒点（优先于任务数） */
-.task-orb[data-alert="warning"] .orb-badge,
-.task-orb[data-alert="danger"] .orb-badge {
-    min-width: 0.625rem;
+/* 有失败或需处理的任务：右上角一个提醒点 */
+.orb-alert {
+    position: absolute;
+    top: -1px;
+    right: -1px;
+    display: none;
     width: 0.625rem;
     height: 0.625rem;
-    top: 0;
-    right: 0;
-    padding: 0;
-    color: transparent;
+    border-radius: 50%;
     box-shadow: 0 0 0 2px var(--bs-body-bg);
 }
 
-.task-orb[data-alert="warning"] .orb-badge { display: block; background: var(--bs-warning); }
-.task-orb[data-alert="danger"] .orb-badge { display: block; background: var(--bs-danger); }
+.task-orb[data-alert="warning"] .orb-alert { display: block; background: var(--bs-warning); }
+.task-orb[data-alert="danger"] .orb-alert { display: block; background: var(--bs-danger); }
 
 /* 实时活动：横向展开出一段文字 */
 .orb-live {
@@ -2481,7 +2474,7 @@ body.has-status-dock {
 }
 
 .task-orb.is-live .orb-live {
-    max-width: min(15rem, calc(100vw - 9rem));
+    max-width: min(15rem, calc(100vw - 11rem));
     padding: 0 0.875rem 0 0.375rem;
     opacity: 1;
     transition-delay: 0s, 0.12s, 0s;
@@ -2509,22 +2502,6 @@ body.has-status-dock {
     font-variant-numeric: tabular-nums;
 }
 
-/* 叠放海报：最前一张在最上层，后面的向左压住一部分 */
-.island-art {
-    display: flex;
-    flex-shrink: 0;
-    align-items: center;
-    transition: opacity 0.2s ease;
-}
-
-.island-art > * + * {
-    margin-left: -0.75rem;
-}
-
-.island-art > :nth-child(1) { z-index: 3; }
-.island-art > :nth-child(2) { z-index: 2; transform: scale(0.9); }
-.island-art > :nth-child(3) { z-index: 1; transform: scale(0.8); }
-
 .island-poster {
     position: relative;
     display: inline-flex;
@@ -2534,7 +2511,6 @@ body.has-status-dock {
     overflow: hidden;
     border-radius: 6px;
     background: var(--ui-fill);
-    box-shadow: 0 0 0 1.5px rgba(var(--bs-body-bg-rgb), 0.9);
     color: var(--bs-secondary-color);
 }
 
@@ -2555,25 +2531,18 @@ body.has-status-dock {
     flex-shrink: 0;
     align-items: center;
     justify-content: center;
-    aspect-ratio: 1;
-    border-radius: 50%;
+    border-radius: 8px;
     background: var(--ui-fill);
     color: var(--bs-secondary-color);
 }
 
 /* 进度环：pathLength=100，--ring 直接就是百分比 */
 .island-ring {
-    position: relative;
     display: inline-flex;
-    flex-shrink: 0;
-    align-items: center;
-    justify-content: center;
-    color: var(--bs-secondary-color);
+    pointer-events: none;
 }
 
 .island-ring > svg {
-    position: absolute;
-    inset: 0;
     width: 100%;
     height: 100%;
     transform: rotate(-90deg);
@@ -2601,267 +2570,246 @@ body.has-status-dock {
     to { transform: rotate(270deg); }
 }
 
-.ring-icon {
-    display: inline-flex;
-}
-
-.ring-icon .app-icon {
-    width: 0.875rem;
-    height: 0.875rem;
-}
-
 .island-ring[data-tone="success"] .ring-value { stroke: var(--bs-success); }
-.island-ring[data-tone="success"] .ring-icon { color: var(--bs-success); }
 .island-ring[data-tone="warning"] .ring-value { stroke: var(--bs-warning); }
-.island-ring[data-tone="warning"] .ring-icon { color: var(--bs-warning); }
 .island-ring[data-tone="danger"] .ring-value { stroke: var(--bs-danger); }
-.island-ring[data-tone="danger"] .ring-icon { color: var(--bs-danger); }
 
-/* 面板：左上角与圆钮重合（位置由脚本设定），从圆钮向右下长出 */
-.island-panel {
+/* 任务列表：圆钮正下方一列胶囊卡片，每张自带毛玻璃底，没有外层面板 */
+.island-list {
     position: fixed;
+    top: calc(var(--orb-top) + var(--orb-size) + 0.5rem);
+    left: var(--orb-left);
     z-index: 1041;
     display: flex;
     flex-direction: column;
-    width: min(26rem, calc(100vw - 1rem));
-    max-height: min(70vh, 36rem);
-    overflow: hidden;
-    border: 1px solid var(--media-card-border);
-    border-radius: 24px;
-    background-color: rgba(var(--bs-body-bg-rgb), 0.94);
-    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.32);
-    -webkit-backdrop-filter: blur(24px) saturate(1.4);
-    backdrop-filter: blur(24px) saturate(1.4);
-}
-
-.island-panel:focus {
-    outline: 0;
-}
-
-/* 手机：底部抽屉 */
-.island-panel.is-sheet {
-    right: 0;
-    bottom: 0;
-    left: 0;
-    width: auto;
-    max-height: 80dvh;
-    padding-bottom: env(safe-area-inset-bottom, 0px);
-    border-width: 1px 0 0;
-    border-radius: 24px 24px 0 0;
-}
-
-.island-scrim {
-    position: fixed;
-    inset: 0;
-    z-index: 1040;
-    background: rgba(0, 0, 0, 0.45);
-}
-
-.island-grip {
-    display: none;
-}
-
-.island-panel.is-sheet .island-grip {
-    position: absolute;
-    top: 6px;
-    left: 50%;
-    display: block;
-    width: 36px;
-    height: 4px;
-    border-radius: var(--radius-pill);
-    background: var(--ui-fill-hover);
-    transform: translateX(-50%);
-}
-
-.island-head {
-    position: relative;
-    display: flex;
-    flex-shrink: 0;
-    align-items: center;
-    gap: 0.625rem;
-    padding: 0.75rem 0.5rem 0.5rem 1.25rem;
-}
-
-.island-panel.is-sheet .island-head {
-    padding-top: 1.125rem;
-}
-
-.island-heading {
+    gap: 0.5rem;
+    width: min(21rem, calc(100vw - var(--orb-left) - 1rem));
+    max-height: calc(100dvh - var(--orb-top) - var(--orb-size) - 1.5rem);
     margin: 0;
-    font-size: 1rem;
-    font-weight: 600;
+    padding: 2px 2px 1rem;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: none;
+    list-style: none;
 }
 
-.island-summary {
+.island-card,
+.island-note {
+    /* 卡片用站内卡片圆角（G2 超椭圆）；里面的海报与它同心：海报圆角 = 卡片圆角 − 内边距 */
+    --card-radius: var(--radius-card);
+    --card-inset: 0.5rem;
+    flex-shrink: 0;
+    border: 1px solid var(--media-card-border);
+    border-radius: var(--card-radius);
+    corner-shape: squircle;
+    background-color: rgba(var(--bs-body-bg-rgb), 0.82);
+    box-shadow: var(--toast-shadow);
+    -webkit-backdrop-filter: blur(16px) saturate(1.4);
+    backdrop-filter: blur(16px) saturate(1.4);
+    transform-origin: top left;
+}
+
+.island-card {
+    overflow: hidden;
+}
+
+.island-card-head {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    width: 100%;
+    padding: var(--card-inset) 1rem var(--card-inset) var(--card-inset);
+    border: 0;
+    /* 贴合卡片的圆角：悬停底色不在四角露缝 */
+    border-radius: calc(var(--card-radius) - 1px) calc(var(--card-radius) - 1px) 0 0;
+    corner-shape: inherit;
+    background: none;
+    color: inherit;
+    text-align: left;
+}
+
+.island-card-head[aria-expanded="false"] {
+    border-radius: calc(var(--card-radius) - 1px);
+}
+
+.island-card-head:hover {
+    background: rgba(var(--bs-emphasis-color-rgb), 0.04);
+}
+
+/* 左侧海报：与卡片同心的 G2 圆角；非关联任务换成同尺寸的图标块 */
+.island-card-head > :is(.island-poster, .island-glyph) {
+    width: 2.25rem;
+    height: 3.375rem;
+    /* 同心：卡片内圆角（扣掉 1px 边框）再减去内边距 */
+    border-radius: calc(var(--card-radius) - 1px - var(--card-inset));
+    corner-shape: squircle;
+}
+
+.island-card-text {
+    display: grid;
+    flex: 1 1 auto;
+    gap: 0.25rem;
+    min-width: 0;
+}
+
+.island-card-top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.5rem;
+    min-width: 0;
+}
+
+.island-card-name {
+    overflow: hidden;
+    font-size: 0.875rem;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.island-card-value {
+    flex-shrink: 0;
     font-size: 0.75rem;
     color: var(--bs-secondary-color);
     font-variant-numeric: tabular-nums;
 }
 
-.island-collapse {
-    width: 2rem;
-    height: 2rem;
-    margin-left: auto;
-    border-radius: 50%;
-    corner-shape: round;
+.island-card-caption {
+    overflow: hidden;
+    font-size: 0.75rem;
+    color: var(--bs-secondary-color);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
 }
 
-.island-body {
-    min-height: 0;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    padding: 0 0.5rem 0.5rem;
+.island-card.is-problem .island-card-caption { color: var(--bs-warning-text-emphasis); }
+.island-card.is-failed .island-card-caption { color: var(--bs-danger-text-emphasis); }
+.island-card.is-done .island-card-caption { color: var(--bs-success-text-emphasis); }
+
+/* 展开：与文字列对齐，只放当前进度；出错时才有错误内容和操作 */
+.island-card-detail {
+    padding: 0 1rem 0.875rem calc(var(--card-inset) + 2.25rem + 0.75rem);
+    font-size: 0.75rem;
+    color: var(--bs-secondary-color);
 }
 
-.island-services {
-    padding-inline: 0.5rem;
+.island-card-detail[hidden] {
+    display: none;
 }
 
-.island-services .task-note {
-    margin: 0 0 0.5rem;
-}
-
-.island-list {
-    display: grid;
-    gap: 2px;
+.island-card-detail > * {
     margin: 0;
+}
+
+.island-card-detail > * + * {
+    margin-top: 0.625rem;
+}
+
+.island-steps {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 4px;
     padding: 0;
     list-style: none;
 }
 
-.island-empty {
-    margin: 0;
-    padding: 1.5rem 0;
-    font-size: 0.875rem;
-    color: var(--bs-secondary-color);
-    text-align: center;
-}
-
-.island-empty[hidden] {
-    display: none;
-}
-
-.island-task {
-    overflow: hidden;
-    border-radius: 18px;
-    transition: background-color 0.15s ease;
-}
-
-.island-task:has(> .island-task-head[aria-expanded="true"]) {
-    background: var(--ui-surface);
-}
-
-.island-task-head {
+.island-step {
     display: grid;
-    grid-template-columns: 2rem minmax(0, 1fr) auto;
-    align-items: center;
-    gap: 0.75rem;
-    width: 100%;
-    padding: 0.5rem 0.875rem 0.5rem 0.5rem;
-    border: 0;
-    border-radius: 18px;
-    background: transparent;
-    color: var(--bs-body-color);
-    text-align: left;
-}
-
-.island-panel.is-sheet .island-task-head {
-    padding-block: 0.75rem;
-}
-
-.island-task-head:hover {
-    background: var(--ui-hover);
-}
-
-.island-task-media {
-    display: flex;
-    justify-content: center;
-}
-
-.island-task-media .island-poster {
-    width: 2rem;
-    height: 3rem;
-    box-shadow: none;
-}
-
-.island-task-media .island-glyph {
-    width: 2rem;
-}
-
-.island-task-text {
-    display: grid;
-    gap: 2px;
+    gap: 6px;
     min-width: 0;
+    font-size: 0.6875rem;
+    line-height: 1.3;
 }
 
-.island-task-name {
-    overflow: hidden;
-    font-size: 0.875rem;
-    font-weight: 500;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.island-task-caption {
-    overflow: hidden;
-    font-size: 0.75rem;
-    color: var(--bs-secondary-color);
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-variant-numeric: tabular-nums;
-}
-
-.island-task-text .task-progress {
+.island-step-bar {
+    display: block;
     height: 4px;
-    margin-top: 0.375rem;
+    overflow: hidden;
+    border-radius: var(--radius-pill);
+    corner-shape: round;
+    background: var(--ui-fill);
 }
 
-.island-task-state {
-    display: inline-flex;
-    color: var(--bs-secondary-color);
+.island-step-bar::before {
+    content: "";
+    display: block;
+    width: var(--part, 0%);
+    height: 100%;
+    border-radius: inherit;
+    corner-shape: inherit;
+    background: var(--media-accent);
+    transition: width 0.4s var(--ease-out);
 }
 
-.island-task-state.is-running .app-icon { animation: task-spin 1s linear infinite; }
-.island-task.is-problem .island-task-state,
-.island-task.is-problem .island-task-caption { color: var(--bs-warning-text-emphasis); }
-.island-task.is-failed .island-task-state,
-.island-task.is-failed .island-task-caption { color: var(--bs-danger-text-emphasis); }
-.island-task.is-done .island-task-state { color: var(--bs-success); }
+.island-step[data-state="done"] .island-step-bar::before { width: 100%; }
+.island-step[data-state="active"] { color: var(--bs-body-color); font-weight: 500; }
 
-@keyframes task-spin { to { transform: rotate(360deg); } }
-
-.island-task-detail {
-    padding: 0.25rem 0.875rem 1rem;
+.island-issues {
+    display: grid;
+    gap: 0.375rem;
+    padding: 0;
+    list-style: none;
+    color: var(--bs-danger-text-emphasis);
+    overflow-wrap: anywhere;
 }
 
-.island-task-detail[hidden] {
-    display: none;
+.island-card.is-problem:not(.is-failed) .island-issues {
+    color: var(--bs-warning-text-emphasis);
 }
 
-.island-detail-meta,
-.island-detail-empty {
-    margin: 0 0 0.75rem;
-    font-size: 0.8125rem;
-    color: var(--bs-secondary-color);
-}
-
-.island-detail-empty {
-    margin: 0;
-}
-
-.island-task-detail .task-section {
-    margin-top: 1.25rem;
-}
-
-.island-detail-actions {
+.island-actions {
     display: flex;
     flex-wrap: wrap;
     justify-content: flex-end;
     gap: 0.5rem;
-    margin-top: 1rem;
 }
 
-/* 飞向任务区的海报副本（定位由 offset-path 决定）；残影更淡、更糊 */
+/* 接口限流等待：列表顶部一条提示胶囊 */
+.island-note {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.625rem 1rem;
+    font-size: 0.75rem;
+    color: var(--bs-warning-text-emphasis);
+}
+
+.island-note > span {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.task-progress {
+    display: block;
+    height: 4px;
+    overflow: hidden;
+    border-radius: var(--radius-pill);
+    corner-shape: round;
+    background: var(--ui-fill);
+}
+
+.task-progress::before {
+    content: "";
+    display: block;
+    width: var(--progress, 25%);
+    height: 100%;
+    border-radius: inherit;
+    corner-shape: inherit;
+    background: var(--media-accent);
+    transition: width 0.4s var(--ease-out);
+}
+
+.task-progress.is-indeterminate::before { animation: task-pulse 1.6s ease-in-out infinite alternate; }
+@keyframes task-pulse { to { opacity: 0.15; transform: translateX(200%); } }
+
+.task-countdown {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+/* 飞向圆钮的海报副本（定位由 offset-path 决定）；残影更淡、更糊 */
 .island-flyer {
     position: fixed;
     z-index: 1080;
@@ -2870,6 +2818,7 @@ body.has-status-dock {
     justify-content: center;
     overflow: hidden;
     border-radius: var(--radius-thumb);
+    corner-shape: squircle;
     background: var(--ui-fill);
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
     color: var(--bs-secondary-color);
@@ -2882,6 +2831,11 @@ body.has-status-dock {
     box-shadow: none;
 }
 
+/* 落进圆钮的副本最后要收成正圆 */
+.island-flyer.is-round {
+    corner-shape: round;
+}
+
 .island-flyer img {
     position: absolute;
     inset: 0;
@@ -2890,25 +2844,26 @@ body.has-status-dock {
     object-fit: cover;
 }
 
-.task-progress { display:block; height:5px; border-radius:var(--radius-pill); overflow:hidden; background:var(--bs-secondary-bg); }
-.task-progress::before { content:""; display:block; width:var(--progress,25%); height:100%; border-radius:inherit; background:var(--media-accent); transition:width 0.4s var(--ease-out); }
-.task-progress.is-indeterminate::before { animation:task-pulse 1.6s ease-in-out infinite alternate; }
-@keyframes task-pulse { to { opacity:.15; transform:translateX(200%); } }
-.task-countdown { font-variant-numeric:tabular-nums; white-space:nowrap; }
-
 @media (max-width: 575.98px) {
-    .task-orb {
-        top: 0.75rem;
-        left: calc(0.75rem + 2.5rem + 0.25rem);
+    .task-center {
+        --orb-top: 0.75rem;
+        --orb-left: calc(0.75rem + 2.5rem + 0.25rem);
+    }
+
+    /* 手机上列表铺满屏宽，左边与菜单按钮对齐 */
+    .island-list {
+        left: 0.75rem;
+        width: calc(100vw - 1.5rem);
     }
 }
 
 @media (prefers-reduced-motion: reduce) {
     .task-progress.is-indeterminate::before,
-    .island-task-state.is-running .app-icon,
     .island-ring.is-indeterminate > svg { animation: none; }
     .ring-value,
     .task-progress::before,
+    .island-step-bar::before,
+    .orb-stack-item > *,
     .orb-live { transition: none; }
     /* Inherited visibility must settle before focus moves. */
     .site-sidebar, .site-sidebar * { transition:none !important; }
@@ -6189,189 +6144,6 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
     display: block;
 }
 
-/* ==========================================================================
-   任务详情（在悬浮岛内展开）：关联四步、逐个文件、需要处理、之后补齐
-   ========================================================================== */
-
-/* 四段进度：每段一条细条，标签与条左对齐 */
-.task-steps {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 6px;
-    margin: 0 0 8px;
-    padding: 0;
-    list-style: none;
-}
-
-.task-step {
-    display: grid;
-    gap: 8px;
-    min-width: 0;
-    font-size: 0.75rem;
-    color: var(--bs-secondary-color);
-}
-
-.task-step-bar {
-    height: 4px;
-    border-radius: var(--radius-pill);
-    background: var(--ui-fill);
-}
-
-.task-step[data-state="done"] .task-step-bar { background: var(--bs-success); }
-.task-step[data-state="failed"] .task-step-bar { background: var(--bs-danger); }
-.task-step[data-state="active"] .task-step-bar {
-    background: linear-gradient(90deg, var(--media-accent) 0 40%, var(--ui-fill) 40% 100%);
-    background-size: 250% 100%;
-    animation: task-step-flow 1.4s linear infinite;
-}
-
-.task-step[data-state="active"],
-.task-step[data-state="failed"] {
-    color: var(--bs-body-color);
-    font-weight: 500;
-}
-
-.task-step-label {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0 4px;
-    line-height: 1.4;
-}
-
-.task-step-count {
-    font-weight: 400;
-    color: var(--bs-secondary-color);
-    font-variant-numeric: tabular-nums;
-}
-
-@keyframes task-step-flow {
-    from { background-position: 100% 0; }
-    to { background-position: 0 0; }
-}
-
-.task-section {
-    margin-top: 24px;
-}
-
-.task-section-title {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin: 0 0 8px;
-    font-size: 0.8125rem;
-    font-weight: 600;
-    color: var(--bs-secondary-color);
-}
-
-.task-section-count {
-    padding: 0 6px;
-    border-radius: var(--radius-pill);
-    background: var(--ui-fill);
-    font-weight: 400;
-    font-variant-numeric: tabular-nums;
-}
-
-.task-section-hint {
-    margin: -4px 0 8px;
-    font-size: 0.75rem;
-    color: var(--bs-secondary-color);
-}
-
-.task-rows {
-    margin: 0;
-    padding: 0;
-    list-style: none;
-}
-
-.task-row {
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-    margin: 0 16px;
-    padding: 12px 0;
-    border-top: 1px solid var(--ui-line);
-}
-
-.task-row:first-child {
-    border-top: 0;
-}
-
-.task-row.is-compact {
-    align-items: center;
-    padding: 10px 0;
-}
-
-.task-row-text {
-    flex: 1 1 auto;
-    min-width: 0;
-}
-
-.task-row-title {
-    margin: 0;
-    overflow: hidden;
-    font-size: 0.875rem;
-    font-weight: 500;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.task-row-hint {
-    margin: 2px 0 0;
-    font-size: 0.8125rem;
-    line-height: 1.5;
-    color: var(--bs-secondary-color);
-    overflow-wrap: anywhere;
-}
-
-.task-row-title + .task-row-hint {
-    margin-top: 2px;
-}
-
-.task-row-text > .task-row-hint:first-child {
-    margin-top: 0;
-}
-
-.task-row[data-state="failed"] .task-row-hint {
-    color: var(--bs-danger-text-emphasis);
-}
-
-.task-row-meta {
-    flex: 0 0 auto;
-    max-width: 60%;
-    font-size: 0.8125rem;
-    color: var(--bs-secondary-color);
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-}
-
-.task-state-icon {
-    display: inline-flex;
-    flex: 0 0 auto;
-    padding-top: 2px;
-    color: var(--bs-secondary-color);
-}
-
-.task-row.is-compact .task-state-icon {
-    padding-top: 0;
-}
-
-.task-state-icon[data-state="done"] { color: var(--bs-success); }
-.task-state-icon[data-state="active"] { color: var(--media-accent); }
-.task-state-icon[data-state="failed"] { color: var(--bs-danger); }
-.task-state-icon[data-state="active"] .app-icon { animation: task-spin 1s linear infinite; }
-
-.task-note {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin: 16px 0 0;
-    padding: 10px 16px;
-    border-radius: var(--radius-item);
-    background: rgba(var(--bs-warning-rgb), 0.1);
-    font-size: 0.8125rem;
-    color: var(--bs-warning-text-emphasis);
-}
-
 /* 提示条里的操作按钮 */
 .save-toast {
     align-items: center;
@@ -6381,9 +6153,3 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
     margin-left: 4px;
 }
 
-@media (prefers-reduced-motion: reduce) {
-    .task-step[data-state="active"] .task-step-bar,
-    .task-state-icon[data-state="active"] .app-icon {
-        animation: none;
-    }
-}

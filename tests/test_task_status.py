@@ -36,6 +36,7 @@ class TaskStatusTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(self.task(response)['state'], 'queued')
         self.assertIn('poster', self.task(response))  # 悬浮岛的海报缩略图；作品尚未入库时为 None
+        self.assertEqual(self.task(response)['linked'], 0)  # 关联四步里“获取链接”的进度
         body = response.get_data(as_text=True)
         self.assertNotIn('/share/', body)
         self.assertNotIn('private', body)

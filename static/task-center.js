@@ -1,10 +1,14 @@
 // 后台任务：全站一个轻量轮询，任务本身都在服务端运行。
 //
-// 平时收起：固定在左上角菜单按钮旁的小圆钮（带进度环），所有页面都在同一位置，只在有任务时出现。
+// 平时收起：固定在左上角菜单按钮旁的圆钮，所有页面都在同一位置，只在有任务时出现。
+//   排队的任务叠成一串圆形海报（最多 3 张），正在处理的在最右、外圈是它的进度环；
+//   它完成后向右滑出，后面的依次往右挪一格接上。
 //   有事件（提交、完成、失败）时圆钮横向展开成胶囊，几秒后缩回，类似灵动岛的实时活动。
-// 唤出：点圆钮，面板从圆钮原地展开（手机上是底部抽屉）；点某个任务在面板内展开详情。
-// 结束：成功的任务显示“完成”后向右滑出并清除；失败或需处理的任务留着、圆钮带提醒点，直到重试或忽略。
-// 换页：先用上一页缓存的状态立即渲染；圆钮有固定的 view-transition-name，跨页转场时停在原地。
+// 唤出：点圆钮，任务在圆钮下方排成一列胶囊卡片（左边海报，右边进度和状态）；点卡片原地展开当前进度：
+//   关联分四步（核对资料 → 获取链接 → 读取参数 → 写入媒体库），出错时才显示错误内容和重试等操作。
+// 结束：成功的任务显示“完成”后向右滑出并清除；写入媒体库后就算完成，之后补海报、评分不再占位。
+//   失败或需处理的任务留着、圆钮带提醒点，直到重试或忽略。
+// 换页：先用上一页缓存的状态立即渲染，圆钮在新页面直接出现在原位。
 //
 // 对外：TaskCenter.arrive(groups, sources) 关联页确认后调用，海报从列表飞进圆钮；
 //       progress / result / clear / has 供 StatusBar 的 task 层使用；open(id) 展开某个任务。
@@ -12,16 +16,17 @@
     const root = document.querySelector('[data-task-center]');
     if (!root) return;
     const $ = selector => root.querySelector(selector);
-    const orb = $('[data-task-orb]'), orbArt = $('[data-orb-art]'), orbRing = $('[data-orb-ring]'), orbBadge = $('[data-orb-badge]');
+    const orb = $('[data-task-orb]'), stack = $('[data-orb-stack]'), orbRing = $('[data-orb-ring]'), orbMore = $('[data-orb-more]');
     const orbTitle = $('[data-orb-title]'), orbCaption = $('[data-orb-caption]');
-    const panel = $('[data-island-panel]'), scrim = $('[data-island-scrim]'), list = $('[data-task-list]'), empty = $('[data-task-empty]');
-    const summaryNode = $('[data-island-summary]'), servicesNode = $('[data-task-services]');
+    const list = $('[data-task-list]');
     const reduced = () => matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const sheetMode = () => innerWidth < 576;
     const SPRING = 'cubic-bezier(0.32, 0.72, 0, 1)';
+    const STACK = 3;
 
     const ACTIVE = ['running', 'waiting', 'queued'];
-    const active = task => ACTIVE.includes(task.state);
+    // 关联写入媒体库后就算完成：之后补海报、评分、预览图在后台继续，不再占着圆钮
+    const written = task => task.kind === 'import' && task.files > 0 && task.core >= task.files;
+    const active = task => ACTIVE.includes(task.state) && !written(task);
     const problem = task => ['failed', 'partial'].includes(task.state);
     const read = key => { try { const value = JSON.parse(sessionStorage.getItem(key) || '{}'); return value && typeof value === 'object' && !Array.isArray(value) ? value : {}; } catch { return {}; } };
     const save = (key, value) => { try { sessionStorage.setItem(key, JSON.stringify(Object.fromEntries(Object.entries(value).slice(-300)))); } catch {} };
@@ -29,17 +34,15 @@
     const cached = read('tasks-state');
     let state = Array.isArray(cached.tasks) ? {tasks: cached.tasks, services: cached.services || [], active: !!cached.active} : {tasks: [], services: [], active: false};
     let etag = null, timer = null, inFlight = false, requested = false, stopped = false, stale = false;
-    let open = false, expandedId = null, detailSignature = null, detailLoading = false, detailMissing = false, ready = false;
-    let liveTimer = null;
-    const rows = new Map(), local = new Map(), placeholders = new Map(), leaving = new Map(), pending = new Set(), errors = new Map();
-    const details = new Map(), detailEtag = {};
+    let open = false, expandedId = null, ready = false, liveTimer = null, hiding = null;
+    let incoming = new Set();  // 正在飞进来的任务：它们的圆形海报等落地再显示，不播淡入
+    const rows = new Map(), stackNodes = new Map(), local = new Map(), placeholders = new Map(), leaving = new Map(), pending = new Set(), errors = new Map();
+    const signatures = new Map();
 
-    // 与任务详情的步骤名一致（viewmodels/tasks.py）
-    const labels = {metadata:'核对资料', probe:'读取参数', write:'写入媒体库', image:'补海报', rating:'补评分', derive:'生成预览',
-        enrich:'补齐资料', retry:'等待重试', queued:'排队', scan:'扫描', recognizing:'识别', 'imdb-download':'下载单集数据', 'imdb-build':'建立单集索引', complete:'完成', failed:'失败', partial:'需处理', cancelled:'已停止'};
-    const KIND_ICON = {import:'film', scan:'folder', rating:'star', imdb:'database', local:'list-todo'};
-    const KIND_META = {scan:'扫描媒体目录', rating:'刷新评分', imdb:'IMDb 单集数据', local:'本页操作'};
-    const STATE_ICON = {done:'circle-check', active:'loader-circle', pending:'clock', failed:'circle-alert', skipped:'ban'};
+    const labels = {metadata: '核对资料', probe: '读取参数', write: '写入媒体库', retry: '等待重试', queued: '排队', scan: '扫描', recognizing: '识别',
+        rating: '刷新评分', 'imdb-download': '下载单集数据', 'imdb-build': '建立单集索引', complete: '完成', failed: '失败', partial: '需处理', cancelled: '已停止'};
+    const STEPS = ['核对资料', '获取链接', '读取参数', '写入媒体库'];
+    const KIND_ICON = {import: 'film', scan: 'folder', rating: 'star', imdb: 'database', local: 'list-todo'};
 
     const el = (tag, className = '', text = '') => {
         const node = document.createElement(tag); node.className = className; node.textContent = text; return node;
@@ -48,16 +51,36 @@
     const fingerprint = task => JSON.stringify([task.state, task.phase, task.detail, task.updated_at, task.done, task.total, task.issues]);
     const serviceName = service => state.services.find(item => item.service === service)?.name || service;
     const posterOf = task => task.poster ? root.dataset.imageBase + task.poster : posters[task.id] || '';
+    const countLabel = (done, total) => total > 0 ? `${Math.min(done, total)}/${total}` : '';
 
-    const phaseLabel = task => labels[task.phase] || task.phase || '进行中';
-    const statusLabel = task => task.state === 'waiting' ? '待重试' : task.state === 'queued' ? '排队' : labels[task.state] || '进行中';
-    const countLabel = task => task.total > 0 ? `${task.done}/${task.total}` : '';
-    function caption(task) {
-        if (task.state !== 'running') return statusLabel(task);
-        return [phaseLabel(task), countLabel(task)].filter(Boolean).join(' ');
+    // 关联四步：当前在第几步（0–3，4 表示已写入），以及这一步完成的比例
+    function stepOf(task) {
+        const part = (done, total) => total > 0 ? Math.max(0, Math.min(1, done / total)) : 0;
+        if (written(task) || ['complete', 'partial'].includes(task.state)) return {index: 4, part: 0, count: ''};
+        if (task.phase === 'write') return {index: 3, part: part(task.core, task.files), count: countLabel(task.core, task.files)};
+        if (task.phase === 'probe') return {index: 2, part: part(task.done, task.total), count: countLabel(task.done, task.total)};
+        if (task.linked > 0) return {index: 1, part: part(task.linked, task.files), count: countLabel(task.linked, task.files)};
+        return {index: 0, part: 0, count: ''};
     }
+
     // 0–1；未知进度返回 null
-    const ratio = task => !active(task) ? 1 : task.state === 'running' && task.total > 0 ? Math.max(0, Math.min(1, task.done / task.total)) : null;
+    function ratio(task) {
+        if (!active(task)) return 1;
+        if (task.state !== 'running') return null;
+        if (task.kind === 'import') { const step = stepOf(task); return Math.max(0.04, (step.index + step.part) / STEPS.length); }
+        return task.total > 0 ? Math.max(0, Math.min(1, task.done / task.total)) : null;
+    }
+
+    function caption(task) {
+        if (task.state === 'cancelled') return '已停止';
+        if (leaving.has(task.id) || written(task) && !problem(task) || task.state === 'complete') return task.kind === 'import' ? '关联完成' : '完成';
+        if (task.state === 'waiting') return '等待重试';
+        if (task.state === 'queued') return '排队中';
+        if (task.state === 'failed') return task.kind === 'import' ? '关联失败' : '失败';
+        if (task.state === 'partial') return '需处理';
+        if (task.kind === 'import') { const step = stepOf(task); return [STEPS[step.index], step.count].filter(Boolean).join(' '); }
+        return [labels[task.phase] || task.phase || '进行中', countLabel(task.done, task.total)].filter(Boolean).join(' ');
+    }
 
     function countdown(until) {
         const time = el('time', 'task-countdown'); time.dataset.until = until; return time;
@@ -78,9 +101,11 @@
         for (const id of placeholders.keys()) if (known.has(id)) placeholders.delete(id);
         return [...state.tasks, ...placeholders.values(), ...local.values()];
     }
+    // 列表顺序：正在结束的、进行中的、排队的在前，需处理的在后
+    const rank = task => leaving.has(task.id) ? 0 : task.state === 'running' && active(task) ? 1 : active(task) ? 2 : 3;
     function visible() {
         return all().filter(task => leaving.has(task.id) || (active(task) || problem(task)) && dismissed[task.id] !== fingerprint(task))
-            .sort((a, b) => (problem(a) && !leaving.has(a.id)) - (problem(b) && !leaving.has(b.id)));
+            .map((task, index) => [task, index]).sort(([a, i], [b, j]) => rank(a) - rank(b) || i - j).map(([task]) => task);
     }
     function dismiss(task) {
         dismissed[task.id] = fingerprint(task); save('tasks-dismissed', dismissed);
@@ -95,108 +120,97 @@
             if (!active(task) && !problem(task) && dismissed[task.id] !== fingerprint(task) && !leaving.has(task.id)) {
                 if (wasActive) {
                     leaving.set(task.id, setTimeout(() => leave(task.id), 2400));
-                    moment(task.name, task.kind === 'import' ? '关联完成' : '完成', 'success');
+                    moment(task.name, task.state === 'cancelled' ? '已停止' : task.kind === 'import' ? '关联完成' : '完成', task.state === 'cancelled' ? '' : 'success');
                 } else { dismissed[task.id] = fingerprint(task); changed = true; }
             }
             if (wasActive && problem(task)) moment(task.name, task.state === 'failed' ? (task.kind === 'import' ? '关联失败' : '失败') : '需处理', task.state === 'failed' ? 'danger' : 'warning');
             if (!active(task) && leaving.has(task.id) && problem(task)) { clearTimeout(leaving.get(task.id)); leaving.delete(task.id); }
-            seen[task.id] = task.state;
+            // 记的是界面上的状态：写入后仍在补海报的关联也记成完成，免得每次轮询都再判一次“刚完成”
+            seen[task.id] = active(task) || problem(task) ? task.state : 'complete';
         }
         if (changed) save('tasks-dismissed', dismissed);
         save('tasks-seen', seen);
     }
 
-    // 向右滑出：面板打开时是列表里那一行；只剩它一个时是圆钮本身。
+    // 向右滑出：列表打开时是那张卡片（之后收起高度）；收起时是叠放里的那张海报，后面的往右接上。
     function leave(id, commit = () => { const task = all().find(item => item.id === id); if (task) dismiss(task); }) {
         clearTimeout(leaving.get(id));
-        const finish = animation => {
-            leaving.delete(id); commit();
-            if (expandedId === id) expandedId = null;
-            render(); animation?.cancel();
-        };
-        const tasks = visible();
-        const row = rows.get(id)?.node;
-        if (reduced() || root.hidden || !tasks.some(item => item.id === id)) return finish();
-        let target = null, distance = '2.5rem';
-        if (open) { target = row; distance = '3rem'; }
-        else if (tasks.length <= 1) { target = orb; distance = '1.5rem'; }
-        if (!target || target.hidden) return finish();
-        const animation = target.animate([{transform: 'translateX(0)', opacity: 1, filter: 'blur(0px)'}, {transform: `translateX(${distance})`, opacity: 0, filter: 'blur(2px)'}],
-            {duration: 340, easing: 'cubic-bezier(0.55, 0, 0.75, 0.3)', fill: 'forwards'});
+        const finish = () => { leaving.delete(id); commit(); if (expandedId === id) expandedId = null; render(); };
+        const card = rows.get(id)?.node, poster = stackNodes.get(id);
+        const target = open ? card : poster;
+        if (reduced() || root.hidden || !target?.isConnected) return finish();
+        const animation = target.animate([
+            {transform: 'translateX(0) scale(1)', opacity: 1, filter: 'blur(0px)'},
+            {transform: `translateX(${open ? '3rem' : '1.75rem'}) scale(${open ? 0.98 : 0.8})`, opacity: 0, filter: 'blur(3px)'},
+        ], {duration: 360, easing: 'cubic-bezier(0.55, 0, 0.75, 0.3)', fill: 'forwards'});
         animation.finished.then(() => {
-            if (target !== row) return finish(animation);
-            const height = row.offsetHeight;
-            row.animate([{height: `${height}px`}, {height: '0px'}], {duration: 180, easing: 'ease-out'}).finished.then(() => finish(animation), () => finish(animation));
-        }, () => finish());
+            // 收起时：先保留这张透明的海报，让重画时记下其余海报的旧位置，再一起往右平移接上
+            if (!open) return finish();
+            card.animate([{height: `${card.offsetHeight}px`, marginBottom: '0px'}, {height: '0px', marginBottom: '-0.5rem'}], {duration: 200, easing: 'ease-out', fill: 'forwards'})
+                .finished.then(() => { rows.delete(id); card.remove(); finish(); }, finish);
+        }, finish);
     }
 
     // ---- 收起状态：圆钮 -----------------------------------------------------
 
-    function ring(node, tasks, tone) {
-        if (!node.firstChild) {
-            node.innerHTML = '<svg viewBox="0 0 36 36"><circle class="ring-track" cx="18" cy="18" r="16"/><circle class="ring-value" cx="18" cy="18" r="16" pathLength="100"/></svg><span class="ring-icon"></span>';
-        }
-        // 进度取各任务的平均值（已结束的算满）；进行中的任务都不知道总数时转圈。
-        const running = tasks.some(active);
-        const known = tasks.map(ratio).filter(value => value !== null);
-        const percent = known.length ? Math.round(known.reduce((sum, value) => sum + value, 0) / known.length * 100) : 0;
-        node.classList.toggle('is-indeterminate', running && !tasks.some(task => active(task) && ratio(task) !== null));
-        node.style.setProperty('--ring', running ? Math.max(percent, 4) : 100);
-        node.dataset.tone = tone;
-        const symbol = {danger: 'circle-alert', warning: 'triangle-alert', success: 'circle-check', waiting: 'hourglass'}[tone] || '';
-        const holder = node.querySelector('.ring-icon');
-        if (holder.dataset.symbol !== symbol) { holder.replaceChildren(...(symbol ? [icon(symbol)] : [])); holder.dataset.symbol = symbol; }
-    }
-
-    // 环的状态：还有任务在跑时只显示进度；全部停下后才显示失败、需处理或完成。
-    function alertOf(tasks) {
-        const live = tasks.filter(task => !leaving.has(task.id));
-        return live.some(task => task.state === 'failed') ? 'danger' : live.some(problem) ? 'warning' : '';
-    }
-    function toneOf(tasks) {
-        if (!tasks.length) return 'waiting';
-        if (tasks.some(active)) return tasks.every(task => task.state === 'waiting') ? 'waiting' : '';
-        return alertOf(tasks) || 'success';
-    }
-
-    function summary(tasks) {
-        const running = tasks.filter(active).length, problems = tasks.filter(task => problem(task) && !leaving.has(task.id)).length;
-        const done = tasks.length - running - problems;
-        return [running ? `${running} 进行中` : '', problems ? `${problems} 需处理` : '', done ? `${done} 完成` : ''].filter(Boolean).join(' · ');
-    }
-
     function thumb(task, className) {
         const frame = el('span', className);
-        frame.dataset.id = task.id;
-        frame.append(icon(KIND_ICON[task.kind] || 'list-todo'));
-        const src = task.kind === 'import' ? posterOf(task) : '';
+        frame.append(icon(task ? KIND_ICON[task.kind] || 'list-todo' : 'hourglass'));
+        const src = task?.kind === 'import' ? posterOf(task) : '';
         if (src) {
             const img = el('img'); img.alt = ''; img.decoding = 'async'; img.src = src;
-            img.addEventListener('error', () => img.remove());
+            img.addEventListener('error', () => { img.remove(); frame.classList.remove('has-image'); });
             frame.append(img);
             frame.classList.add('has-image');
         }
         return frame;
     }
+    const artClass = task => task?.kind === 'import' ? 'island-poster' : 'island-glyph';
+    const artKey = task => JSON.stringify(task ? [task.kind, posterOf(task)] : ['services']);
 
-    function renderArt(node, tasks, limit) {
-        // 进行中的、有海报的排在前面
-        const rank = task => (active(task) ? 0 : 2) + (posterOf(task) ? 0 : 1);
-        const imports = tasks.filter(task => task.kind === 'import').sort((a, b) => rank(a) - rank(b)).slice(0, limit);
-        const items = imports.length ? imports : tasks.slice(0, 1);
-        const key = JSON.stringify(items.map(task => [task.id, posterOf(task), task.kind]));
-        if (node.dataset.key === key) return;
-        node.dataset.key = key;
-        node.replaceChildren(...items.map(task => thumb(task, task.kind === 'import' ? 'island-poster' : 'island-glyph')));
+    function ring(task) {
+        if (!orbRing.firstChild) orbRing.innerHTML = '<svg viewBox="0 0 36 36"><circle class="ring-track" cx="18" cy="18" r="16"/><circle class="ring-value" cx="18" cy="18" r="16" pathLength="100"/></svg>';
+        const value = task ? ratio(task) : null;
+        const running = task && active(task);
+        orbRing.classList.toggle('is-indeterminate', Boolean(running && value === null && task.state === 'running'));
+        orbRing.style.setProperty('--ring', !task ? 0 : running ? Math.round((value ?? 0) * 100) : 100);
+        orbRing.dataset.tone = !task ? 'warning' : leaving.has(task.id) ? 'success' : task.state === 'failed' ? 'danger' : problem(task) ? 'warning' : '';
+    }
+
+    // 叠放的海报：DOM 顺序从后往前（最右是最前一张）。位置变化用 FLIP 平移过去，新来的从左边淡入。
+    function renderStack(tasks) {
+        const shown = tasks.length ? tasks.slice(0, STACK) : [null];
+        const ids = shown.map(task => task?.id || 'services');
+        const before = new Map([...stackNodes].map(([id, node]) => [id, node.getBoundingClientRect().left]));
+        for (const [id, node] of stackNodes) if (!ids.includes(id)) { node.remove(); stackNodes.delete(id); }
+        const fresh = [];
+        [...shown].reverse().forEach((task, index) => {
+            const id = task?.id || 'services';
+            let node = stackNodes.get(id);
+            if (!node) { node = el('span', 'orb-stack-item'); node.dataset.id = id; stackNodes.set(id, node); fresh.push(node); }
+            const key = artKey(task);
+            if (node.dataset.key !== key) { node.dataset.key = key; node.replaceChildren(thumb(task, artClass(task))); }
+            if (stack.children[index] !== node) stack.insertBefore(node, stack.children[index] || null);
+        });
+        stack.lastElementChild.append(orbRing);
+        ring(shown[0]);
+        orbMore.textContent = tasks.length > STACK ? `+${tasks.length - STACK}` : '';
+        if (!ready || reduced() || orb.hidden) return;
+        for (const [id, node] of stackNodes) {
+            const from = before.get(id);
+            if (from === undefined) continue;
+            const delta = from - node.getBoundingClientRect().left;
+            if (Math.abs(delta) > 0.5) node.animate([{transform: `translateX(${delta}px)`}, {transform: 'translateX(0)'}], {duration: 420, easing: SPRING});
+        }
+        fresh.filter(node => !incoming.has(node.dataset.id)).forEach(node => node.animate([{opacity: 0, transform: 'translateX(-0.75rem) scale(0.6)'}, {opacity: 1, transform: 'none'}], {duration: 380, easing: SPRING}));
     }
 
     function headline(tasks) {
         if (!tasks.length) return ['接口等待恢复', state.services.map(item => item.name).join('、')];
-        if (tasks.length === 1) {
-            const [task] = tasks;
-            return [task.name, leaving.has(task.id) ? (task.kind === 'import' ? '关联完成' : '完成') : caption(task)];
-        }
-        return [tasks.every(task => task.kind === 'import') ? `关联 ${tasks.length} 部` : `${tasks.length} 项任务`, summary(tasks)];
+        if (tasks.length === 1) return [tasks[0].name, caption(tasks[0])];
+        const running = tasks.filter(active).length, problems = tasks.filter(task => problem(task) && !leaving.has(task.id)).length;
+        const parts = [running ? `${running} 进行中` : '', problems ? `${problems} 需处理` : ''].filter(Boolean).join(' · ');
+        return [tasks.every(task => task.kind === 'import') ? `关联 ${tasks.length} 部` : `${tasks.length} 项任务`, parts || caption(tasks[0])];
     }
 
     // 实时活动：圆钮横向展开成胶囊显示这件事，几秒后缩回。
@@ -206,35 +220,38 @@
         orbTitle.textContent = title; orbCaption.textContent = text;
         orb.dataset.moment = tone;
         orb.classList.add('is-live');
-        liveTimer = setTimeout(() => { orb.classList.remove('is-live'); delete orb.dataset.moment; liveTimer = null; renderHosts(visible()); }, 2800);
+        liveTimer = setTimeout(() => { orb.classList.remove('is-live'); delete orb.dataset.moment; liveTimer = null; render(); }, 2800);
     }
 
     function renderHosts(tasks) {
         const showing = tasks.length > 0 || state.services.length > 0;
-        const tone = toneOf(tasks), alert = stale ? 'warning' : alertOf(tasks);
+        const alert = stale ? 'warning' : tasks.some(task => task.state === 'failed' && !leaving.has(task.id)) ? 'danger' : tasks.some(task => problem(task) && !leaving.has(task.id)) ? 'warning' : '';
         let [title, text] = headline(tasks);
         if (stale) text = '连接中断，正在重试';
-        const label = `后台任务：${title}，${text}。点击查看`;
-
-        renderArt(orbArt, tasks, 1);
-        ring(orbRing, tasks, tone);
         orb.dataset.alert = alert;
-        orbBadge.textContent = tasks.length > 1 ? String(tasks.length) : '';
         if (!liveTimer) { orbTitle.textContent = title; orbCaption.textContent = text; }
-        orb.setAttribute('aria-label', label);
+        orb.setAttribute('aria-label', `后台任务：${title}，${text}。点击${open ? '收起' : '查看'}`);
         orb.title = tasks.map(task => `${task.name} · ${caption(task)}`).join('\n');
-
-        if (showing && orb.hidden) {
-            orb.hidden = false;
-            if (ready && !reduced()) orb.animate([{opacity: 0, transform: 'scale(0.4)'}, {opacity: 1, transform: 'scale(1)'}], {duration: 420, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)'});
-        } else if (!showing && !orb.hidden) orb.hidden = true;
-        root.hidden = !showing && !open;
-        if (!showing && open) setOpen(false, {focus: false, instant: true});
+        if (showing) {
+            hiding?.cancel(); hiding = null;
+            root.hidden = false;
+            if (orb.hidden) {
+                orb.hidden = false;
+                if (ready && !reduced()) orb.animate([{opacity: 0, transform: 'scale(0.4)'}, {opacity: 1, transform: 'scale(1)'}], {duration: 420, easing: 'cubic-bezier(0.34, 1.56, 0.64, 1)'});
+            }
+            renderStack(tasks);
+        } else if (!orb.hidden && !hiding) {
+            if (open) setOpen(false, {focus: false});
+            const done = () => { hiding = null; orb.hidden = true; root.hidden = true; stack.replaceChildren(); stackNodes.clear(); };
+            if (!ready || reduced()) return done();
+            hiding = orb.animate([{opacity: 1, transform: 'scale(1)'}, {opacity: 0, transform: 'scale(0.6)'}], {duration: 240, easing: 'ease-in', fill: 'forwards'});
+            hiding.finished.then(() => { hiding?.cancel(); done(); }, () => {});
+        }
     }
 
-    // ---- 展开状态：任务列表与详情 -------------------------------------------
+    // ---- 展开状态：胶囊卡片 -------------------------------------------------
 
-    function progressTrack(task, track = el('span')) {
+    function progressTrack(task, track) {
         const value = ratio(task);
         track.className = `task-progress${value === null ? ' is-indeterminate' : ''}`;
         const percent = Math.round((value ?? 0) * 100);
@@ -244,233 +261,144 @@
         track.setAttribute('aria-valuetext', caption(task));
         track.setAttribute('aria-valuemin', '0'); track.setAttribute('aria-valuemax', '100');
         if (value === null) track.removeAttribute('aria-valuenow'); else track.setAttribute('aria-valuenow', percent);
-        return track;
+        return percent;
     }
 
-    function renderRow(task) {
+    function renderCard(task) {
         let row = rows.get(task.id);
         if (!row) {
-            const node = el('li', 'island-task'); node.dataset.taskId = task.id;
-            const head = el('button', 'island-task-head'); head.type = 'button';
+            const node = el('li', 'island-card'); node.dataset.taskId = task.id;
+            const head = el('button', 'island-card-head'); head.type = 'button';
             const detailId = `island-task-${rows.size}-${Date.now().toString(36)}`;
             head.setAttribute('aria-controls', detailId);
-            const media = el('span', 'island-task-media');
-            const text = el('span', 'island-task-text'), name = el('span', 'island-task-name'), meta = el('span', 'island-task-caption');
-            const track = el('span');
-            text.append(name, meta, track);
-            const status = el('span', 'island-task-state'); status.setAttribute('aria-hidden', 'true');
-            head.append(media, text, status);
+            const text = el('span', 'island-card-text'), top = el('span', 'island-card-top');
+            const name = el('span', 'island-card-name'), value = el('span', 'island-card-value'), meta = el('span', 'island-card-caption'), track = el('span');
+            top.append(name, value);
+            text.append(top, meta, track);
+            head.append(el('span'), text);
             head.addEventListener('click', () => toggleTask(task.id));
-            const detail = el('div', 'island-task-detail'); detail.id = detailId; detail.hidden = true;
+            const detail = el('div', 'island-card-detail'); detail.id = detailId; detail.hidden = true;
             node.append(head, detail);
-            row = {node, head, media, name, meta, track, status, detail}; rows.set(task.id, row);
+            row = {node, head, name, value, meta, track, detail}; rows.set(task.id, row);
         }
-        const finishing = leaving.has(task.id);
+        const finishing = leaving.has(task.id) || !active(task) && !problem(task);
         row.node.classList.toggle('is-problem', problem(task) && !finishing);
         row.node.classList.toggle('is-failed', task.state === 'failed');
         row.node.classList.toggle('is-done', finishing);
-        const key = JSON.stringify([task.kind, posterOf(task)]);
-        if (row.media.dataset.key !== key) {
-            row.media.dataset.key = key;
-            row.media.replaceChildren(thumb(task, task.kind === 'import' ? 'island-poster' : 'island-glyph'));
-        }
-        const symbol = task.state === 'running' ? 'loader-circle' : finishing || task.state === 'complete' ? 'circle-check' :
-            task.state === 'failed' ? 'circle-alert' : task.state === 'partial' ? 'triangle-alert' : task.state === 'cancelled' ? 'ban' : 'hourglass';
-        if (row.status.dataset.symbol !== symbol) { row.status.replaceChildren(icon(symbol)); row.status.dataset.symbol = symbol; }
-        row.status.classList.toggle('is-running', task.state === 'running');
+        const key = artKey(task);
+        if (row.head.dataset.key !== key) { row.head.dataset.key = key; row.head.firstChild.replaceWith(thumb(task, artClass(task))); }
+        // 完成的任务只剩一行“关联完成”，不再展开
+        const expanded = expandedId === task.id && !finishing;
         row.name.textContent = task.name;
-        row.meta.textContent = finishing ? '完成' : [caption(task), task.kind === 'import' && task.files ? `${task.files} 个视频` : ''].filter(Boolean).join(' · ');
-        row.head.setAttribute('aria-expanded', String(expandedId === task.id));
-        row.head.setAttribute('aria-label', `${task.name}，${row.meta.textContent}，${expandedId === task.id ? '收起' : '展开'}详情`);
-        progressTrack(task, row.track);
-        row.track.hidden = !active(task) && !finishing;
-        row.detail.hidden = expandedId !== task.id;
+        row.meta.textContent = caption(task);
+        const percent = progressTrack(task, row.track);
+        const running = active(task) && !finishing && task.state === 'running';
+        // 排队、等待重试时没有进度可画。展开时也保留这条总进度，卡片头部高度不变，展开时内容不会跳
+        row.track.hidden = !running;
+        row.value.textContent = running && ratio(task) !== null ? `${percent}%` : '';
+        row.head.setAttribute('aria-expanded', String(expanded));
+        row.head.setAttribute('aria-label', `${task.name}，${row.meta.textContent}，${expanded ? '收起' : '展开'}详情`);
+        row.detail.hidden = !expanded;
+        if (expanded) renderDetail(task, row.detail);
         return row.node;
     }
 
-    function renderList(tasks) {
-        const ids = new Set(tasks.map(task => task.id));
-        for (const [id, row] of rows) if (!ids.has(id)) { row.node.remove(); rows.delete(id); }
-        tasks.forEach((task, index) => { const node = renderRow(task); if (list.children[index] !== node) list.insertBefore(node, list.children[index] || null); });
-        empty.hidden = tasks.length > 0;
-        summaryNode.textContent = summary(tasks);
-        servicesNode.replaceChildren(...state.services.map(service => {
-            const line = el('p', 'task-note');
-            line.append(icon('hourglass'), el('span', '', `${service.name} · ${service.reason}`), countdown(service.until));
-            return line;
-        }));
-    }
-
-    function stateIcon(stateName) {
-        const node = el('span', 'task-state-icon'); node.dataset.state = stateName;
-        node.append(icon(STATE_ICON[stateName] || 'clock')); node.setAttribute('aria-hidden', 'true');
-        return node;
-    }
-    function section(title, count, hint) {
-        const node = el('section', 'task-section');
-        const head = el('h3', 'task-section-title', title);
-        if (count) head.append(el('span', 'task-section-count', String(count)));
-        node.append(head);
-        if (hint) node.append(el('p', 'task-section-hint', hint));
-        return node;
-    }
-    function renderRows(items, render) {
-        const rowsList = el('ul', 'ui-card task-rows');
-        for (const item of items) rowsList.append(render(item));
-        return rowsList;
-    }
-    // 关联四步：一条分段进度，标签与分段左对齐
-    function renderSteps(steps) {
-        const steps_ = el('ol', 'task-steps');
-        steps_.setAttribute('aria-label', '关联进度');
-        for (const step of steps) {
-            const item = el('li', 'task-step'); item.dataset.state = step.state;
-            const label = el('span', 'task-step-label', step.label);
-            if (step.count) label.append(el('span', 'task-step-count', step.count));
-            item.append(el('span', 'task-step-bar'), label);
-            item.setAttribute('aria-label', `${step.label}：${{done:'已完成', active:'进行中', failed:'失败', pending:'未开始'}[step.state] || ''}${step.count ? ` ${step.count}` : ''}`);
-            steps_.append(item);
-        }
-        return steps_;
-    }
-
-    function renderImport(target, task, detail) {
-        target.append(renderSteps(detail.steps));
-        const waits = Object.entries(task?.waits || {});
-        if (task?.retry_at && active(task) || waits.length) {
-            const note = el('p', 'task-note');
-            note.append(icon('hourglass'), el('span', '', waits.map(([service, wait]) => `${serviceName(service)} · ${wait.reason}`).join('；') || '等待重试'));
-            const until = task.retry_at || waits[0]?.[1].until;
-            if (until) note.append(countdown(until));
-            target.append(note);
-        }
-        const files = section('视频', detail.files.length);
-        files.append(renderRows(detail.files, file => {
-            const row = el('li', 'task-row'); row.dataset.state = file.state;
-            const text = el('div', 'task-row-text');
-            const name = el('p', 'task-row-title', file.position ? `${file.position} · ${file.name}` : file.name);
-            name.title = file.name;
-            text.append(name, el('p', 'task-row-hint', file.detail));
-            row.append(stateIcon(file.state), text);
-            return row;
-        }));
-        target.append(files);
-        if (detail.issues.length) {
-            const issues = section('需要处理');
-            issues.append(renderRows(detail.issues, issue => {
-                const row = el('li', 'task-row'); row.dataset.state = 'failed';
-                const text = el('div', 'task-row-text'); text.append(el('p', 'task-row-hint', issue));
-                row.append(stateIcon('failed'), text); return row;
-            }));
-            target.append(issues);
-        }
-        const enrich = section('之后补齐', '', '海报、评分与预览图在关联完成后继续获取，不影响播放。');
-        enrich.append(renderRows(detail.enrich, item => {
-            const row = el('li', 'task-row is-compact'); row.dataset.state = item.state;
-            const text = el('div', 'task-row-text'); text.append(el('p', 'task-row-title', item.label));
-            row.append(stateIcon(item.state), text, el('span', 'task-row-meta', item.text));
-            return row;
-        }));
-        target.append(enrich);
-    }
-
-    function renderGeneric(target, task) {
-        const facts = [];
-        if (task.total > 0) facts.push(['已处理', countLabel(task)]);
-        if (task.current?.length) facts.push(['正在处理', task.current.join('、') + (task.current_more ? ` 等 ${task.current.length + task.current_more} 项` : '')]);
-        if (task.detail) facts.push(['当前详情', task.detail]);
-        if (task.attempts > 1) facts.push(['尝试次数', String(task.attempts)]);
-        if (facts.length) target.append(renderRows(facts, ([label, value]) => {
-            const row = el('li', 'task-row is-compact');
-            const text = el('div', 'task-row-text'); text.append(el('p', 'task-row-hint', label));
-            row.append(text, el('span', 'task-row-meta text-break', value)); return row;
-        }));
-        for (const [service, wait] of Object.entries(task.waits || {})) {
-            const line = el('p', 'task-note', `${serviceName(service)} · ${wait.reason} `);
-            if (wait.until) line.append(countdown(wait.until));
-            target.append(line);
-        }
-        const issues = (task.issues || []).filter(issue => issue.reason);
-        if (issues.length) {
-            const block = section('需要处理');
-            block.append(renderRows(issues, issue => {
-                const row = el('li', 'task-row'); row.dataset.state = 'failed';
-                const text = el('div', 'task-row-text'); text.append(el('p', 'task-row-hint', [issue.label, issue.service, issue.reason].filter(Boolean).join(' · ')));
-                row.append(stateIcon('failed'), text); return row;
-            }));
-            target.append(block);
-        }
-        if (!target.childElementCount) target.append(el('p', 'island-detail-empty', task.placeholder ? '已提交，等待开始…' : caption(task)));
+    function renderSteps(task) {
+        const step = stepOf(task);
+        const steps = el('ol', 'island-steps');
+        steps.setAttribute('aria-label', '关联进度');
+        STEPS.forEach((label, index) => {
+            const stepState = index < step.index ? 'done' : index === step.index ? 'active' : 'pending';
+            const item = el('li', 'island-step'); item.dataset.state = stepState;
+            const bar = el('span', 'island-step-bar');
+            if (stepState === 'active') bar.style.setProperty('--part', `${Math.max(6, Math.round(step.part * 100))}%`);
+            item.append(bar, el('span', '', label));
+            item.setAttribute('aria-label', `${label}：${{done: '已完成', active: '进行中', pending: '未开始'}[stepState]}${stepState === 'active' && step.count ? ` ${step.count}` : ''}`);
+            steps.append(item);
+        });
+        return steps;
     }
 
     const actionType = task => task.localAction ? 'retry' : task.cancel_ids?.length ? 'cancel' :
         task.retry_ids?.length || problem(task) && ['scan', 'rating', 'imdb'].includes(task.kind) ? 'retry' : null;
 
-    function renderDetail() {
-        const row = expandedId && rows.get(expandedId);
-        if (!row) return;
-        const task = all().find(item => item.id === expandedId);
-        const detail = details.get(expandedId);
-        const signature = JSON.stringify([task, detail, pending.has(expandedId), errors.get(expandedId), leaving.has(expandedId), detailMissing]);
-        if (signature === detailSignature) return;
-        detailSignature = signature;
-        const focusedRole = row.detail.contains(document.activeElement) ? document.activeElement.dataset.role : null;
-        const target = row.detail;
+    // 展开内容只放“现在怎么样”：进行中给当前一步和正在处理的文件，等待给原因和倒计时，出错才列错误和操作。
+    function renderDetail(task, target) {
+        const signature = JSON.stringify([task, pending.has(task.id), errors.get(task.id), leaving.has(task.id)]);
+        if (signatures.get(task.id) === signature && target.childElementCount) return;
+        signatures.set(task.id, signature);
+        const focusedRole = target.contains(document.activeElement) ? document.activeElement.dataset.role : null;
         target.replaceChildren();
-        if (!task) return;
-        const meta = detail?.meta || KIND_META[task.kind] || '';
-        if (meta) target.append(el('p', 'island-detail-meta', meta));
-        if (detail) renderImport(target, task, detail);
-        else if (task.kind === 'import' && !task.placeholder && !detailMissing) target.append(el('p', 'island-detail-empty', '正在读取…'));
-        else renderGeneric(target, task);
-        if (errors.get(task.id)) {
-            const error = el('p', 'small text-danger-emphasis mt-3 mb-0', errors.get(task.id)); error.setAttribute('role', 'alert'); target.append(error);
+        const finishing = leaving.has(task.id) || !active(task) && !problem(task);
+        if (task.kind === 'import' && task.state === 'running' && active(task)) target.append(renderSteps(task));
+        if (active(task)) {
+            const current = task.current?.length ? task.current.join('、') + (task.current_more ? ` 等 ${task.current.length + task.current_more} 个` : '') : '';
+            const line = current ? `正在处理：${current}` : task.kind !== 'import' ? task.detail || '' : task.placeholder ? '已提交，等待开始' : '';
+            if (line) target.append(el('p', 'text-truncate', line));
+            for (const [service, wait] of Object.entries(task.waits || {})) {
+                const note = el('p', 'text-warning-emphasis', `${serviceName(service)} · ${wait.reason} `);
+                if (wait.until || task.retry_at) note.append(countdown(wait.until || task.retry_at));
+                target.append(note);
+            }
         }
-        const actions = el('div', 'island-detail-actions');
-        if (detail?.title_url) {
-            const link = el('a', 'btn btn-sm chip-btn'); link.href = detail.title_url; link.dataset.role = 'open';
-            link.append(icon('external-link'), el('span', '', '打开作品页')); actions.append(link);
+        if (problem(task) && !finishing) {
+            const issues = (task.issues || []).map(issue => [issue.label, issue.service && serviceName(issue.service), issue.reason].filter(Boolean).join(' · ')).filter(Boolean);
+            if (issues.length) { const box = el('ul', 'island-issues'); issues.forEach(issue => box.append(el('li', '', issue))); target.append(box); }
         }
-        if (problem(task) && !leaving.has(task.id)) {
+        if (errors.get(task.id)) { const error = el('p', 'text-danger-emphasis', errors.get(task.id)); error.setAttribute('role', 'alert'); target.append(error); }
+        const actions = el('div', 'island-actions');
+        if (problem(task) && !finishing) {
             const ignore = el('button', 'btn btn-sm chip-btn', '忽略'); ignore.type = 'button'; ignore.dataset.role = 'ignore';
             ignore.setAttribute('aria-label', `忽略任务：${task.name}`);
             ignore.addEventListener('click', () => leave(task.id));
             actions.append(ignore);
         }
         const type = actionType(task);
-        if (type && !leaving.has(task.id)) {
-            const button = el('button', `btn btn-sm ${type === 'cancel' ? 'chip-btn text-danger' : 'media-primary-action is-compact'}`, task.actionLabel || (type === 'cancel' ? '停止关联' : '重试'));
+        if (type && !finishing && !(type === 'cancel' && !active(task))) {
+            const button = el('button', `btn btn-sm ${type === 'cancel' ? 'chip-btn' : 'media-primary-action is-compact'}`, task.actionLabel || (type === 'cancel' ? '停止关联' : '重试'));
             button.type = 'button'; button.dataset.role = 'action'; button.disabled = pending.has(task.id);
             button.addEventListener('click', () => action(task, type));
             actions.append(button);
         }
         if (actions.childElementCount) target.append(actions);
-        if (focusedRole) (target.querySelector(`[data-role="${focusedRole}"]:not(:disabled)`) || row.head).focus({preventScroll: true});
+        if (!target.childElementCount) target.append(el('p', '', caption(task)));
+        if (focusedRole) (target.querySelector(`[data-role="${focusedRole}"]:not(:disabled)`) || rows.get(task.id)?.head)?.focus({preventScroll: true});
         updateClocks();
     }
 
-    function toggleTask(id) {
-        expandedId = expandedId === id ? null : id;
-        detailSignature = null; detailMissing = false;
-        render();
-        if (expandedId) { loadDetail(); rows.get(id)?.node.scrollIntoView({block: 'nearest', behavior: reduced() ? 'auto' : 'smooth'}); }
+    function renderList(tasks) {
+        if (!open) return;
+        const ids = new Set(tasks.map(task => task.id));
+        for (const [id, row] of rows) if (!ids.has(id) && !row.node.getAnimations().length) { row.node.remove(); rows.delete(id); signatures.delete(id); }
+        const nodes = [];
+        if (state.services.length) {
+            const note = list.querySelector('.island-note') || el('li', 'island-note');
+            note.replaceChildren(icon('hourglass'), el('span', '', state.services.map(service => `${service.name} · ${service.reason}`).join('；')));
+            const until = Math.min(...state.services.map(service => service.until || Infinity));
+            if (Number.isFinite(until)) note.append(countdown(until));
+            nodes.push(note);
+        } else list.querySelector('.island-note')?.remove();
+        nodes.push(...tasks.map(renderCard));
+        nodes.forEach((node, index) => { if (list.children[index] !== node) list.insertBefore(node, list.children[index] || null); });
+        updateClocks();
     }
 
-    // 只在任务展开、且是关联任务时读取详情（文件列表与探测结果不进汇总轮询）
-    async function loadDetail() {
-        const id = expandedId;
-        if (!id || !id.startsWith('import:') || placeholders.has(id) || detailLoading) return;
-        detailLoading = true;
-        try {
-            const response = await fetch(`${root.dataset.detailUrl}?${new URLSearchParams({id})}`, {headers: detailEtag[id] ? {'If-None-Match': detailEtag[id]} : {}, cache: 'no-cache'});
-            if (response.status === 404) { details.delete(id); detailMissing = true; }
-            else if (response.ok) {
-                const data = await response.json();
-                details.set(id, data); detailEtag[id] = response.headers.get('ETag'); detailMissing = false;
-                if (data.poster && !posters[id]) { posters[id] = root.dataset.imageBase + data.poster; save('tasks-posters', posters); }
-            }
-        } catch {}
-        finally { detailLoading = false; if (expandedId === id) render(); }
+    // 展开 / 收起：记下每张卡片原来的高度，重画后从旧高度过渡到新高度（卡片 overflow: hidden），
+    // 下面的卡片跟着平滑移动；展开的内容稍后淡入。动画结束后再把展开的卡片滚进可见范围。
+    function toggleTask(id) {
+        const before = new Map([...rows].map(([key, row]) => [key, row.node.offsetHeight]));
+        expandedId = expandedId === id ? null : id;
+        render();
+        const row = expandedId && rows.get(expandedId);
+        const reveal = () => row?.node.scrollIntoView({block: 'nearest', behavior: reduced() ? 'auto' : 'smooth'});
+        if (reduced()) return reveal();
+        const animations = [];
+        for (const [key, item] of rows) {
+            const from = before.get(key), to = item.node.offsetHeight;
+            if (from && Math.abs(from - to) > 1) animations.push(item.node.animate([{height: `${from}px`}, {height: `${to}px`}], {duration: 340, easing: SPRING}));
+        }
+        if (row) row.detail.animate([{opacity: 0, transform: 'translateY(-0.25rem)'}, {opacity: 1, transform: 'none'}], {duration: 260, delay: 80, easing: 'ease-out', fill: 'backwards'});
+        Promise.all(animations.map(animation => animation.finished)).then(reveal, () => {});
     }
 
     async function action(task, type) {
@@ -502,116 +430,84 @@
         const tasks = visible();
         renderHosts(tasks);
         renderList(tasks);
-        renderDetail();
-        updateClocks();
     }
 
     // ---- 唤出 / 收起 -------------------------------------------------------
-    // 桌面：面板左上角与圆钮重合，从圆钮原地向右下长出来，clip-path 从圆形变到面板。
-    // 手机：底部抽屉，带遮罩。
+    // 卡片从圆钮下方依次落下（轻微缩放 + 模糊散开），收起时反向收回圆钮。
 
-    // 圆钮的布局位置：不受它自己的弹出、回弹动画（transform）影响。
-    function orbRect() {
-        const top = orb.offsetTop, left = orb.offsetLeft, width = orb.offsetWidth, height = orb.offsetHeight;
-        return {top, left, width, height, right: left + width, bottom: top + height};
-    }
-
-    function place() {
-        const sheet = sheetMode();
-        panel.classList.toggle('is-sheet', sheet);
-        panel.style.top = panel.style.left = '';
-        if (sheet) return;
-        const rect = orbRect();
-        panel.style.top = `${rect.top}px`;
-        panel.style.left = `${Math.max(8, rect.left)}px`;
-    }
-
-    function morph(from, opening) {
-        const content = [...panel.children];
-        if (panel.classList.contains('is-sheet')) {
-            scrim.animate([{opacity: 0}, {opacity: 1}], {duration: 280, direction: opening ? 'normal' : 'reverse', fill: 'both'});
-            return panel.animate([{transform: 'translateY(100%)'}, {transform: 'translateY(0)'}], {duration: opening ? 420 : 280, easing: opening ? SPRING : 'ease-in', direction: opening ? 'normal' : 'reverse', fill: 'both'});
-        }
-        const target = panel.getBoundingClientRect();
-        const radius = parseFloat(getComputedStyle(panel).borderTopLeftRadius) || 24;
-        const inset = `inset(${Math.max(0, from.top - target.top)}px ${Math.max(0, target.right - from.right)}px ${Math.max(0, target.bottom - from.bottom)}px ${Math.max(0, from.left - target.left)}px round ${from.height / 2}px)`;
-        const full = `inset(0px 0px 0px 0px round ${radius}px)`;
-        content.forEach(node => node.animate(opening ? [{opacity: 0}, {opacity: 0, offset: 0.25}, {opacity: 1}] : [{opacity: 1}, {opacity: 0, offset: 0.5}, {opacity: 0}], {duration: opening ? 420 : 280, easing: 'ease-out'}));
-        return panel.animate(opening ? [{clipPath: inset}, {clipPath: full}] : [{clipPath: full}, {clipPath: inset}], {duration: opening ? 460 : 300, easing: SPRING});
-    }
-
-    function setOpen(value, {focus = true, instant = false} = {}) {
+    function setOpen(value, {focus = true} = {}) {
         if (open === value) return;
         open = value;
         orb.setAttribute('aria-expanded', String(value));
+        list.getAnimations({subtree: true}).forEach(animation => animation.cancel());
         if (value) {
-            clearTimeout(liveTimer); liveTimer = null; orb.classList.remove('is-live');
-            const from = orbRect();
-            root.hidden = false;
-            panel.hidden = false;
+            clearTimeout(liveTimer); liveTimer = null; orb.classList.remove('is-live'); delete orb.dataset.moment;
+            list.hidden = false;
             render();
-            place();
-            scrim.hidden = !panel.classList.contains('is-sheet');
-            // 桌面上面板盖在圆钮的位置，圆钮先藏起来（手机抽屉在底部，圆钮照常显示）
-            orb.classList.toggle('is-covered', !panel.classList.contains('is-sheet'));
-            root.classList.add('is-open');
-            if (!reduced() && !instant) morph(from, true);
-            if (focus) panel.focus({preventScroll: true});
+            if (!reduced()) [...list.children].forEach((node, index) => node.animate([
+                {opacity: 0, transform: 'translateY(-0.75rem) scale(0.94)', filter: 'blur(4px)'},
+                {opacity: 1, transform: 'none', filter: 'blur(0px)'},
+            ], {duration: 380, delay: Math.min(index, 6) * 40, easing: SPRING, fill: 'backwards'}));
+            if (focus) list.querySelector('.island-card-head')?.focus({preventScroll: true});
             refresh();
             return;
         }
-        expandedId = null; detailSignature = null;
+        expandedId = null;
         const done = () => {
             if (open) return;
-            panel.hidden = true; scrim.hidden = true;
-            scrim.getAnimations().forEach(animation => animation.cancel());
-            panel.getAnimations().forEach(animation => animation.cancel());
+            list.hidden = true;
+            list.replaceChildren(); rows.clear(); signatures.clear();
             render();
         };
-        root.classList.remove('is-open');
+        if (reduced()) done();
+        else {
+            const nodes = [...list.children];
+            const animations = nodes.map((node, index) => node.animate([
+                {opacity: 1, transform: 'none'}, {opacity: 0, transform: 'translateY(-0.5rem) scale(0.96)'},
+            ], {duration: 180, delay: Math.min(nodes.length - 1 - index, 4) * 20, easing: 'ease-in', fill: 'forwards'}));
+            Promise.all(animations.map(animation => animation.finished)).then(done, done);
+        }
         render();
-        const reveal = () => { orb.classList.remove('is-covered'); done(); };
-        if (reduced() || instant || root.hidden || orb.hidden) reveal();
-        else morph(orbRect(), false).finished.then(reveal, reveal);
         if (focus && !orb.hidden) orb.focus({preventScroll: true});
     }
 
     orb.addEventListener('click', () => setOpen(!open));
-    scrim.addEventListener('click', () => setOpen(false, {focus: false}));
-    $('[data-island-collapse]').addEventListener('click', () => setOpen(false));
     document.addEventListener('pointerdown', event => {
-        if (open && !panel.contains(event.target) && !orb.contains(event.target)) setOpen(false, {focus: false});
+        if (open && !list.contains(event.target) && !orb.contains(event.target)) setOpen(false, {focus: false});
     }, true);
     document.addEventListener('keydown', event => { if (event.key === 'Escape' && open) { event.stopPropagation(); setOpen(false); } });
-    panel.addEventListener('focusout', event => {
-        if (open && event.relatedTarget && !panel.contains(event.relatedTarget) && !orb.contains(event.relatedTarget)) setOpen(false, {focus: false});
+    list.addEventListener('focusout', event => {
+        if (open && event.relatedTarget && !list.contains(event.relatedTarget) && !orb.contains(event.relatedTarget)) setOpen(false, {focus: false});
     });
-    addEventListener('resize', () => { if (open) place(); });
 
     // ---- 海报飞入 ---------------------------------------------------------
-    // 沿一条二次贝塞尔曲线（CSS offset-path）飞向左上角的圆钮：先轻微抬起，途中加速并带运动模糊与拉伸，
+    // 沿一条二次贝塞尔曲线（CSS offset-path）飞向圆钮里它将占的那张圆形海报：先轻微抬起，途中加速并带运动模糊与拉伸，
     // 落点前减速、收成圆形；身后跟两道淡残影。落地时圆钮被“吸”得一鼓再回弹。
 
     const motionPath = CSS.supports?.('offset-path', 'path("M 0 0 L 1 1")');
 
-    function fly(sources) {
-        if (reduced() || root.hidden || !sources.length) return;
-        const slotNode = open ? list : orbArt;
-        const slot = slotNode.getBoundingClientRect();
-        if (!slot.width) return;
-        const round = !open;
-        slotNode.style.opacity = '0';
+    function fly(sources, ids) {
         const flights = sources.slice(0, 6).filter(({rect}) => rect.width && rect.bottom > 0 && rect.top < innerHeight);
-        if (!flights.length) { slotNode.style.opacity = ''; return; }
+        const hidden = new Set();
+        const settle = () => { incoming = new Set(); hidden.forEach(node => { node.style.opacity = ''; }); };
+        if (reduced() || root.hidden || orb.hidden || !flights.length || !stack.firstElementChild) return settle();
         let landed = 0;
         flights.forEach((source, index) => {
             const {rect} = source;
-            const scale = slot.height / rect.height;
+            // 按作品对上它的任务；没有作品 ID 时按顺序对应
+            const id = source.titleId ? ids.find(item => item.startsWith(`import:${source.titleId}:`)) : ids[index];
+            // 圆钮里放不下的（排在第 4 个以后）飞向最左边那张
+            const own = stackNodes.get(id);
+            const node = open ? list : own || stack.firstElementChild;
+            if (own && !open) { own.style.opacity = '0'; hidden.add(own); }
+            const slot = node.getBoundingClientRect();
+            const size = open ? 48 : slot.height - 10;
+            const scale = size / rect.height;
             const x0 = rect.left + rect.width / 2, y0 = rect.top + rect.height / 2;
-            const x1 = slot.left + Math.min(slot.height * 2 / 3, slot.width) / 2 + Math.min(index, 2) * 3, y1 = slot.top + slot.height / 2;
+            const x1 = open ? slot.left + 26 : slot.left + slot.width / 2, y1 = open ? slot.top + 34 : slot.top + slot.height / 2;
             // 控制点：先沿原方向离开，再拐向落点，形成一条“被吸过去”的弧线
             const cx = x0 + (x1 - x0) * 0.12, cy = y0 + (y1 - y0) * 0.88 - Math.sign(y1 - y0 || 1) * 24;
-            const endRadius = round ? '50%' : `${6 / scale}px`;
+            const endRadius = open ? `${14 / scale}px` : '50%';
             const mid = (1 + scale) / 2;
             const frames = motionPath ? [
                 {offsetDistance: '0%', transform: 'scale(1)', filter: 'blur(0px)', borderRadius: '8px'},
@@ -628,10 +524,13 @@
                 const clone = el('span', 'island-flyer');
                 if (source.src) { const img = el('img'); img.alt = ''; img.src = source.src; clone.append(img); }
                 else clone.append(icon('film'));
-                Object.assign(clone.style, {width: `${rect.width}px`, height: `${rect.height}px`, opacity: String(opacity)});
+                // 圆形落点要正方形副本；卡片落点保持海报比例
+                const width = open ? rect.width : rect.height;
+                Object.assign(clone.style, {width: `${width}px`, height: `${rect.height}px`, opacity: String(opacity)});
                 if (motionPath) Object.assign(clone.style, {left: '0px', top: '0px', offsetPath: `path("M ${x0} ${y0} Q ${cx} ${cy} ${x1} ${y1}")`, offsetRotate: '0deg', offsetAnchor: 'center'});
-                else Object.assign(clone.style, {left: `${rect.left}px`, top: `${rect.top}px`});
+                else Object.assign(clone.style, {left: `${x0 - width / 2}px`, top: `${rect.top}px`});
                 if (extraBlur) clone.classList.add('is-ghost');
+                if (!open) clone.classList.add('is-round');
                 document.body.append(clone);
                 const steps = extraBlur ? frames.map(frame => ({...frame, filter: frame.filter.replace(/blur\(([\d.]+)px\)/, (_, value) => `blur(${Number(value) + extraBlur}px)`)})) : frames;
                 return clone.animate(steps, {duration: 760, delay: index * 80 + delay, easing: 'cubic-bezier(0.45, 0, 0.2, 1)', fill: 'both'}).finished.then(() => clone.remove(), () => clone.remove());
@@ -640,10 +539,9 @@
             make(1, 0, 0).then(() => { if (++landed === flights.length) land(); });
         });
         function land() {
-            slotNode.style.opacity = '';
-            const target = open ? panel : orb;
-            target.animate([{transform: 'scale(1)'}, {transform: 'scale(1.14, 0.9)', offset: 0.3}, {transform: 'scale(0.96, 1.04)', offset: 0.65}, {transform: 'scale(1)'}], {duration: 460, easing: 'ease-out'});
-            slotNode.animate([{filter: 'brightness(1.6)'}, {filter: 'brightness(1)'}], {duration: 420, easing: 'ease-out'});
+            settle();
+            orb.animate([{transform: 'scale(1)'}, {transform: 'scale(1.12, 0.9)', offset: 0.3}, {transform: 'scale(0.97, 1.03)', offset: 0.65}, {transform: 'scale(1)'}], {duration: 460, easing: 'ease-out'});
+            stack.animate([{filter: 'brightness(1.6)'}, {filter: 'brightness(1)'}], {duration: 420, easing: 'ease-out'});
         }
     }
 
@@ -662,7 +560,6 @@
                 state = await response.json(); etag = response.headers.get('ETag');
                 try { sessionStorage.setItem('tasks-state', JSON.stringify(state)); } catch {}
                 stale = false; ready = true; observe(); render();
-                if (expandedId && open) loadDetail();
                 window.dispatchEvent(new CustomEvent('tasks:update', {detail: state}));
             } else if (stale) { stale = false; render(); }
         } catch { stale = true; render(); }
@@ -678,24 +575,26 @@
         refresh, active, caption,
         has: key => local.has(key),
         clear: key => { if (local.delete(key)) render(); },
-        open(id) { setOpen(true); if (id && expandedId !== id) toggleTask(id); },
+        open(id) { setOpen(true, {focus: false}); if (id && expandedId !== id) toggleTask(id); },
         // 确认关联后：先放占位任务让圆钮立即出现，再让海报从列表飞进来。
-        // groups: [{id, name, files, poster}]；sources: [{rect, src}]
+        // groups: [{id, titleId, name, files, poster}]；sources: [{rect, src, titleId}]
         arrive(groups, sources = []) {
             for (const group of groups) {
-                if (!state.tasks.some(task => task.id === group.id)) placeholders.set(group.id, {id: group.id, kind: 'import', name: group.name, state: 'queued', phase: 'queued', done: 0, total: 0, files: group.files, placeholder: true});
+                if (!state.tasks.some(task => task.id === group.id)) placeholders.set(group.id, {id: group.id, kind: 'import', name: group.name, state: 'queued', phase: 'queued', done: 0, total: 0, core: 0, files: group.files, placeholder: true});
                 if (group.poster && !posters[group.id]) posters[group.id] = group.poster;
                 delete dismissed[group.id];
                 seen[group.id] = 'queued';
             }
             save('tasks-posters', posters); save('tasks-seen', seen); save('tasks-dismissed', dismissed);
+            const ids = groups.map(group => group.id);
+            if (sources.length) incoming = new Set(ids);
             render();
-            fly(sources);
+            fly(sources, ids);
             if (groups.length) setTimeout(() => moment(groups.length > 1 ? `${groups[0].name} 等 ${groups.length} 部` : groups[0].name, '已加入关联'), reduced() ? 0 : 900);
             refresh();
             setTimeout(() => { if (placeholders.size) { placeholders.clear(); render(); } }, 30000);
         },
-        // 成功的结果：岛上正显示这项进度时原地变成“完成”再滑出，否则只弹提示；失败或需处理的结果留着，带上重试等操作。
+        // 成功的结果：圆钮上正显示这项进度时原地变成“完成”再滑出，否则只弹提示；失败或需处理的结果留着，带上重试等操作。
         result(key, spec) {
             if (spec.tone !== 'danger' && spec.tone !== 'warning') {
                 const previous = local.get(key);
