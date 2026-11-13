@@ -49,6 +49,20 @@ class TaskStatusTest(unittest.TestCase):
         self.assertNotIn('SECRET', changed.get_data(as_text=True))
         self.assertNotIn('PRIVATE', changed.get_data(as_text=True))
 
+    def test_detail_lists_files_by_episode_and_is_conditional(self):
+        self.queued()
+        task_id = self.task()['id']
+        response = self.client.get('/manager/tasks/detail', query_string={'id': task_id})
+        self.assertEqual(response.status_code, 200)
+        detail = response.json
+        self.assertEqual([(item['position'], item['season'], item['state']) for item in detail['files']], [('S01E01', 1, 'pending')])
+        self.assertTrue(detail['series'])
+        self.assertEqual(detail['outcome'], '')
+        self.assertNotIn('/share/', response.get_data(as_text=True))  # 只给文件名，不给网盘路径
+        self.assertEqual(self.client.get('/manager/tasks/detail', query_string={'id': task_id},
+                                         headers={'If-None-Match': response.headers['ETag']}).status_code, 304)
+        self.assertEqual(self.client.get('/manager/tasks/detail', query_string={'id': 'import:tt0:missing'}).status_code, 404)
+
     def test_imdb_index_update_progress_and_failure_are_visible(self):
         state = {"started_at": 1, "running": True, "phase": "download", "downloaded": 1048576}
         with patch('services.imdb_identity.status', return_value=state):

@@ -60,8 +60,20 @@ def _files(rows: list[dict], active_labels: set[str]) -> list[dict]:
                 state, detail = "active", "正在读取参数…"
             else:
                 state, detail = "pending", "等待中"
-            files.append({"name": name, "position": position, "state": state, "detail": detail})
+            season = item.get("season_number")
+            files.append({"name": name, "position": position, "season": int(season) if position else None,
+                          "state": state, "detail": detail, "written": row["state"] == "complete"})
     return files
+
+
+def _outcome(files: list[dict], series: bool) -> str:
+    """出错时的一句话：部分失败写“已入库 10 集，2 集失败”，全部失败写“2 集失败”。"""
+    written = sum(file["written"] for file in files)
+    failed = sum(file["state"] in ("failed", "skipped") for file in files)
+    if not failed:
+        return ""
+    unit = "集" if series else "个视频"
+    return f"已入库 {written} {unit}，{failed} {unit}失败" if written else f"{failed} {unit}失败"
 
 
 def _core_steps(summary: dict, rows: list[dict]) -> list[dict]:
@@ -112,6 +124,9 @@ def import_detail(summary: dict, rows: list[dict], brief: dict | None, title_url
     media_type = (brief or {}).get("title_type")
     meta = [{"movie": "电影", "series": "剧集", "episode": "剧集"}.get(media_type, ""),
             str((brief or {}).get("start_year") or ""), f"{summary['files']} 个视频" if summary["files"] else ""]
+    files = _files(rows, active_labels)
+    series = any(file["position"] for file in files)
+    current = next((file for file in files if file["state"] == "active"), None)
     return {
         "id": summary["id"],
         "name": (brief or {}).get("display_title") or summary["name"],
@@ -122,7 +137,10 @@ def import_detail(summary: dict, rows: list[dict], brief: dict | None, title_url
         "state_text": STATE_TEXT.get(summary["state"], ""),
         "pill": PILL.get(summary["state"], "off"),
         "steps": _core_steps(summary, rows),
-        "files": _files(rows, active_labels),
+        "files": files,
+        "series": series,
+        "current": " · ".join(part for part in (current["position"], current["name"]) if part) if current else "",
+        "outcome": _outcome(files, series),
         "enrich": _enrich(summary),
         "issues": [" · ".join(part for part in (issue.get("label"), issue.get("reason")) if part)
                    for issue in summary.get("issues", []) if issue.get("reason")],

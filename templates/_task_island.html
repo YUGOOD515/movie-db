@@ -1,7 +1,9 @@
 {# 后台任务：平时收成左上角菜单按钮旁的圆钮（有任务才出现），排队的任务叠成一串圆形海报，有事件时短暂展开成胶囊；
-   点击后任务在圆钮下方排成一列胶囊卡片，点卡片原地展开当前进度。由 static/task-center.js 生成。 #}
+   点击后任务在圆钮下方排成一列胶囊卡片，点卡片原地展开当前进度（关联任务按需读取逐集详情）。由 static/task-center.js 生成。 #}
 <div class="task-center" data-task-center hidden
      data-status-url="{{ url_for('background_tasks') }}"
+     data-detail-url="{{ url_for('background_task_detail') }}"
+     data-title-url="{{ url_for('title_detail', title_id='__ID__') }}"
      data-jobs-url="{{ url_for('association_jobs') }}"
      data-scan-url="{{ url_for('discover_import_media') }}"
      data-rating-url="{{ url_for('refresh_manager_ratings') }}"

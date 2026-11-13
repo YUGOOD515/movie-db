@@ -4,6 +4,7 @@
     uv run python scripts/task_center_demo.py --port 5080
 
 只读本机媒体库的片名和海报做演示，不写任何数据库，也不调用外部服务。
+展开关联任务时读取的 /manager/tasks/detail 也是模拟的，字段与 viewmodels/tasks.py 的 import_detail 一致。
 页面参数（截图也用它们）：scenario 场景、at 场景已进行的秒数、open=1 展开任务列表、expand=1 / failed 展开第一个（失败的）任务、
 live=1 让圆钮保持“实时活动”胶囊、fly=1 冻结在海报飞行途中、theme=light 浅色主题。
 /device?w=390&h=844&scenario=… 用固定宽高的框模拟手机屏幕。
@@ -51,11 +52,11 @@ def library_titles(limit=8):
                 """, [title_id for title_id, _ in picked]))
             except sqlite3.OperationalError:
                 names = {}
-    titles = [(names.get(title_id) or FALLBACK_NAMES[index % len(FALLBACK_NAMES)], poster)
+    titles = [(names.get(title_id) or FALLBACK_NAMES[index % len(FALLBACK_NAMES)], poster, title_id)
               for index, (title_id, poster) in enumerate(picked) if names.get(title_id) or not names]
     titles = titles[:limit]
     while len(titles) < limit:
-        titles.append((FALLBACK_NAMES[len(titles) % len(FALLBACK_NAMES)], None))
+        titles.append((FALLBACK_NAMES[len(titles) % len(FALLBACK_NAMES)], None, f"tt{9900000 + len(titles)}"))
     return titles
 
 
@@ -73,8 +74,8 @@ class Demo:
         self.extra = []
 
     def job(self, index, offset, duration, files, outcome="complete", series=True):
-        name, poster = self.titles[index % len(self.titles)]
-        return {"index": index, "id": f"import:demo{index}:{int(self.start)}", "name": name, "poster": poster,
+        name, poster, title_id = self.titles[index % len(self.titles)]
+        return {"index": index, "id": f"import:{title_id}:{int(self.start)}", "name": name, "poster": poster,
                 "start": self.start + offset, "duration": duration, "files": files, "outcome": outcome, "series": series}
 
     def jobs(self):
@@ -95,7 +96,7 @@ class Demo:
         added = []
         for index in indexes:
             job = self.job(index, 0, 16 + len(added) * 4, 1, series=False)
-            job.update(id=f"import:demo{index}:{int(now * 1000)}", start=now)
+            job.update(id=f"import:{self.titles[index % len(self.titles)][2]}:{int(now * 1000)}", start=now)
             self.extra.append(job)
             added.append(job)
         return added
@@ -154,6 +155,43 @@ def import_task(job, now):
     elif outcome == "partial":
         task.update(retry_ids=[f"{job['id']}#job"], issues=[{"label": "海报", "reason": "TMDB 未返回中文海报，已保留原图"}])
     return task
+
+
+PROBE_SAMPLES = ["HDR10 · 3840×2160 · HEVC · 5.1", "1920×1080 · H.264 · 立体声", "Dolby Vision · 3840×2160 · HEVC · 7.1"]
+
+
+def import_detail(job, now):
+    """展开关联任务时的详情：与 viewmodels/tasks.py 的 import_detail 同一形状（逐集文件、正在读取、失败摘要）。"""
+    task = import_task(job, now)
+    count, series = job["files"], job["series"]
+    probed = task["files"] if task["state"] not in ("running", "queued", "waiting") else task["done"] if task["phase"] in ("probe", "write") else 0
+    files = []
+    for index in range(count):
+        season, episode = index // 10 + 1, index % 10 + 1
+        position = f"S{season:02}E{episode:02}" if series else ""
+        name = f"{job['name']}.{position}.2160p.WEB-DL.mkv" if series else f"{job['name']}.2023.2160p.BluRay.mkv"
+        sample = PROBE_SAMPLES[index % len(PROBE_SAMPLES)]
+        if task["state"] == "failed":
+            state, detail = ("failed", "视频链接已失效，请重新扫描后再关联") if index == 0 else ("skipped", "同批文件出错，本文件未写入")
+        elif job["outcome"] == "partial" and task["state"] == "partial" and index >= count - 2:
+            state, detail = "failed", "读取参数超时"
+        elif index < probed:
+            state, detail = "done", sample
+        elif index == probed and task["phase"] == "probe":
+            state, detail = "active", "正在读取参数…"
+        else:
+            state, detail = "pending", "等待中"
+        files.append({"name": name, "position": position, "season": season if series else None, "state": state,
+                      "detail": detail, "written": task["state"] in ("complete", "partial") and state == "done"})
+    current = next((file for file in files if file["state"] == "active"), None)
+    written = sum(file["written"] for file in files)
+    failed = sum(file["state"] in ("failed", "skipped") for file in files)
+    unit = "集" if series else "个视频"
+    outcome = (f"已入库 {written} {unit}，{failed} {unit}失败" if written else f"{failed} {unit}失败") if failed else ""
+    return {"id": job["id"], "name": job["name"], "meta": " · ".join(["剧集" if series else "电影", "2023", f"{count} 个视频"]),
+            "poster": job["poster"], "media_type": "series" if series else "movie", "state": task["state"],
+            "files": files, "series": series, "outcome": outcome,
+            "current": " · ".join(part for part in (current["position"], current["name"]) if part) if current else ""}
 
 
 def snapshot(demo, now):
@@ -216,7 +254,7 @@ PAGE = """<!DOCTYPE html>
 
         <h2 class="h6 text-body-secondary mb-2">点选海报，再点“确认关联”</h2>
         <div class="demo-cards">
-            {% for name, poster in titles %}
+            {% for name, poster, _ in titles %}
                 <button class="demo-card" type="button" aria-pressed="{{ 'true' if loop.index0 < 3 else 'false' }}" data-index="{{ loop.index0 }}" data-name="{{ name }}">
                     {% if poster %}<img src="{{ url_for('static', filename=poster) }}" alt="">{% endif %}
                     <span>{{ name }}</span>
@@ -307,6 +345,17 @@ def create_app():
     def background_tasks():
         return jsonify(snapshot(demo, time.time()))
 
+    @app.get("/manager/tasks/detail")
+    def background_task_detail():
+        job = next((job for job in demo.jobs() if job["id"] == request.args.get("id")), None)
+        if job is None:
+            return jsonify(error="任务已结束或已移除。"), 404
+        return jsonify(import_detail(job, time.time()))
+
+    # 完成时“打开作品页”的链接目标；演示页没有作品页，回到首页
+    @app.get("/title/<title_id>")
+    def title_detail(title_id):
+        return page()
 
     @app.post("/manager/association/jobs")
     def association_jobs():

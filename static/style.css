@@ -2746,6 +2746,110 @@ body.has-status-dock {
 .island-step[data-state="done"] .island-step-bar::before { width: 100%; }
 .island-step[data-state="active"] { color: var(--bs-body-color); font-weight: 500; }
 
+.island-step-label {
+    display: grid;
+}
+
+.island-step-count {
+    font-weight: 400;
+    color: var(--bs-secondary-color);
+    font-variant-numeric: tabular-nums;
+}
+
+/* 详情第一行：类型 · 年份 · N 个视频 */
+.island-meta {
+    color: var(--bs-body-color);
+}
+
+.island-card-detail > .island-meta + * {
+    margin-top: 0.5rem;
+}
+
+/* 逐集小格：每个视频一格，按季分行；最多露出约 4 行，多的在框内滚动 */
+.island-files-grid {
+    display: grid;
+    gap: 4px;
+    max-height: 4.75rem;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+}
+
+.island-files-row {
+    display: grid;
+    grid-template-columns: 1.75rem minmax(0, 1fr);
+    align-items: start;
+    gap: 0.375rem;
+}
+
+.island-files-season {
+    font-size: 0.6875rem;
+    line-height: 10px;
+    font-variant-numeric: tabular-nums;
+}
+
+.island-files-cells {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+}
+
+.island-file {
+    width: 10px;
+    height: 10px;
+    padding: 0;
+    border: 0;
+    border-radius: 3px;
+    corner-shape: squircle;
+    background: var(--ui-fill);
+}
+
+.island-file[data-state="done"] { background: var(--media-accent); }
+.island-file[data-state="active"] { background: var(--media-accent); animation: island-file-pulse 1.2s ease-in-out infinite alternate; }
+.island-file[data-state="failed"] { background: var(--bs-danger); }
+.island-file[data-state="skipped"] { background: rgba(var(--bs-danger-rgb), 0.35); }
+.island-file[aria-pressed="true"] { outline: 1.5px solid var(--bs-body-color); outline-offset: 1px; }
+
+@keyframes island-file-pulse { from { opacity: 1; } to { opacity: 0.3; } }
+
+@media (prefers-reduced-motion: reduce) {
+    .island-file[data-state="active"] { animation: none; opacity: 0.55; }
+}
+
+.island-files-info {
+    margin: 0.375rem 0 0;
+    font-variant-numeric: tabular-nums;
+}
+
+.island-outcome {
+    color: var(--bs-body-color);
+    font-weight: 500;
+}
+
+/* 完成时卡片右侧的“打开作品页”（完成的卡片不展开，卡片高度就是头部高度，所以垂直居中） */
+.island-card {
+    position: relative;
+}
+
+.island-card-link {
+    position: absolute;
+    top: 50%;
+    right: 1rem;
+    transform: translateY(-50%);
+    font-size: 0.75rem;
+    color: var(--bs-body-color);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.island-card-link[hidden] {
+    display: none;
+}
+
+.island-card:has(.island-card-link:not([hidden])) .island-card-text {
+    padding-right: 4.5rem;
+}
+
 .island-issues {
     display: grid;
     gap: 0.375rem;
