@@ -414,6 +414,37 @@ class DiscoveryStateTest(unittest.TestCase):
         self.assertEqual(restored["records"][0]["path"], "/r/Kept")
         discovery._scans.pop(str(self.database_path))
 
+    def test_scan_skips_ignored_folders_and_reports_slow_empty_ones(self):
+        tree = {"/r": [{"name": "Mix", "is_dir": True}, {"name": "Books", "is_dir": True}],
+                "/r/Mix": [{"name": "Movie.2020.mkv"}, {"name": "Extras", "is_dir": True}],
+                "/r/Books": [{"name": "a.txt"}, {"name": "Sub", "is_dir": True}], "/r/Books/Sub": [{"name": "b.epub"}]}
+        listed = []
+        store.add_root(self.database_path, "/r")
+        store.set_ignored(self.database_path, "/r/Mix/Extras", "Extras", True)
+        # 被忽略目录里有已入库的视频：没列出来，不能因此判成失效
+        associated = {"/r/Mix/Extras/linked.mkv": {"alist_path": "/r/Mix/Extras/linked.mkv", "title_id": "tt1", "name": "某片",
+                                                  "year": 2020, "title_type": "movie", "season_number": None}}
+        with patch.object(media_source, "list_directory", side_effect=lambda path, **kw: listed.append(path) or tree[path]), \
+             patch.object(discovery, "get_associated_paths", return_value=associated), \
+             patch.object(discovery, "SLOW_EMPTY_SECONDS", 0), \
+             patch.object(discovery.store, "save_health") as save_health, \
+             patch.object(media_health, "check_outside", return_value=[]), \
+             patch.object(recognition, "prepare", side_effect=lambda db, item, **kw: {"record": item, "needs_ai": False}), \
+             patch.object(recognition, "finish", return_value={"status": "review", "title": None}):
+            discovery._scans[str(self.database_path)] = discovery._empty_state("running")
+            discovery._run_scan(str(self.database_path), self.database_path, False)
+        self.assertNotIn("/r/Mix/Extras", listed)
+        save_health.assert_not_called()
+        state = discovery.scan_status(self.database_path, prune=False)
+        self.assertEqual([item["path"] for item in state["ignored"]], ["/r/Mix/Extras"])
+        self.assertEqual([item["path"] for item in state["slow_empty"]], ["/r/Books"])
+        discovery.set_ignored(self.database_path, "/r/Books", "Books", True)
+        state = discovery.scan_status(self.database_path, prune=False)
+        self.assertEqual(state["slow_empty"], [])
+        self.assertIn({"path": "/r/Books", "name": "Books", "count": 0}, state["ignored"])
+        self.assertEqual(store.ignored_paths(self.database_path)["/r/Books"], "Books")
+        discovery._scans.pop(str(self.database_path))
+
     def test_scan_request_during_scan_is_queued_and_roots_follow_config(self):
         key = str(self.database_path)
         discovery._scans[key] = {**discovery._empty_state("recognizing"), "roots": [{"path": "/old", "auto": True}]}

@@ -491,6 +491,16 @@
         missing.querySelector("span").textContent = `${scan.missing || 0} 个源文件失效`;
         missing.title = "已入库的视频在网盘中找不到，前往概览查看";
         show(missing, scan.missing > 0);
+        // 没有视频、却扫了很久的顶层目录：提示以后跳过（写进“已忽略”，随时可恢复）
+        const slow = slowFolders();
+        const slowNote = $("[data-discovery-slow]");
+        if (slow.length) {
+            const seconds = slow.reduce((sum, item) => sum + item.seconds, 0);
+            const names = slow.slice(0, 2).map(item => `“${item.name}”`).join("、") + (slow.length > 2 ? ` 等 ${slow.length} 个目录` : "");
+            slowNote.querySelector("span").textContent = `${names}没有视频，累计扫描 ${seconds >= 60 ? `${Math.round(seconds / 60)} 分钟` : `${seconds} 秒`}`;
+            slowNote.title = slow.map(item => `${item.path}（${item.seconds} 秒）`).join("\n");
+        }
+        show(slowNote, slow.length > 0 && !scanning());
         renderBar();
     }
 
@@ -681,6 +691,16 @@
         renderList();
         feedback(`已忽略 ${count} 项`, "info");
     }
+
+    const slowFolders = () => (scan.slow_empty || []).filter(item => !ignored.some(entry => entry.path === item.path))
+        .sort((a, b) => b.seconds - a.seconds);
+    $("[data-discovery-slow-skip]").addEventListener("click", async () => {
+        const list = slowFolders();
+        let count = 0;
+        for (const item of list) count += await setIgnored({ path: item.path, name: item.name, files: [] }, true, true) ? 1 : 0;
+        renderList();
+        feedback(`以后扫描跳过 ${count} 个目录，可在“已忽略”中恢复`, "info");
+    });
 
     async function updateRoot(path, action) {
         try {

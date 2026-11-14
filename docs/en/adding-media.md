@@ -48,7 +48,9 @@ Use **Add folder** (添加目录) in connection details, or **⋯ → Manage sca
 
 The source navigation stays available while reviewing or viewing mappings; returning preserves the scope, filter and list position. On phones, **Choose source** (选择来源) opens a drawer and file mappings stack vertically. Manual entry and JSON import remain in the right workspace's **⋯** menu.
 
-Each row's **⋯** menu offers *Change title*, *Recognize again* and *Ignore*. Ignored items move to the **Ignored** tab and can be restored at any time.
+Each row's **⋯** menu offers *Change title*, *Recognize again* and *Ignore*. Ignored items move to the **Ignored** tab and can be restored at any time; ignored folders are no longer expanded on later scans, so they cost no drive requests.
+
+When a top-level folder contains no videos yet takes 10 seconds or more to scan (an e-book or software collection, for example), a note above the list names those folders and their total scan time after the scan finishes. **Skip from now on** (以后跳过) moves them to **Ignored**.
 
 Nested category folders are first partitioned into works, retaining season and quality-folder context. Country-specific remakes, movie editions and series are checked separately. Recognition order: existing links in the library → folder names you confirmed before → same-name titles in the library → TMDB rule-based search → AI. Confirmed folder names are remembered. Cache signatures include folder contents, model configuration and recognition version; changing them triggers recognition again.
 

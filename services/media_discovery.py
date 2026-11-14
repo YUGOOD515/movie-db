@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import queue
+import time
 from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import closing
@@ -78,11 +79,13 @@ def _file(path, item):
 
 
 MAX_FOLDERS, MAX_FILES = 1000, 10000
+# 顶层目录一个视频都没有、却列了这么久（秒）：扫描结束后提示用户以后跳过
+SLOW_EMPTY_SECONDS = 10
 
 
-def collect_folder(path, refresh=False, pool=None):
+def collect_folder(path, refresh=False, pool=None, skip=(), skipped=None):
     """遍历 path 下全部视频。传入 pool 时每轮并行读取多个子目录（实际并发受 AList 限速约束），
-    大合集不再只占用一个线程逐个目录读取。"""
+    大合集不再只占用一个线程逐个目录读取。skip 里的目录（已忽略）不再展开，路径记入 skipped。"""
     files, warnings, pending = [], [], [path]
     visited = set()
 
@@ -114,7 +117,10 @@ def collect_folder(path, refresh=False, pool=None):
                 if not item.get("name") or "/" in item["name"] or item["name"] in (".", ".."):
                     continue
                 child = str(PurePosixPath(parent) / item["name"])
-                if item.get("is_dir"):
+                if item.get("is_dir") and child in skip:
+                    if skipped is not None:
+                        skipped.append(child)
+                elif item.get("is_dir"):
                     pending.append(child)
                 elif PurePosixPath(child).suffix.lower() in media_source.VIDEO_EXTENSIONS:
                     files.append(_file(child, item))
@@ -324,8 +330,12 @@ def _run_scan(key, database, refresh):
 
         def scan(root, entry):
             path = str(PurePosixPath(root) / entry["name"])
-            if entry.get("is_dir"):
-                files, warnings = collect_folder(path, refresh, listing_pool)
+            started, skipped = time.monotonic(), []
+            if entry.get("is_dir") and path in ignored:
+                # 已忽略的目录整棵跳过，不再向网盘列目录
+                files, warnings, skipped = [], [], [path]
+            elif entry.get("is_dir"):
+                files, warnings = collect_folder(path, refresh, listing_pool, ignored, skipped)
             else:
                 files = [_file(path, entry)] if PurePosixPath(path).suffix.lower() in media_source.VIDEO_EXTENSIONS else []
                 warnings = []
@@ -343,14 +353,21 @@ def _run_scan(key, database, refresh):
                 records = plan_groups(database, path, records)
             records.extend({"path": owner, "name": ignored[owner], "files": [None] * count,
                             "_ignored": True} for owner, count in hidden.items())
-            return root, entry["name"], records, warnings, {item["path"] for item in files}
+            # 跳过的目录没有列出，不知道里面有几个视频
+            records.extend({"path": owner, "name": ignored[owner], "files": [], "_ignored": True}
+                           for owner in skipped if owner not in hidden)
+            seconds = time.monotonic() - started
+            slow = {"path": path, "name": entry["name"], "seconds": round(seconds)} if (
+                entry.get("is_dir") and not files and not warnings and not skipped
+                and seconds >= SLOW_EMPTY_SECONDS) else None
+            return root, entry["name"], records, warnings, {item["path"] for item in files}, bool(skipped), slow
 
         # 顶层条目 4 路并行；目录读取共用一个池，单个大合集也能并行展开。
         with _recognition_pipeline(key, database) as recognizing, \
                 ThreadPoolExecutor(max_workers=4, thread_name_prefix="scan") as pool, \
                 ThreadPoolExecutor(max_workers=4, thread_name_prefix="alist-list") as listing_pool:
             for future in as_completed([pool.submit(scan, root, entry) for root, entry in plan]):
-                root, name, records, warnings, seen = future.result()
+                root, name, records, warnings, seen, partial, slow = future.result()
                 with _lock:
                     state = _scans[key]
                     for record in records:
@@ -363,7 +380,10 @@ def _run_scan(key, database, refresh):
                             state["records"].append(record)
                     state["warnings"].extend(warnings)
                     state["done"] += 1
-                    if not warnings:
+                    if slow:
+                        state["slow_empty"].append(slow)
+                    # 跳过了子目录就不算完整列出，免得把里面已入库的视频判成失效
+                    if not warnings and not partial:
                         listings[root]["complete"].add(name)
                     listings[root]["seen"].update(seen)
                 for record in records:
@@ -380,7 +400,7 @@ def _run_scan(key, database, refresh):
         except Exception:
             pass
         with _lock:
-            snapshot = {field: _scans[key][field] for field in ("roots", "root", "records", "ignored", "warnings")}
+            snapshot = {field: _scans[key][field] for field in ("roots", "root", "records", "ignored", "warnings", "slow_empty")}
         store.save_snapshot(database, snapshot)
         with _lock:
             _scans[key]["status"] = "complete"
@@ -394,7 +414,7 @@ def _run_scan(key, database, refresh):
 
 
 def _empty_state(status):
-    return {"status": status, "root": "", "roots": [], "records": [], "ignored": [], "warnings": [],
+    return {"status": status, "root": "", "roots": [], "records": [], "ignored": [], "warnings": [], "slow_empty": [],
             "done": 0, "total": 0, "recognized": 0, "to_recognize": 0, "rule_done": 0, "ai_pending": 0, "verifying": 0,
             "ai_summary": ""}
 
@@ -445,7 +465,7 @@ def scan_status(database, *, prune=True):
             return _empty_state("idle")
         state = {**_empty_state(state["status"]), **state,
                  "records": list(state["records"]), "warnings": list(state["warnings"]),
-                 "ignored": list(state.get("ignored") or [])}
+                 "ignored": list(state.get("ignored") or []), "slow_empty": list(state.get("slow_empty") or [])}
     state["rescan"] = bool(state.get("rescan"))
     # 目录列表以已保存的配置为准：刚添加 / 移除的目录立即可见，扫描结果在下一轮扫描后更新
     try:
@@ -522,6 +542,10 @@ def set_ignored(database, path, name, ignored):
             state["records"] = [record for record in state["records"] if record["path"] != path]
             state.setdefault("ignored", []).extend(
                 {"path": record["path"], "name": record["name"], "count": len(record["files"])} for record in moved)
+            # 没有视频的慢目录不在待关联列表里，也要立刻出现在“已忽略”中
+            if not moved and all(item["path"] != path for item in state["ignored"]):
+                state["ignored"].append({"path": path, "name": name, "count": 0})
+            state["slow_empty"] = [item for item in state.get("slow_empty") or [] if item["path"] != path]
         else:
             state["ignored"] = [item for item in state.get("ignored") or [] if item["path"] != path]
 

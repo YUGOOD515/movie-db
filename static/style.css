@@ -1830,6 +1830,11 @@ a.detail-rating-item:focus-visible .detail-rating-score {
     color: var(--bs-warning);
 }
 
+.discovery-slow {
+    display: flex;
+    max-width: 100%;
+}
+
 .discovery-missing > [data-icon="chevron-right"] {
     font-size: 0.65rem;
     opacity: 0.6;
