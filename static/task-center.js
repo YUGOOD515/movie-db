@@ -489,14 +489,19 @@
     // （卡片 overflow: hidden），下面的卡片跟着平滑移动。
     function resize(change) {
         const before = new Map([...rows].map(([key, row]) => [key, row.node.offsetHeight]));
+        // 先记下可见高度，再取消旧动画；否则详情先返回时，目标高度仍会读到旧动画的中间值。
+        for (const row of rows.values()) row.resizeAnimation?.cancel();
         change();
         if (reduced()) return Promise.resolve();
         const animations = [];
         for (const [key, item] of rows) {
             const from = before.get(key), to = item.node.offsetHeight;
-            if (from && Math.abs(from - to) > 1) animations.push(item.node.animate([{height: `${from}px`}, {height: `${to}px`}], {duration: 340, easing: SPRING}));
+            if (from && Math.abs(from - to) > 1) {
+                item.resizeAnimation = item.node.animate([{height: `${from}px`}, {height: `${to}px`}], {duration: 340, easing: SPRING});
+                animations.push(item.resizeAnimation);
+            }
         }
-        return Promise.all(animations.map(animation => animation.finished));
+        return Promise.all(animations.map(animation => animation.finished.catch(() => {})));
     }
 
     // 展开后展开的内容稍后淡入，动画结束后再把展开的卡片滚进可见范围。
