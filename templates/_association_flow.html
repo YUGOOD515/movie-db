@@ -44,6 +44,8 @@
     <section class="d-none" id="drive-connection-details" data-drive-details-panel aria-label="网盘连接详情">
         <button class="btn btn-sm chip-btn mb-3" type="button" data-drive-details-close>{{ ui_icon('chevron-left', '') }}返回关联列表</button>
         <div data-drive-details-body></div>
+        {# 详情检测后整块重新渲染，检测进度和结果由这里读给读屏软件 #}
+        <div class="visually-hidden" role="status" aria-live="polite" data-drive-status-live></div>
     </section>
 
     <section class="d-none" data-linked-editor aria-labelledby="linked-heading">

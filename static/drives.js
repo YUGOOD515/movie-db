@@ -23,18 +23,21 @@
         const kindRow = kindInput.closest(".ui-row");
         if (kindRow) kindRow.hidden = false;
         cancelButton?.setAttribute("data-bs-dismiss", "modal");
+        if (cancelButton) cancelButton.querySelector("span").textContent = "取消";
         const actions = form.querySelector(".drive-form-actions");
         if (actions) actions.hidden = false;
     }
 
-    function setInlineEditing(enabled) {
-        const card = page.querySelector("[data-drive-detail-card]");
-        if (!card) return;
-        card.querySelector("[data-drive-inline-form]").disabled = !enabled;
-        card.querySelector('[data-drive-action="edit"]').hidden = enabled;
-        form.querySelector(".drive-form-actions").hidden = !enabled;
-        if (enabled) form.querySelector(`[data-drive-fields="${kindInput.value}"] [data-drive-config]`)?.focus();
+    // 详情里的配置字段直接可改；有改动时才出现“放弃 / 检测并保存”
+    function setInlineDirty(dirty) {
+        form.querySelector(".drive-form-actions").hidden = !dirty;
     }
+    form.addEventListener("input", event => {
+        if (inlineMode && !event.target.closest("[data-drive-oauth-paste]")) setInlineDirty(true);
+    });
+    form.addEventListener("change", event => {
+        if (inlineMode && event.target.matches("[data-drive-config]")) setInlineDirty(true);
+    });
     const defaultMounts = {
         local: "本机", quark: "夸克", quark_tv: "夸克", uc: "UC", uc_tv: "UC", aliyun: "阿里", baidu: "百度",
         pan115: "115", pan123: "123", onedrive: "OneDrive", gdrive: "Google", webdav: "WebDAV", alist: "*",
@@ -172,8 +175,8 @@
         return result;
     }
 
-    function editDrive(button, inline = false) {
-        const drive = JSON.parse(button.dataset.drive);
+    function editDrive(source, inline = false) {
+        const drive = JSON.parse(source.dataset.drive);
         const mount = drive.mount;
         resetEditor();
         editingMount = mount;
@@ -205,51 +208,44 @@
             kindInput.closest(".ui-row").hidden = true;
             form.querySelector("[data-drive-mount]").hidden = true;
             cancelButton?.removeAttribute("data-bs-dismiss");
-            setInlineEditing(true);
+            if (cancelButton) cancelButton.querySelector("span").textContent = "放弃";
+            setInlineDirty(false);
         } else {
             moveFormToModal();
             openFromSidebar(() => modal?.show());
         }
     }
 
-    function cardResult(card, result, pending = false) {
-        renderResult(card.querySelector("[data-drive-card-result]"), result, pending);
-        if (!pending) {
-            const status = card.querySelector("[data-drive-status]");
-            status.dataset.state = result.ok ? "ok" : "fail";
-            card.querySelector("[data-drive-status-text]").textContent = result.ok ? "正常" : "检测失败";
-            // 详情只在比状态标签多出信息时显示
-            const detail = result.ok ? "" : (result.message || "操作失败");
-            const detailBox = card.querySelector("[data-drive-status-detail]");
-            detailBox.textContent = detail;
-            detailBox.hidden = !detail || detail === "已连接" || card.classList.contains("is-disabled");
-        }
+    // 详情标题下的状态行：检测时显示进度，结束后由刷新回来的详情显示服务端记录的状态
+    function paintStatus(card, state, text, notes = []) {
+        const status = card.querySelector("[data-drive-status]");
+        status.dataset.state = state;
+        status.querySelector("[data-drive-status-text]").textContent = text;
+        card.querySelector("[data-drive-status-notes]").replaceChildren(...notes.map(note => el("p", null, note)));
     }
+    const announce = text => { const live = page.querySelector("[data-drive-status-live]"); if (live) live.textContent = text; };
 
     async function cardAction(button) {
         const card = button.closest("[data-drive-card]");
         const action = button.dataset.driveAction;
         const mount = button.dataset.mount;
-        if (action === "edit") { editDrive(button, card.hasAttribute("data-drive-detail-card")); return; }
         if (action === "delete") {
             card.querySelector("[data-drive-delete-confirm]").hidden = false;
             return;
         }
         button.disabled = true;
-        cardResult(card, null, true);
+        if (action === "test") { paintStatus(card, "busy", "正在检测…"); announce("正在检测连接"); }
         const result = await post(`/manager/drives/${encodeURIComponent(mount)}/${action}`);
         button.disabled = false;
         if (action === "test") {
-            cardResult(card, result);
-            try {
-                await refreshDrives();
-                const fresh = page.querySelector("[data-drive-detail-card]");
-                if (fresh) cardResult(fresh, result);
-            } catch {}
+            announce(result.ok ? "检测完成：正常" : `检测失败：${result.message || ""}`);
+            try { await refreshDrives(); } catch {
+                paintStatus(card, result.ok ? "ok" : "fail", result.ok ? "正常" : "检测失败", result.ok ? [] : [result.message || "操作失败"]);
+            }
             return;
         }
-        if (!result.ok) { cardResult(card, result); return; }
-        try { await refreshDrives(); } catch { cardResult(card, { ok: false, message: "操作已完成，请刷新页面查看。" }); }
+        if (!result.ok) { window.showAppToast?.(result.message || "操作失败", "danger"); return; }
+        try { await refreshDrives(); } catch { window.showAppToast?.("操作已完成，请刷新页面查看。", "warning"); }
         // 路由变化（停用、移交透传等）后服务端已开始重新扫描
         if (result.message) window.showAppToast?.(result.message, "warning");
     }
@@ -357,8 +353,7 @@
         moveFormToModal();
         page.querySelector("[data-drive-details-body]").replaceChildren(template.content.cloneNode(true));
         bindDriveActions();
-        editDrive(page.querySelector('[data-drive-detail-card] [data-drive-action="edit"]'), true);
-        setInlineEditing(false);
+        editDrive(page.querySelector("[data-drive-detail-card]"), true);
         page.querySelectorAll("[data-drive-details-open]").forEach(node => node.setAttribute("aria-expanded", String(node.dataset.driveDetailsOpen === mount)));
         openFromSidebar(() => document.dispatchEvent(new CustomEvent("drives:details", {detail:{mount}})));
     }
@@ -380,8 +375,7 @@
     cancelButton?.addEventListener("click", event => {
         if (!inlineMode) return;
         event.preventDefault();
-        editDrive(page.querySelector('[data-drive-detail-card] [data-drive-action="edit"]'), true);
-        setInlineEditing(false);
+        editDrive(page.querySelector("[data-drive-detail-card]"), true);
     });
     // 关闭弹窗即放弃编辑；下次打开从干净的表单开始
     modalNode?.addEventListener("hidden.bs.modal", () => { if (selectedDrive) openDriveDetails(selectedDrive); else resetEditor(); });
@@ -410,9 +404,9 @@
                 button.disabled = true;
                 const result = await post(`/manager/drives/${encodeURIComponent(card.dataset.driveCard)}/delete`);
                 button.disabled = false;
-                if (!result.ok) { cardResult(card, result); return; }
+                if (!result.ok) { window.showAppToast?.(result.message || "删除失败", "danger"); return; }
                 try { await refreshDrives(); } catch {}
-                window.showAppToast?.(`已删除 ${card.querySelector(".ui-row-title")?.textContent || card.dataset.driveCard}`);
+                window.showAppToast?.(`已删除 ${card.querySelector(".ui-group-title")?.textContent || card.dataset.driveCard}`);
                 if (result.message) window.showAppToast?.(result.message, "warning");
             });
         });

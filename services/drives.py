@@ -92,6 +92,15 @@ def public(row, *, passthrough_names=frozenset(), passthrough=None):
         account = status.removeprefix("已连接：").split("（会员类型", 1)[0].strip() or account
     result["account"] = account
     result["has_problem"] = result["status_state"] == "fail" or (row["enabled"] and result["route_state"] == "unavailable")
+    # 详情标题下一行：状态后面接类型、账号、挂载路径和续期，没有的项不写；需要处理的情况逐条写在下面
+    path = result["scope"] if is_passthrough else result["source_path"]
+    result["summary"] = " · ".join(filter(None, (result["status_text"], result["label"], account, path, result["keepalive_text"])))
+    notes = [result["status_detail"]] if result["status_state"] == "fail" and result["status_detail"] else []
+    if row["enabled"] and result["route_state"] == "unavailable" and result.get("route_reason"):
+        notes.append(result["route_reason"])
+    if result["overlap"] and result["route_state"] == "self":
+        notes.append(f"{media_source.PASSTHROUGH_NAME}里也有同名目录。")
+    result["status_notes"] = notes
     return result
 
 

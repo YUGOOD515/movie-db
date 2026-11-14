@@ -1,49 +1,51 @@
-{# 仅在点击连接后放入右侧工作区；凭据只显示是否保存，修改仍复用登录/编辑弹窗。 #}
-<section data-drive-card="{{ drive.mount }}" data-drive-detail-card data-route="{{ drive.route_state }}" data-source-provider="{{ drive.provider or '' }}">
-    <header class="ui-group-head flex-wrap px-0">
-        <span class="ui-tile" aria-hidden="true">{{ ui_icon(drive.icon, '') }}</span>
-        <div class="ui-group-text">
-            <h2 class="h5 mb-1 ui-row-title">{{ drive.display_name }}</h2>
-            {% if drive.label != drive.display_name %}<p class="ui-group-desc">{{ drive.label }}</p>{% endif %}
-        </div>
-        <div class="drive-item-actions">
-            <button class="btn btn-sm chip-btn" type="button" data-drive-action="test" data-mount="{{ drive.mount }}">{{ ui_icon('refresh-cw', '') }}<span>检测连接</span></button>
-            <button class="btn btn-sm chip-btn" type="button" data-drive-action="edit" data-mount="{{ drive.mount }}" data-drive='{{ drive|tojson }}'>{{ ui_icon('pencil', '') }}<span>编辑配置</span></button>
-            <div class="dropdown">
-                <button class="btn icon-btn" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="更多连接操作">{{ ui_icon('ellipsis', '') }}</button>
-                <ul class="dropdown-menu dropdown-menu-end media-menu">
-                    <li><button class="dropdown-item" type="button" data-drive-action="toggle" data-mount="{{ drive.mount }}">{{ '停用' if drive.enabled else '启用' }}</button></li>
-                    {% if drive.can_delegate %}
-                        {% if drive.route_state == 'delegated' %}
-                            <li><button class="dropdown-item" type="button" data-drive-action="reclaim" data-mount="{{ drive.mount }}">改回由本网盘提供</button></li>
-                        {% else %}
-                            <li><button class="dropdown-item" type="button" data-drive-action="delegate" data-mount="{{ drive.mount }}">改由默认（透传）提供</button></li>
-                        {% endif %}
-                    {% endif %}
-                    <li><hr class="dropdown-divider"></li>
-                    <li><button class="dropdown-item is-danger" type="button" data-drive-action="delete" data-mount="{{ drive.mount }}">删除连接</button></li>
-                </ul>
+{# 仅在点击连接后放入右侧工作区。与设置页同一套分组写法：标题下一行是状态和连接信息，配置字段直接可改，
+   改动后才出现“放弃 / 检测并保存”；凭据只显示是否保存。 #}
+<section class="ui-stack" data-drive-card="{{ drive.mount }}" data-drive-detail-card data-route="{{ drive.route_state }}" data-source-provider="{{ drive.provider or '' }}" data-hue="blue" data-drive='{{ drive|tojson }}'>
+    <section class="ui-group" aria-labelledby="drive-detail-title">
+        <header class="ui-group-head">
+            <span class="ui-tile" aria-hidden="true">{{ ui_icon(drive.icon, '') }}</span>
+            <div class="ui-group-text">
+                <h2 class="ui-group-title" id="drive-detail-title">{{ drive.display_name }}</h2>
+                <p class="ui-status text-break" data-drive-status data-state="{{ drive.status_state }}"><span data-drive-status-text>{{ drive.summary }}</span></p>
+                <div class="ui-status-notes" data-drive-status-notes>{% for note in drive.status_notes %}<p>{{ note }}</p>{% endfor %}</div>
             </div>
+            <div class="ui-group-side">
+                <button class="btn btn-sm chip-btn" type="button" data-drive-action="test" data-mount="{{ drive.mount }}">检测</button>
+                <div class="dropdown">
+                    <button class="btn icon-btn" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="更多连接操作">{{ ui_icon('ellipsis', '') }}</button>
+                    <ul class="dropdown-menu dropdown-menu-end media-menu">
+                        <li><button class="dropdown-item" type="button" data-drive-action="toggle" data-mount="{{ drive.mount }}">{{ '停用' if drive.enabled else '启用' }}</button></li>
+                        {% if drive.can_delegate %}
+                            {% if drive.route_state == 'delegated' %}
+                                <li><button class="dropdown-item" type="button" data-drive-action="reclaim" data-mount="{{ drive.mount }}">改回由本网盘提供</button></li>
+                            {% else %}
+                                <li><button class="dropdown-item" type="button" data-drive-action="delegate" data-mount="{{ drive.mount }}">改由默认（透传）提供</button></li>
+                            {% endif %}
+                        {% endif %}
+                        <li><hr class="dropdown-divider"></li>
+                        <li><button class="dropdown-item is-danger" type="button" data-drive-action="delete" data-mount="{{ drive.mount }}">删除连接</button></li>
+                    </ul>
+                </div>
+            </div>
+        </header>
+        <div class="drive-confirm mt-0 mb-3" data-drive-delete-confirm hidden>
+            <p class="drive-confirm-text m-0"><strong>删除挂载“{{ drive.display_name }}”？</strong><small>媒体库记录不会删除，之后重新添加同名挂载即可继续播放。</small></p>
+            <div class="drive-item-actions"><button class="btn btn-sm chip-btn" type="button" data-drive-cancel-delete>取消</button><button class="btn btn-sm chip-btn text-danger" type="button" data-drive-confirm-delete>删除</button></div>
         </div>
-    </header>
-    <div class="settings-result" data-drive-card-result role="status" aria-live="polite"></div>
-    <dl class="connection-facts row row-cols-2 row-cols-xl-4 g-3 mb-4">
-        <div class="col"><dt>{{ ui_icon('plug', '') }}<span>连接状态</span></dt><dd><span class="ui-pill" data-drive-status data-state="{{ drive.status_state }}"><span data-drive-status-text>{{ drive.status_text }}</span></span><p class="small text-body-secondary mt-2 mb-0 text-break" data-drive-status-detail{% if drive.status_state != 'fail' %} hidden{% endif %}>{{ drive.status_detail }}</p></dd></div>
-        <div class="col"><dt>{{ ui_icon('user-round', '') }}<span>连接账号</span></dt><dd class="text-break">{{ drive.account or '未提供账号信息' }}</dd></div>
-        <div class="col"><dt>{{ ui_icon('folder', '') }}<span>挂载路径</span></dt><dd class="text-break">{{ '其他所有路径' if drive.source_path == '*' else drive.source_path }}<p class="small text-body-secondary mt-2 mb-0">{{ drive.scope }}</p></dd></div>
-        <div class="col"><dt>{{ ui_icon('refresh-cw', '') }}<span>凭据续期</span></dt><dd>{{ drive.keepalive_text or '暂无续期记录' }}</dd></div>
-    </dl>
-    <section aria-label="连接配置">
-        <h3 class="h6 d-flex align-items-center gap-2 mb-3">{{ ui_icon('pencil', '') }}<span>连接配置</span></h3>
-        <fieldset class="drive-inline-fields" data-drive-inline-form disabled></fieldset>
+        <fieldset class="drive-inline-fields" data-drive-inline-form aria-label="连接配置"></fieldset>
     </section>
-    <section class="mt-4" aria-label="此连接的扫描目录">
-        <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3"><h3 class="h6 mb-0">扫描目录</h3><button class="btn btn-sm chip-btn" type="button" data-root-open="{{ '/' if drive.source_path == '*' else drive.source_path }}">{{ ui_icon('plus', '') }}<span>添加目录</span></button></div>
-        <div class="vstack gap-1" data-source-roots="{{ drive.source_path }}"></div>
-        <button class="btn btn-sm chip-btn mt-3" type="button" data-source-path="{{ drive.source_path }}">查看此来源的关联{{ ui_icon('chevron-right', '') }}</button>
+    <section class="ui-group" aria-labelledby="drive-roots-title">
+        <header class="ui-group-head">
+            <span class="ui-tile" aria-hidden="true">{{ ui_icon('folder', '') }}</span>
+            <div class="ui-group-text"><h3 class="ui-group-title" id="drive-roots-title">扫描目录</h3></div>
+            <div class="ui-group-side">
+                <button class="btn btn-sm chip-btn" type="button" data-source-path="{{ drive.source_path }}">查看关联{{ ui_icon('chevron-right', '') }}</button>
+                <button class="btn btn-sm chip-btn" type="button" data-root-open="{{ '/' if drive.source_path == '*' else drive.source_path }}">{{ ui_icon('plus', '') }}<span>添加目录</span></button>
+            </div>
+        </header>
+        <div class="ui-card drive-roots">
+            <div data-source-roots="{{ drive.source_path }}"></div>
+            <p class="drive-roots-empty">还没有选择扫描目录。</p>
+        </div>
     </section>
-    <div class="drive-confirm" data-drive-delete-confirm hidden>
-        <p class="drive-confirm-text m-0"><strong>删除挂载“{{ drive.display_name }}”？</strong><small>媒体库记录不会删除，之后重新添加同名挂载即可继续播放。</small></p>
-        <div class="drive-item-actions"><button class="btn btn-sm chip-btn" type="button" data-drive-cancel-delete>取消</button><button class="btn btn-sm chip-btn text-danger" type="button" data-drive-confirm-delete>删除</button></div>
-    </div>
 </section>

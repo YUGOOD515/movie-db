@@ -43,7 +43,8 @@ def test_local_drive_crud_page_and_json_are_safe(env):
     assert page.status_code == 200
     text = page.get_data(as_text=True)
     assert "本机目录" in text and "AList / OpenList（透传）" in text and "local" in text
-    assert "ui-row" in text and "ui-disclosure" in text and "ui-pill" in text
+    assert "ui-row" in text and "ui-disclosure" in text and "ui-status" in text
+    assert "编辑配置" not in text  # 详情里的配置字段直接可改
     assert "data-drive-reveal" in text and "data-secret-textarea" in text and 'data-pick-path="folder"' in text
     kinds = ("local", "quark", "uc", "aliyun", "baidu", "pan123", "alist")
     positions = [text.index(f'<option value="{kind}">') for kind in kinds]
