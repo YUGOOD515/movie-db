@@ -54,6 +54,8 @@ def test_state_lists_parts_with_sizes(env):
     assert list(parts) == list(data_reset.PART_IDS)
     assert parts["images"]["size"] >= 2048 and parts["library"]["exists"]
     assert data["cloud"] is True and data["confirm"] == "清除"
+    css = (Path(__file__).resolve().parents[1] / "static/style.css").read_text(encoding="utf-8")
+    assert all(f'[data-hue="{part["hue"]}"]' in css for part in data["parts"])  # 存储条的颜色都在样式表里登记过
 
 
 def test_clear_everything_empties_cloud_then_removes_env(env, monkeypatch):

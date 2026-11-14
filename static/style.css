@@ -5286,7 +5286,7 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
    A  页面内容左缘：页头标题、分组卡片外缘；
    B  A + --ui-inset：分组图标块、行标签、分隔线、按钮行文字共用这一条；
    C  12 栏中的第 6 栏起点：所有输入控件左缘；
-   D  A 的镜像：状态标签、检测按钮、开关、输入框右缘。
+   D  A 的镜像：检测按钮、开关、输入框右缘。
    层级：页头（h3）→ 分组标题（1rem / 600）→ 行标签（0.9375rem / 500）→ 说明（0.8125rem / 次要色）。
    分组之间靠留白（--ui-group-gap），组内行之间才用缩进细线；卡片靠底色区分，不描边。
    ========================================================================== */
@@ -5353,10 +5353,55 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
 }
 
 .ui-group-desc {
+    min-height: 1.5em; /* 文字由脚本填入时先占好一行，加载后不跳动 */
     margin: 2px 0 0;
     font-size: 0.8125rem;
     line-height: 1.5;
     color: var(--bs-secondary-color);
+}
+
+/* ---------- 状态行：分组标题下一行；只有圆点带状态色，文字保持次要色 ---------- */
+
+.ui-status {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    min-height: 1.5em;
+    margin: 2px 0 0;
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    color: var(--bs-secondary-color);
+}
+
+.ui-status::before {
+    content: "";
+    flex: 0 0 auto;
+    width: 6px;
+    height: 6px;
+    margin-top: calc(0.75em - 3px); /* 对齐第一行文字的中线，换行后圆点不下移 */
+    border-radius: 50%;
+    background: var(--bs-tertiary-color);
+}
+
+.ui-status:not([data-state])::before { visibility: hidden; }
+.ui-status[data-state="ok"]::before { background: var(--bs-success); }
+.ui-status[data-state="warn"]::before { background: var(--bs-warning); }
+.ui-status[data-state="fail"]::before { background: var(--bs-danger); }
+.ui-status[data-state="fail"] { color: var(--bs-body-color); }
+.ui-status[data-state="busy"]::before { animation: ui-status-pulse 0.8s ease-in-out infinite alternate; }
+
+@keyframes ui-status-pulse { to { opacity: 0.25; } }
+
+@media (prefers-reduced-motion: reduce) {
+    .ui-status[data-state="busy"]::before { animation: none; }
+}
+
+/* 检测给出的提醒：接在状态行下面，与标题文字同一条对齐线 */
+.ui-status-notes > p {
+    margin: 2px 0 0;
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    color: var(--bs-warning-text-emphasis);
 }
 
 .ui-group-side {
@@ -5366,11 +5411,6 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
     gap: 8px;
     min-width: 0;
     margin-left: auto;
-}
-
-/* 分组下方的检测结果：与行标签同一条对齐线 */
-.ui-group > .settings-result {
-    margin: 0 var(--ui-inset) 12px;
 }
 
 /* ---------- 图标块 ---------- */
@@ -5719,20 +5759,9 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
 /* 左栏选中态与关联页的网盘侧栏一致：浅灰底 + 强调文字，不用实心强调色 */
 .settings-nav .nav-link:hover:not(.active) { background: var(--bs-tertiary-bg); color: var(--bs-body-color); }
 .settings-nav .nav-link.active { background: var(--media-selected-bg); color: var(--bs-emphasis-color); }
-.settings-form { container-type: inline-size; --ui-group-gap: 3rem; }
-.settings-section { align-items: start; }
+/* 设置页始终单列：标签在左、控件在右，C、D 两条对齐线各只有一条 */
+.settings-form { --ui-group-gap: 3rem; }
 .settings-section > .ui-group { min-width: 0; }
-.settings-section[data-section="ai"] { max-width: 64rem; }
-.settings-section [data-reset],
-.settings-section > .tmdb-credit { grid-column: 1 / -1; }
-
-/* 宽屏两栏按列排（高矮不一的分组上下接着排，不按行对齐留出空洞）；清除数据与署名横跨两栏 */
-@container (min-width: 56rem) {
-    .settings-section:not([data-section="ai"]) { display: block; columns: 2; column-gap: 1.5rem; }
-    .settings-section:not([data-section="ai"]) > * { break-inside: avoid; margin-bottom: var(--ui-group-gap); }
-    .settings-section:not([data-section="ai"]) > :is([data-reset], .tmdb-credit) { column-span: all; }
-    .settings-section:not([data-section="ai"]) .ui-row:not(.is-switch):not(.is-action) > :is(.ui-row-label, .ui-row-control) { grid-column: 1 / -1; }
-}
 
 @media (max-width: 1199.98px) {
     .management-layout { grid-template-columns: 15rem minmax(0, 1fr); }
@@ -5899,56 +5928,69 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
     display: none;
 }
 
-/* 数据：清除 */
+/* 清除数据：各项占用按比例排成一条（Bootstrap 堆叠进度条），色段与下方每行行首的圆点同色 */
+.storage-bar {
+    --bs-progress-height: 10px;
+    --bs-progress-bg: var(--ui-fill);
+    --bs-progress-border-radius: var(--radius-pill);
+    gap: 2px;
+    margin: 0 var(--ui-inset) 4px;
+}
+
+/* 条上方的留白写成卡片内边距：写成条的上边距会和卡片合并，跑到卡片外面 */
+.ui-card:has(> .storage-bar) {
+    padding-top: var(--ui-inset);
+}
+
+/* 占比再小的项也留出看得见的一段 */
+.storage-bar > .progress {
+    --bs-progress-bg: transparent;
+    --bs-progress-border-radius: 0;
+    min-width: 6px;
+}
+
+.storage-bar .progress-bar,
+.storage-dot {
+    background-color: rgb(var(--ui-hue, var(--hue-gray)));
+}
+
+.storage-dot {
+    flex: 0 0 auto;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+
 .settings-reset-parts > .ui-row:first-child {
     border-top: 0;
 }
 
-.settings-reset-part label {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
+.storage-row {
+    cursor: pointer;
 }
 
-.settings-reset-part label .app-icon {
-    color: var(--bs-secondary-color);
-}
-
-.settings-reset-note {
+.storage-row > .ui-row-label {
     display: flex;
     align-items: center;
-    gap: 8px;
-    margin: 0 var(--ui-inset);
-    padding: 12px 0;
-    border-top: 1px solid var(--ui-line);
-    font-size: 0.8125rem;
-    color: var(--bs-secondary-color);
+    gap: 10px;
 }
 
-.settings-reset-note[hidden] {
-    display: none;
-}
-
-.settings-reset-actions {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 12px 16px;
-    margin: 0 var(--ui-inset);
-    padding: var(--ui-row-y) 0;
-    border-top: 1px solid var(--ui-line);
-}
-
-.settings-reset-actions .settings-result {
-    flex: 1 1 16rem;
+.storage-row .form-check-input {
+    flex: 0 0 auto;
     margin: 0;
 }
 
-.settings-reset-actions .btn {
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
+.storage-row > .ui-row-control {
+    font-size: 0.875rem;
+    font-variant-numeric: tabular-nums;
+    color: var(--bs-secondary-color);
+}
+
+/* 确认弹窗里列出将被清除的内容：名称在上、包含什么在下 */
+.reset-summary > li > span {
+    display: block;
+    font-size: 0.8125rem;
+    color: var(--bs-secondary-color);
 }
 
 /* ==========================================================================

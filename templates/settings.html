@@ -55,16 +55,14 @@
     </details>
 {% endmacro %}
 
-{# 状态标签紧跟标题；右侧只放检测、更新等操作 #}
-{% macro group_head(id, title, description, icon, status=false) %}
+{# 标题下一行是状态：正常时只写状态，未配置 / 已关闭等情况后面带上用途说明（data-desc），检测结果也写在这一行；右侧只放检测、更新等操作 #}
+{% macro group_head(id, title, description, icon) %}
     <header class="ui-group-head">
         {% if icon %}<span class="ui-tile" aria-hidden="true">{{ ui_icon(icon, '') }}</span>{% endif %}
         <div class="ui-group-text">
-            <div class="d-flex align-items-center gap-2">
-                <h2 class="ui-group-title" id="group-{{ id }}">{{ title }}</h2>
-                {% if status %}<span class="ui-pill" data-status="{{ id }}"><span data-status-text></span></span>{% endif %}
-            </div>
-            <p class="ui-group-desc">{{ description }}</p>
+            <h2 class="ui-group-title" id="group-{{ id }}">{{ title }}</h2>
+            <p class="ui-status" data-status="{{ id }}" data-desc="{{ description }}"><span data-status-text></span></p>
+            <div class="ui-status-notes" data-status-notes></div>
         </div>
         {% if caller %}<div class="ui-group-side">{{ caller() }}</div>{% endif %}
     </header>
@@ -91,7 +89,7 @@
             <section class="settings-section ui-stack" id="section-{{ section.id }}" role="tabpanel" aria-labelledby="tab-{{ section.id }}" data-section="{{ section.id }}" data-hue="{{ section.hue }}" hidden>
                 {% for group in section.groups %}
                     <section class="ui-group" data-group="{{ group.id }}" aria-labelledby="group-{{ group.id }}">
-                        {% call group_head(group.id, group.title, group.description, group.icon, status=true) %}
+                        {% call group_head(group.id, group.title, group.description, group.icon) %}
                             {% if group.id == "imdb" %}
                                 <button class="btn btn-sm chip-btn" type="button" data-imdb-update{% if remote %} disabled{% endif %}>{{ ui_icon('refresh-cw', '') }}<span>检查更新</span></button>
                             {% endif %}
@@ -104,7 +102,6 @@
                                 <button class="btn btn-sm chip-btn" type="button" data-test="{{ group.test }}"><span>检测</span></button>
                             {% endif %}
                         {% endcall %}
-                        {% if group.test or group.id == "imdb" %}<div class="settings-result" data-result="{{ group.test or group.id }}" role="status" aria-live="polite"></div>{% endif %}
 
                         <div class="ui-card"{% if group.id == "llm" %} data-ai-body{% endif %}>
                             {%- if group.id == "llm" -%}
@@ -122,25 +119,21 @@
                     </section>
                 {% endfor %}
                 {% if section.id == "metadata" %}
-                    {# 清除数据放在元数据页最底部；不是独立表单（不能嵌套在设置表单里），由 settings.js 处理 #}
+                    {# 清除数据放在元数据页最底部：存储条 + 每项一行（名称、大小），由 settings.js 填入；警告和确认都在下方的确认弹窗里 #}
                     <section class="ui-group" data-reset data-hue="red" aria-labelledby="group-reset">
-                        {{ group_head("reset", "清除数据", "彻底删除所选数据，不做备份、无法恢复。清除媒体库或连接设置后会回到首次使用引导。", "trash-2") }}
+                        <header class="ui-group-head">
+                            <span class="ui-tile" aria-hidden="true">{{ ui_icon('trash-2', '') }}</span>
+                            <div class="ui-group-text">
+                                <h2 class="ui-group-title" id="group-reset">清除数据</h2>
+                                <p class="ui-group-desc" data-reset-total></p>
+                            </div>
+                            <div class="ui-group-side">
+                                <button class="btn btn-sm chip-btn" type="button" data-bs-toggle="modal" data-bs-target="#reset-confirm-modal" data-reset-open disabled>{{ ui_icon('trash-2', '') }}<span>清除所选…</span></button>
+                            </div>
+                        </header>
                         <div class="ui-card">
+                            <div class="progress-stacked storage-bar" data-reset-bar aria-hidden="true"></div>
                             <div class="settings-reset-parts" data-reset-parts></div>
-                            <p class="settings-reset-note" data-reset-cloud hidden>{{ ui_icon('cloud-off', '') }}<span>已开启云端只读快照：清除媒体库时，云端快照会同步清空。</span></p>
-                            <div class="ui-row settings-reset-confirm">
-                                <div class="ui-row-label">
-                                    <label for="reset-confirm">确认</label>
-                                    <p class="ui-row-hint">输入“清除”后才能执行。</p>
-                                </div>
-                                <div class="ui-row-control">
-                                    <input class="form-control" id="reset-confirm" type="text" placeholder="清除" spellcheck="false" autocomplete="off" data-reset-confirm>
-                                </div>
-                            </div>
-                            <div class="settings-reset-actions">
-                                <div class="settings-result" data-reset-result role="status" aria-live="polite"></div>
-                                <button class="btn btn-sm btn-danger" type="button" data-reset-submit disabled>{{ ui_icon('trash-2', '') }}<span>清除所选数据</span></button>
-                            </div>
                         </div>
                     </section>
                     {% include "_tmdb_credit.html" %}
@@ -148,6 +141,31 @@
             </section>
         {% endfor %}
     </form>
+    </div>
+    {# 检测开始和结束时读给读屏软件；页面加载时填入的状态不朗读 #}
+    <div class="visually-hidden" role="status" aria-live="polite" data-status-live></div>
+</div>
+
+{# 清除数据的确认弹窗：放在设置表单外面，回车不会触发保存设置 #}
+<div class="modal fade" id="reset-confirm-modal" tabindex="-1" aria-labelledby="reset-confirm-heading" aria-hidden="true" data-reset-modal>
+    <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content squircle-card">
+            <div class="modal-header border-0 pb-2">
+                <h2 class="modal-title fs-5" id="reset-confirm-heading">清除数据</h2>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="关闭"></button>
+            </div>
+            <div class="modal-body pt-2">
+                <ul class="reset-summary list-unstyled vstack gap-2 mb-3" data-reset-summary></ul>
+                <p class="small text-body-secondary mb-3">清除后无法恢复，也不做备份。清除媒体库或连接与密钥后会回到首次使用引导。<span data-reset-cloud hidden>已开启云端只读快照，云端快照会同步清空。</span></p>
+                <label class="form-label small" for="reset-confirm">输入“<span data-reset-word>清除</span>”确认</label>
+                <input class="form-control" id="reset-confirm" type="text" spellcheck="false" autocomplete="off" data-reset-confirm>
+                <div class="settings-result mt-2" data-reset-result role="status" aria-live="polite"></div>
+            </div>
+            <div class="modal-footer border-0 pt-0">
+                <button type="button" class="btn btn-sm chip-btn" data-bs-dismiss="modal">取消</button>
+                <button type="button" class="btn btn-sm btn-danger" data-reset-submit disabled>清除</button>
+            </div>
+        </div>
     </div>
 </div>
 {% endblock %}

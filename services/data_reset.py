@@ -1,6 +1,6 @@
 """设置页“数据”分区：彻底删除本机数据，回到首次使用引导。
 
-可选四项（默认全选）：媒体库、识别缓存与扫描记录、海报与缩略图、连接与密钥（.env）。
+可选四项（默认都不选）：媒体库、识别缓存与扫描记录、海报与缩略图、连接与密钥（.env）。
 删除不可恢复、不做备份。清除媒体库且已开启云端同步时，先用一个空媒体库发布快照，
 让云端同步清空（发布脚本会删除远端多余的对象），再删除 .env——发布需要其中的同步令牌。
 """
@@ -21,14 +21,15 @@ from services import cloud_sync, media_discovery, setup_wizard
 logger = logging.getLogger(__name__)
 
 CONFIRM_WORD = "清除"
+# hue：存储条上这一项的颜色（style.css 的 --hue-*），不表达状态
 PARTS = (
-    {"id": "library", "label": "媒体库", "icon": "library",
+    {"id": "library", "label": "媒体库", "hue": "blue",
      "hint": "作品、已关联的影片、观看进度与收藏"},
-    {"id": "discovery", "label": "识别缓存与扫描记录", "icon": "radar",
+    {"id": "discovery", "label": "识别缓存与扫描记录", "hue": "violet",
      "hint": "扫描目录、识别结果、忽略列表与 TMDB 查询缓存"},
-    {"id": "images", "label": "海报与缩略图", "icon": "images",
+    {"id": "images", "label": "海报与缩略图", "hue": "amber",
      "hint": "已下载的海报、剧照、头像和缩略图"},
-    {"id": "config", "label": "连接与密钥", "icon": "key",
+    {"id": "config", "label": "连接与密钥", "hue": "gray",
      "hint": "网盘、TMDB、AI 等全部设置与凭据"},
 )
 PART_IDS = tuple(part["id"] for part in PARTS)

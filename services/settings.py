@@ -103,7 +103,7 @@ class Setting:
 class Group:
     id: str
     title: str
-    description: str
+    description: str  # 用途说明：只在未配置、已关闭等非正常状态时接在状态后面显示，可留空
     settings: tuple[Setting, ...]
     test: str | None = None  # 对应 setup_wizard.TESTS 的检测项
     icon: str = ""           # Lucide 图标名称
@@ -167,7 +167,7 @@ SECTIONS: tuple[Section, ...] = (
             S("MOVIEDB_SYNC_DISABLED", "暂停自动同步", "bool", False),
             S("MOVIEDB_SYNC_URL", "同步地址", "url", advanced=True, placeholder="https://moviedb-router.example.workers.dev"),
         ), icon="cloud-upload"),
-        Group("app", "本机", "MovieDB 自身", (
+        Group("app", "本机", "", (
             S("MOVIEDB_PORT", "端口", "int", 5000, low=1024, high=65535, restart=True, placeholder="5000",
               hint="桌面版使用的本机端口。"),
             S("MOVIEDB_UI", "界面打开方式", "select", restart=True,
@@ -179,17 +179,16 @@ SECTIONS: tuple[Section, ...] = (
     ), icon="plug", hue="blue"),
     Section("metadata", "元数据", "海报、简介、演员与评分", (
         Group("tmdb", "TMDB", "海报、简介、演员与季集", (
-            S("TMDB_TOKEN", "自己的密钥", "secret",
-              hint="留空使用 MovieDB 内置的密钥。API 读访问令牌或 32 位 API Key 都可以。"),
-            S("TMDB_API_ORIGIN", "接口地址", "url", placeholder="https://api.themoviedb.org/3",
+            S("TMDB_TOKEN", "自己的密钥", "secret", hint="留空使用内置密钥。"),
+            S("TMDB_API_ORIGIN", "接口地址", "url", advanced=True, placeholder="https://api.themoviedb.org/3",
               hint="留空时自动选择：api.themoviedb.org 连不上就改用 api.tmdb.org。使用反向代理或镜像时填写。"),
-            S("TMDB_IMAGE_ORIGIN", "图片地址", "url", placeholder="https://image.tmdb.org/t/p",
+            S("TMDB_IMAGE_ORIGIN", "图片地址", "url", advanced=True, placeholder="https://image.tmdb.org/t/p",
               hint="海报加载不出来时，可填公共图片加速 https://wsrv.nl/?url=https://image.tmdb.org/t/p（第三方服务）。"),
-            S("TMDB_RATE", "每秒请求预算", "float", 25, low=0.1, high=30, placeholder="25",
+            S("TMDB_RATE", "每秒请求预算", "float", 25, advanced=True, low=0.1, high=30, placeholder="25",
               hint="扫描、识别与导入共用预算；不积攒突发额度。"),
         ), test="tmdb", icon="image"),
         Group("mdblist", "MDBList", "烂番茄、Metacritic 等多平台评分", (
-            S("MDBLIST_APIKEY", "API Key", "secret", hint="在 mdblist.com 登录后，于 Preferences → API Access 中生成；免费账号每天 1000 次。"),
+            S("MDBLIST_APIKEY", "API Key", "secret", hint="在 mdblist.com 的 Preferences → API Access 中生成。"),
             S("MDBLIST_DAILY_BUDGET", "24 小时请求预算", "int", 900, advanced=True, low=1, high=100000, placeholder="900",
               hint="按连续 24 小时统计，包含重试。根据账号套餐设置并保留余量。"),
             S("MDBLIST_RATE", "每秒请求预算", "float", 2, advanced=True, low=0.1, high=2, placeholder="2"),
@@ -197,7 +196,7 @@ SECTIONS: tuple[Section, ...] = (
         Group("imdb", "IMDb 数据", "官方评分与单集编号，一起下载、一起更新", (
             S("IMDB_EPISODES_UPDATE", "更新方式", "select", options=(
                 ("", "每周（默认）"), ("daily", "每天"), ("manual", "仅手动")),
-              hint="MovieDB 运行时检查；停机期间错过的检查，下次启动后补上。更新时仍可使用旧版本。"),
+              hint="停机期间错过的检查，下次启动后补上。"),
         ), icon="star"),
     ), icon="library", hue="amber"),
     Section("ai", "AI", "识别文件名拿不准的影片", (

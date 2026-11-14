@@ -1,5 +1,5 @@
 // 设置页：连接 / 元数据 / AI 三个分区按项记录修改，底部状态栏统一保存，保存后立即生效，少数项提示重启；
-// 元数据页底部的“清除数据”单独执行：勾选要彻底删除的数据，输入“清除”确认后执行。
+// 元数据页底部的“清除数据”单独执行：勾选要彻底删除的数据，在确认弹窗里输入“清除”后执行。
 (() => {
     const root = document.querySelector("[data-settings]");
     if (!root) return;
@@ -10,6 +10,7 @@
     const aiSwitch = form.querySelector("#set-ai-enabled");
     const aiBody = form.querySelector("[data-ai-body]");
     const imdbUpdate = form.querySelector("[data-imdb-update]");
+    const statusLive = root.querySelector("[data-status-live]");
     const SERVICE_GROUP = { alist: "alist", tmdb: "tmdb", llm: "llm", mdblist: "mdblist", ffprobe: "ffprobe", player: "player" };
     let state = null, baseline = {}, baselineAi = false, busy = false, leaving = false;
     const cleared = new Set();
@@ -44,7 +45,7 @@
         const index = data.index;
         imdbUpdate.disabled = index.running;
         renderStatus({imdb: data.status});
-        showResult("imdb", index.error && !index.running ? { ok: false, message: index.error } : null);
+        if (index.error && !index.running) paintStatus("imdb", "fail", `${data.status.text} · ${index.error}`);
         clearTimeout(imdbTimer);
         imdbTimer = setTimeout(pollImdb, index.running ? 1000 : 15000);
     }
@@ -69,7 +70,7 @@
             renderImdb(result);
         } catch (error) {
             imdbUpdate.disabled = false;
-            showResult("imdb", { ok: false, message: error.message || "无法开始更新，请稍后重试。" });
+            paintStatus("imdb", "fail", error.message || "无法开始更新，请稍后重试。");
         }
     });
 
@@ -110,36 +111,35 @@
 
     // ------------------------------------------------------------ 状态
 
+    // 每个分组标题下只有一行状态：平时是服务端给的状态，检测时换成检测进度和结果，重新读取设置后恢复。
+    function paintStatus(group, state, text, notes = []) {
+        const node = root.querySelector(`[data-status="${group}"]`);
+        if (!node) return;
+        node.dataset.state = state;
+        node.querySelector("[data-status-text]").textContent = text;
+        node.parentElement.querySelector("[data-status-notes]").replaceChildren(...notes.map(note => el("p", null, note)));
+    }
+
     function renderStatus(status) {
         for (const [group, info] of Object.entries(status || {})) {
-            const node = root.querySelector(`[data-status="${group}"]`);
-            if (!node) continue;
-            node.dataset.state = info.state;
-            node.querySelector("[data-status-text]").textContent = info.text;
+            // 未配置、已关闭等情况后面带上这一组的用途；正常时只写状态
+            const desc = root.querySelector(`[data-status="${group}"]`)?.dataset.desc;
+            paintStatus(group, info.state, info.state !== "ok" && desc ? `${info.text} · ${desc}` : info.text);
         }
     }
 
-    function showResult(service, result) {
-        const box = root.querySelector(`[data-result="${service}"]`);
-        if (!box) return;
-        box.replaceChildren();
-        box.className = "settings-result";
-        if (!result) return;
+    function showTest(service, result) {
+        const group = SERVICE_GROUP[service];
+        const title = root.querySelector(`#group-${group}`)?.textContent || "";
         if (result.pending) {
-            const spinner = el("span", "spinner-border spinner-border-sm");
-            spinner.setAttribute("aria-hidden", "true");
-            box.classList.add("is-pending");
-            box.append(spinner, el("span", null, "正在检测…"));
+            paintStatus(group, "busy", "正在检测…");
+            statusLive.textContent = `${title}：正在检测`;
             return;
         }
-        const warn = result.ok && result.warnings && result.warnings.length;
-        box.classList.add(result.ok ? (warn ? "is-warn" : "is-ok") : "is-fail");
-        const head = el("p", "settings-result-head");
-        head.append(icon(result.ok ? (warn ? "circle-alert" : "circle-check") : "circle-x"),
-            el("strong", null, result.message || (result.ok ? "正常" : "失败")));
-        if (result.ok && result.details && result.details.length) head.append(el("span", null, result.details.join(" · ")));
-        box.append(head);
-        for (const text of result.ok ? result.warnings || [] : []) box.append(el("p", "settings-result-note", text));
+        const warnings = result.ok ? result.warnings || [] : [];
+        const text = [result.message || (result.ok ? "正常" : "失败"), ...(result.ok ? result.details || [] : [])].join(" · ");
+        paintStatus(group, result.ok ? (warnings.length ? "warn" : "ok") : "fail", text, warnings);
+        statusLive.textContent = [`${title}：${text}`, ...warnings].join(" ");
     }
 
     function testPayload(service) {
@@ -151,12 +151,12 @@
 
     async function runTest(service, button) {
         button.disabled = true;
-        showResult(service, { pending: true });
+        showTest(service, { pending: true });
         let result;
         try { result = await request(`/settings/test/${service}`, testPayload(service)); }
         catch { result = { ok: false, message: "MovieDB 没有响应，请确认程序仍在运行。" }; }
         button.disabled = false;
-        showResult(service, result);
+        showTest(service, result);
     }
 
     root.querySelectorAll("[data-test]").forEach(button => button.addEventListener("click", () => runTest(button.dataset.test, button)));
@@ -342,14 +342,16 @@
     // ------------------------------------------------------------ 清除数据
 
     const reset = root.querySelector("[data-reset]");
+    const resetBar = reset.querySelector("[data-reset-bar]");
     const resetParts = reset.querySelector("[data-reset-parts]");
-    const resetConfirm = reset.querySelector("[data-reset-confirm]");
-    const resetSubmit = reset.querySelector("[data-reset-submit]");
-    const resetResult = reset.querySelector("[data-reset-result]");
+    const resetOpen = reset.querySelector("[data-reset-open]");
+    const resetModal = document.querySelector("[data-reset-modal]");
+    const resetConfirm = resetModal.querySelector("[data-reset-confirm]");
+    const resetSubmit = resetModal.querySelector("[data-reset-submit]");
+    const resetResult = resetModal.querySelector("[data-reset-result]");
     let resetWord = "清除", resetBusy = false;
 
     const formatSize = bytes => {
-        if (!bytes) return "";
         const units = ["B", "KB", "MB", "GB"];
         let value = bytes, unit = 0;
         while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit += 1; }
@@ -359,27 +361,31 @@
     function renderReset(data) {
         if (!data) return;
         resetWord = data.confirm || resetWord;
-        const checked = new Set([...resetParts.querySelectorAll("input:checked")].map(input => input.value));
-        const first = !resetParts.childElementCount;
-        resetParts.replaceChildren(...data.parts.map(part => {
-            const row = el("div", "ui-row is-switch settings-reset-part");
-            const label = el("div", "ui-row-label");
-            const title = el("label", null);
-            title.htmlFor = `reset-${part.id}`;
-            title.append(icon(part.icon), el("span", null, part.label));
-            const size = part.exists ? formatSize(part.size) : "";
-            label.append(title, el("p", "ui-row-hint", part.exists ? (size ? `${part.hint} · ${size}` : part.hint) : `${part.hint} · 暂无数据`));
-            const control = el("div", "ui-row-control");
-            const check = el("div", "form-check m-0");
+        resetModal.querySelector("[data-reset-word]").textContent = resetWord;
+        const checked = new Set(selectedParts());
+        // 占用大的排在前面；存储条的色段与下方各行顺序一致
+        const parts = [...data.parts].sort((a, b) => b.size - a.size);
+        const total = parts.reduce((sum, part) => sum + part.size, 0);
+        reset.querySelector("[data-reset-total]").textContent = `共 ${formatSize(total)}`;
+        resetBar.replaceChildren(...parts.filter(part => part.size).map(part => {
+            const segment = el("div", "progress");
+            segment.dataset.hue = part.hue;
+            segment.style.width = `${part.size / total * 100}%`;
+            segment.append(el("div", "progress-bar"));
+            return segment;
+        }));
+        resetParts.replaceChildren(...parts.map(part => {
+            // 整行是一个 label：点任何位置都能勾选；包含什么放在悬停提示和确认弹窗里
+            const row = el("label", "ui-row is-action storage-row");
+            row.dataset.hue = part.hue;
+            row.title = part.hint;
+            const name = el("span", "ui-row-label");
             const input = el("input", "form-check-input");
-            Object.assign(input, { type: "checkbox", id: `reset-${part.id}`, value: part.id });
-            input.checked = first || checked.has(part.id);
-            check.append(input);
-            control.append(check);
-            row.append(label, control);
+            Object.assign(input, { type: "checkbox", value: part.id, checked: checked.has(part.id) });
+            name.append(input, el("span", "storage-dot"), el("span", "ui-row-title", part.label));
+            row.append(name, el("span", "ui-row-control", part.exists ? formatSize(part.size) : "暂无数据"));
             return row;
         }));
-        reset.querySelector("[data-reset-cloud]").hidden = !data.cloud;
         syncReset();
     }
 
@@ -388,46 +394,71 @@
     }
 
     function syncReset() {
-        resetSubmit.disabled = resetBusy || !selectedParts().length || resetConfirm.value.trim() !== resetWord;
+        resetOpen.disabled = !selectedParts().length;
+        resetSubmit.disabled = resetBusy || resetConfirm.value.trim() !== resetWord;
     }
 
-    function showResetResult(ok, text) {
+    function showResetResult(result) {
         resetResult.replaceChildren();
         resetResult.className = "settings-result";
-        if (!text) return;
-        resetResult.classList.add(ok ? "is-ok" : "is-fail");
+        if (!result) return;
+        if (result.pending) {
+            const spinner = el("span", "spinner-border spinner-border-sm");
+            spinner.setAttribute("aria-hidden", "true");
+            resetResult.classList.add("is-pending");
+            resetResult.append(spinner, el("span", null, result.message));
+            return;
+        }
+        resetResult.classList.add("is-fail");
         const head = el("p", "settings-result-head");
-        head.append(icon(ok ? "circle-check" : "circle-x"), el("strong", null, text));
+        head.append(icon("circle-x"), el("strong", null, result.message));
         resetResult.append(head);
     }
+
+    // 打开确认弹窗时列出勾选的内容；警告和确认词只在这里出现
+    resetModal.addEventListener("show.bs.modal", () => {
+        const selected = new Set(selectedParts());
+        resetModal.querySelector("[data-reset-summary]").replaceChildren(...state.data.parts.filter(part => selected.has(part.id)).map(part => {
+            const item = el("li");
+            item.append(el("strong", null, part.label), el("span", null, part.hint));
+            return item;
+        }));
+        resetModal.querySelector("[data-reset-cloud]").hidden = !(state.data.cloud && selected.has("library"));
+        resetConfirm.value = "";
+        showResetResult(null);
+        syncReset();
+    });
+    resetModal.addEventListener("shown.bs.modal", () => resetConfirm.focus());
 
     async function clearData() {
         const parts = selectedParts();
         if (resetBusy || !parts.length) return;
         resetBusy = true;
         syncReset();
-        showResetResult(true, "");
         const cloud = parts.includes("library") && state?.data?.cloud;
-        StatusBar.progress("settings-reset", { text: cloud ? "正在清除数据并清空云端快照…" : "正在清除数据…" });
+        showResetResult({ pending: true, message: cloud ? "正在清除数据并清空云端快照…" : "正在清除数据…" });
         let result;
         try { result = await request("/settings/clear", { parts, confirm: resetConfirm.value.trim() }); }
         catch { result = { ok: false, message: "MovieDB 没有响应，请确认程序仍在运行。" }; }
         resetBusy = false;
-        StatusBar.clear("settings-reset");
         if (result.ok && result.next) {
             leaving = true;
             location.assign(result.next);
             return;
         }
-        resetConfirm.value = "";
-        const cloudFailed = result.cloud === "failed" ? "云端快照没能清空，可稍后在云端控制台处理。" : "";
-        if (result.ok) showResetResult(true, `已清除。${cloudFailed}`);
-        else showResetResult(false, result.message || "清除失败");
+        if (result.ok) {
+            const cloudFailed = result.cloud === "failed" ? "云端快照没能清空，可稍后在云端控制台处理。" : "";
+            resetParts.querySelectorAll("input").forEach(input => { input.checked = false; });
+            bootstrap.Modal.getInstance(resetModal)?.hide();
+            StatusBar.result("settings-reset", { tone: cloudFailed ? "warning" : "success", text: `已清除。${cloudFailed}` });
+        } else {
+            showResetResult({ message: result.message || "清除失败" });
+        }
         await load().catch(() => {});
     }
 
-    reset.addEventListener("input", syncReset);
     reset.addEventListener("change", syncReset);
+    resetConfirm.addEventListener("input", syncReset);
     resetSubmit.addEventListener("click", clearData);
     resetConfirm.addEventListener("keydown", event => { if (event.key === "Enter" && !resetSubmit.disabled) clearData(); });
 
@@ -487,8 +518,8 @@
     form.addEventListener("submit", event => { event.preventDefault(); save(); });
     form.addEventListener("keydown", event => {
         if (event.key !== "Enter" || !event.target.matches("input:not([type=checkbox])")) return;
-        event.preventDefault();  // 清除数据的输入框也在表单里，回车不能提交设置表单
-        if (!event.target.closest("[data-reset]") && dirtyCount()) save();
+        event.preventDefault();
+        if (dirtyCount()) save();
     });
     aiSwitch?.addEventListener("change", () => { syncAi(); if (aiSwitch.checked) setupPresets(state.presets); refreshPending(); });
     for (const button of root.querySelectorAll("[data-reveal]")) {

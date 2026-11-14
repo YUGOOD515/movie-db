@@ -21,7 +21,7 @@ Once the library exists, **Manage → Settings** (管理 → 设置, `/settings`
 | Metadata (元数据) | TMDB, MDBList, IMDb data; **Wipe data** (清除数据) is at the bottom of the page |
 | AI | Provider, model, endpoint, concurrency and more |
 
-Each group shows its status next to its title: always “正常” (OK) when working, with extra detail after it (for example “正常 · 内置密钥”, built-in key); grey when not configured or turned off, and the reason when something is wrong. Each group has its own **Check** (检测) button; less common options are under **Advanced** (高级). Save or discard changes in the bar at the bottom.
+Each group shows its status on the line below its title: always “正常” (OK) when working, with extra detail after it (for example “正常 · 内置密钥”, built-in key); grey when not configured or turned off, followed by what the group is for, and the reason when something is wrong. Each group has its own **Check** (检测) button, and the result appears on the same line; less common options are under **Advanced** (高级). Save or discard changes in the bar at the bottom.
 
 Drive request rates, pending-file scanning, the TMDB proxy, the Douban ratings switch and the location of `local.db` are not shown on the settings page; set them directly in `.env` if needed (see [Environment variables](#environment-variables)). Mounts and drive credentials are managed under **Manage → Drives**.
 
@@ -30,7 +30,7 @@ Drive request rates, pending-file scanning, the TMDB proxy, the Douban ratings s
 - Settings can only be changed on the computer running MovieDB: they are read-only over a Cloudflare Tunnel and not available in the cloud snapshot.
 - Before a library exists (no `library.db`), `/setup` shows the first-run walkthrough; afterwards it redirects to the settings page.
 
-**Metadata → IMDb data** (元数据 → IMDb 数据) offers **Check for updates** and manual / daily / weekly (default) modes. The official ratings and episode tables are downloaded together and built into one local database, `imdb/index.sqlite3` (about 200 MiB); the status label shows when the data was updated, and the compressed sources are temporary. Progress appears in the status label and background tasks, errors below the group, and failed updates keep the old index. ETag checks avoid downloading and rebuilding when neither file changed. Once a new index is published, IMDb ratings for every title and episode in the library are updated right away. Scheduled checks run while MovieDB is open and catch up after the next launch. A new index triggers recognition again, without automatically linking files; uncertain identities or episode numbers still require review. This local index is excluded from cloud snapshots.
+**Metadata → IMDb data** (元数据 → IMDb 数据) offers **Check for updates** and manual / daily / weekly (default) modes. The official ratings and episode tables are downloaded together and built into one local database, `imdb/index.sqlite3` (about 200 MiB); the status line shows when the data was updated, and the compressed sources are temporary. Progress appears in the status line and background tasks, errors on the status line too, and failed updates keep the old index. ETag checks avoid downloading and rebuilding when neither file changed. Once a new index is published, IMDb ratings for every title and episode in the library are updated right away. Scheduled checks run while MovieDB is open and catch up after the next launch. A new index triggers recognition again, without automatically linking files; uncertain identities or episode numbers still require review. This local index is excluded from cloud snapshots.
 
 ## Wiping data
 
@@ -41,7 +41,7 @@ Drive request rates, pending-file scanning, the TMDB proxy, the Douban ratings s
 - posters and thumbnails (`static/images`, `static/thumbnails`)
 - connections and keys (`.env`)
 
-Everything is selected by default. Type the confirmation word (清除) to proceed; **no backup is made**. With the cloud snapshot enabled, wiping the library first publishes an empty snapshot so the cloud copy is cleared as well. Wiping is blocked while a scan is running; on Windows, files in use ask you to restart and try again.
+A storage bar shows how much space each item takes, with one row per item and its size below; nothing is selected by default. Tick what to delete, click **Wipe selected…** (清除所选…) and type the confirmation word (清除) in the dialog to proceed; **no backup is made**. With the cloud snapshot enabled, wiping the library first publishes an empty snapshot so the cloud copy is cleared as well. Wiping is blocked while a scan is running; on Windows, files in use ask you to restart and try again.
 
 ## Data folder
 

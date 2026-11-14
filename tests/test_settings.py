@@ -60,6 +60,8 @@ def test_settings_page_renders_registry_and_setup_redirects(env):
     html = page.get_data(as_text=True)
     for section in settings.SECTIONS:
         assert f'data-tab="{section.id}"' in html
+        for group in section.groups:
+            assert f'data-status="{group.id}"' in html  # 每组标题下都有状态行
     for name in settings.FIELDS:
         assert f'name="{name}"' in html
 

@@ -6,7 +6,7 @@ import xml.etree.ElementTree as ET
 
 from jinja2 import Environment, nodes
 
-from services import data_reset, settings
+from services import settings
 from viewmodels.home import COLLECTION_ICONS, GENRE_ICONS, build_collection_cards
 from viewmodels.media_labels import chip
 
@@ -22,7 +22,6 @@ def test_template_and_viewmodel_icons_are_shipped():
     assert all(len(symbol) and symbol.attrib.get("viewBox") == "0 0 24 24" for symbol in symbols)
 
     references = set(GENRE_ICONS.values()) | set(COLLECTION_ICONS.values()) | {"tag", "library"}
-    references.update(part["icon"] for part in data_reset.PARTS)
     deletion = ast.parse((ROOT / "viewmodels/deletion.py").read_text(encoding="utf-8"))
     for mapping in (node for node in ast.walk(deletion) if isinstance(node, ast.Dict)):
         references.update(value.value for key, value in zip(mapping.keys, mapping.values)
