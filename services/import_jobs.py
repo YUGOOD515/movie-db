@@ -144,7 +144,10 @@ def _execute_observed(database, row, reporter):
         # Reconcile a crash after library commit but before recording job success.
         with closing(connect_database(database)) as db:
             existing = get_file_targets(db, (item["path"] for item in payload["items"]))
-        for item in payload["items"]:
+        selected = payload.get("retry_indexes")
+        for index, item in enumerate(payload["items"], 1):
+            if selected is not None and index not in selected:
+                continue
             linked = existing.get(item["path"])
             same = _same_target(linked, payload["title_id"], item)
             if linked and not same:
@@ -155,14 +158,38 @@ def _execute_observed(database, row, reporter):
                 valid = same
             if not valid:
                 raise ValueError("源文件已变化，请刷新待关联列表后重新确认。")
+        previous = json.loads(row["result"] or "{}")
+        written = {item["path"] for item in payload["items"] if _same_target(existing.get(item["path"]), payload["title_id"], item)}
+        items = [item for index, item in enumerate(payload["items"], 1)
+                 if item["path"] not in written and (selected is None or index in selected)]
+        # A crash after core commit, or an optional-data retry, still needs enrichment.
+        if len(written) == len(payload["items"]):
+            items = payload["items"]
+        offset = len(written - {item["path"] for item in items})
+        versions = {item["path"]: payload["versions"][item["path"]] for item in items}
+        reporter.progress("write", len(written), len(payload["items"]))
         result = complete_association(library_database=database, image_root=row["image_root"],
-            payload={"title_id": payload["title_id"], "items": payload["items"]},
-            on_progress=reporter.progress,
+            payload={"title_id": payload["title_id"], "items": items},
+            on_progress=lambda phase, done, total: reporter.progress(phase, done + offset, len(payload["items"])),
             probe_cache=json.loads(row["probes"]),
             on_probe=lambda path, probe: _checkpoint(database, job_id, row["owner"], path, probe),
             defer_enrichment=True, allow_existing=True,
-            commit_guard=lambda: _guard(database, job_id, row["owner"], payload["versions"], payload["title_id"], payload["items"]),
-            expected_files=payload["versions"])
+            commit_guard=lambda: _guard(database, job_id, row["owner"], versions, payload["title_id"], items),
+            expected_files=payload["versions"]) if items else {"rows": []}
+        newly_written = {item["path"] for item in result.get("rows", []) if item.get("written")}
+        rows_by_path = {item["path"]: item for item in previous.get("rows", [])}
+        rows_by_path.update({item["path"]: item for item in result.get("rows", [])})
+        rows = []
+        for index, item in enumerate(payload["items"], 1):
+            entry = {**rows_by_path.get(item["path"], {}), "index": index, "path": item["path"]}
+            entry["written"] = item["path"] in written or item["path"] in newly_written
+            if entry["written"]:
+                entry["error"] = ""
+            rows.append(entry)
+        result.update(rows=rows, imported=sum(item["written"] for item in rows))
+        result["valid"] = result["imported"] == len(rows)
+        result["error"] = "" if result["valid"] else f"已关联 {result['imported']} 个视频，失败 {len(rows) - result['imported']} 个。"
+        reporter.progress("enrich", result["imported"], len(rows))
         if result["valid"]:
             result["imported"] = len(payload["items"])
             if any(value.get("failed") for key, value in reporter.snapshot().get("stages", {}).items() if key in ("image", "rating", "derive")):
@@ -172,7 +199,7 @@ def _execute_observed(database, row, reporter):
                     _learn_alias(database, source, result["title"])
         retry = max(result.get("retry_after", 0), result.get("enrichment_retry_after", 0)) if row["attempts"] < 3 else 0
         public_result = {key: result.get(key) for key in ("valid", "imported", "error")}
-        public_result["rows"] = [{key: item.get(key) for key in ("index", "path", "error")} for item in result.get("rows", [])]
+        public_result["rows"] = [{key: item.get(key) for key in ("index", "path", "error", "written")} for item in result.get("rows", [])]
         state = "queued" if retry else "complete" if result["valid"] else "failed"
         error = "" if result["valid"] else result.get("error") or "部分文件需要核对。"
         if result["valid"] and result.get("enrichment_warning") and not retry:

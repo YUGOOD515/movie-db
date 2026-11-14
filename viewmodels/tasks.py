@@ -42,50 +42,60 @@ def _files(rows: list[dict], active_labels: set[str]) -> list[dict]:
     files = []
     for row in rows:
         probes = row["probes"]
+        written_paths = {item["path"] for item in (row["result"] or {}).get("rows", []) if item.get("written")}
         errors = {item.get("path"): item.get("error") for item in (row["result"] or {}).get("rows", []) if item.get("error")}
-        for item in row["payload"]["items"]:
+        for index, item in enumerate(row["payload"]["items"], 1):
             path = item["path"]
             name = PurePosixPath(path).name
             position = _position(item)
             summary = _probe_summary(probes.get(path))
-            if row["state"] == "complete":
+            written = row["state"] == "complete" or path in written_paths
+            if written:
                 state, detail = "done", summary or "已关联"
+            elif (position or name) in active_labels:
+                state, detail = "active", "正在读取参数…"
+            elif path in errors and row["state"] in ("queued", "running") and (
+                    row["payload"].get("retry_indexes") is None or index in row["payload"]["retry_indexes"]):
+                state, detail = "pending", "等待重试"
             elif path in errors:
                 state, detail = "failed", errors[path]
             elif row["state"] == "failed":
                 state, detail = "skipped", "同批文件出错，本文件未写入"
             elif summary:
-                state, detail = "done", summary
-            elif (position or name) in active_labels:
-                state, detail = "active", "正在读取参数…"
+                state, detail = "pending", summary + " · 等待写入"
             else:
                 state, detail = "pending", "等待中"
             season = item.get("season_number")
             files.append({"name": name, "position": position, "season": int(season) if position else None,
-                          "state": state, "detail": detail, "written": row["state"] == "complete"})
+                          "state": state, "detail": detail, "written": written,
+                          "job_id": row.get("job_id"), "index": index})
     return files
 
 
 def _outcome(files: list[dict], series: bool) -> str:
-    """出错时的一句话：部分失败写“已入库 10 集，2 集失败”，全部失败写“2 集失败”。"""
+    """已关联、失败与未处理分别计数，不把未写入算成探测失败。"""
     written = sum(file["written"] for file in files)
-    failed = sum(file["state"] in ("failed", "skipped") for file in files)
-    if not failed:
+    failed = sum(file["state"] == "failed" for file in files)
+    skipped = sum(file["state"] == "skipped" for file in files)
+    if not failed and not skipped:
         return ""
     unit = "集" if series else "个视频"
-    return f"已入库 {written} {unit}，{failed} {unit}失败" if written else f"{failed} {unit}失败"
+    return "，".join(part for part in (f"已关联 {written} {unit}" if written else "",
+                                     f"失败 {failed} {unit}" if failed else "",
+                                     f"未写入 {skipped} {unit}" if skipped else "") if part)
 
 
 def _core_steps(summary: dict, rows: list[dict]) -> list[dict]:
     total = summary["files"] or 0
     running = summary["state"] == "running"
-    finished = summary["state"] in ("complete", "partial") or (total and summary["core"] >= total)
+    finished = total and summary["core"] >= total
     links = sum(row["progress"].get("link", 0) if row["state"] != "complete" else len(row["payload"]["items"]) for row in rows)
     probes = sum(len(row["probes"]) if row["state"] != "complete" else len(row["payload"]["items"]) for row in rows)
     checked = finished or links or probes or any(row["progress"].get("stages", {}).get("metadata", {}).get("done") for row in rows)
     done = {"check": bool(checked), "link": finished or (total and links >= total),
             "probe": finished or (total and probes >= total), "write": bool(finished)}
-    counts = {"link": f"{min(links, total)}/{total}", "probe": f"{min(probes, total)}/{total}"}
+    counts = {"link": f"{min(links, total)}/{total}", "probe": f"{min(probes, total)}/{total}",
+              "write": f"{min(summary['core'], total)}/{total}"}
     steps, blocked = [], False
     for key, label in CORE_STEPS:
         if done[key]:
@@ -94,7 +104,7 @@ def _core_steps(summary: dict, rows: list[dict]) -> list[dict]:
             state = "pending"
         else:
             blocked = True
-            state = "failed" if summary["state"] == "failed" else "active" if running else "pending"
+            state = "failed" if summary["state"] in ("failed", "partial") else "active" if running else "pending"
         steps.append({"key": key, "label": label, "state": state,
                       "count": counts.get(key, "") if state in ("active", "failed") else ""})
     return steps
@@ -134,7 +144,7 @@ def import_detail(summary: dict, rows: list[dict], brief: dict | None, title_url
         "poster": (brief or {}).get("poster_path"),
         "media_type": media_type,
         "state": summary["state"],
-        "state_text": STATE_TEXT.get(summary["state"], ""),
+        "state_text": "部分关联失败" if summary["state"] == "partial" and any(file["state"] == "failed" for file in files) else STATE_TEXT.get(summary["state"], ""),
         "pill": PILL.get(summary["state"], "off"),
         "steps": _core_steps(summary, rows),
         "files": files,
@@ -145,5 +155,5 @@ def import_detail(summary: dict, rows: list[dict], brief: dict | None, title_url
         "issues": [" · ".join(part for part in (issue.get("label"), issue.get("reason")) if part)
                    for issue in summary.get("issues", []) if issue.get("reason")],
         "title_url": title_url if brief else "",
-        "playable": bool(summary["core"]) and summary["core"] >= summary["files"],
+        "playable": bool(summary["core"]),
     }

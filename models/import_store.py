@@ -187,10 +187,13 @@ def cancel(database, ids):
     return status(database, ids)
 
 
-def retry(database, ids):
+def retry(database, ids, indexes=None):
     if not isinstance(ids, list) or not ids or len(ids) > 1000 or any(not isinstance(item, str) or not re.fullmatch(r"[a-f0-9]{32}", item) for item in ids):
         raise ValueError("任务 ID 无效。")
     library = str(Path(database).resolve())
+    if indexes is not None and (len(ids) != 1 or not isinstance(indexes, list) or not indexes
+                                or any(type(index) is not int or index < 1 for index in indexes)):
+        raise ValueError("请选择一个任务内需要重试的失败文件。")
     with closing(_connect(database)) as db, db:
         db.execute("BEGIN IMMEDIATE")
         rows = db.execute(f"SELECT * FROM import_job WHERE library_path = ? AND job_id IN ({','.join('?' for _ in ids)})", (library, *ids)).fetchall()
@@ -198,12 +201,22 @@ def retry(database, ids):
             warning = json.loads(row["result"] or "{}").get("warning")
             if row["state"] not in ("failed", "cancelled") and not (row["state"] == "complete" and warning):
                 continue
-            for item in json.loads(row["payload"])["items"]:
+            payload = json.loads(row["payload"])
+            if indexes is not None:
+                failed = {item["index"] for item in json.loads(row["result"] or "{}").get("rows", []) if item.get("error") and not item.get("written")}
+                if not set(indexes) <= failed:
+                    raise ValueError("只能单独重试本任务中失败的文件。")
+                payload["retry_indexes"] = indexes
+            else:
+                payload.pop("retry_indexes", None)
+            for index, item in enumerate(payload["items"], 1):
+                if indexes is not None and index not in indexes:
+                    continue
                 reserved = db.execute("SELECT job_id FROM import_reservation WHERE library_path = ? AND path = ?", (library, item["path"])).fetchone()
                 if reserved and reserved[0] != row["job_id"]:
                     raise ValueError("文件已有其他关联任务，请等待完成。")
                 db.execute("INSERT OR REPLACE INTO import_reservation VALUES (?, ?, ?)", (library, item["path"], row["job_id"]))
-            db.execute("UPDATE import_job SET state = 'queued', attempts = 0, error = '', result = NULL, next_at = 0, updated_at = ? WHERE job_id = ?", (time.time(), row["job_id"]))
+            db.execute("UPDATE import_job SET state = 'queued', attempts = 0, error = '', payload = ?, next_at = 0, updated_at = ? WHERE job_id = ?", (json.dumps(payload, ensure_ascii=False), time.time(), row["job_id"]))
     return status(database, ids)
 
 

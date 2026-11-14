@@ -1004,7 +1004,7 @@ def association_jobs():
             elif payload.get("action") == "retry":
                 from models import import_store
                 with import_jobs.runtime.write_lock:
-                    result = import_store.retry(app.config["DATABASE"], payload.get("ids"))
+                    result = import_store.retry(app.config["DATABASE"], payload.get("ids"), payload.get("indexes"))
                 import_jobs.start(app.config["DATABASE"], wake=True)
             else:
                 result = import_jobs.submit(app.config["DATABASE"], app.config["IMAGE_ROOT"], payload.get("selections"))

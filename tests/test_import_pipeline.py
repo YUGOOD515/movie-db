@@ -1,6 +1,7 @@
 """Exercise scheduling, resource budgets, atomicity and restart boundaries offline."""
 
 import json
+import io
 import sqlite3
 import threading
 import time
@@ -252,7 +253,7 @@ class ImportJobsTest(unittest.TestCase):
             jobs = self.submit([self.selection(paths)])
             self.assertEqual(self.finished([job["id"] for job in jobs])[0]["state"], "complete")
 
-    def test_failed_probe_keeps_the_chunk_atomic(self):
+    def test_failed_probe_does_not_cancel_later_files_and_retries_only_that_file(self):
         paths = ["/share/a.mkv", "/share/b.mkv"]
         self.seed(paths)
 
@@ -261,11 +262,76 @@ class ImportJobsTest(unittest.TestCase):
                 raise ValueError("Invalid media")
             return {"duration_ms": 1000}
 
-        with patch.object(media_probe, "probe_video", side_effect=probe):
+        with patch.object(throttle, "ffprobe_workers", return_value=1), patch.object(media_probe, "probe_video", side_effect=probe):
             jobs = self.submit([self.selection(paths)])
-            self.assertEqual(self.finished([job["id"] for job in jobs])[0]["state"], "failed")
+            job = self.finished([job["id"] for job in jobs])[0]
+            self.assertEqual(job["state"], "failed")
+            self.assertEqual(job["result"]["imported"], 1)
+            self.assertEqual([item["written"] for item in job["result"]["rows"]], [True, False])
+        with closing(self.connect()) as db:
+            self.assertEqual(db.execute("SELECT alist_path FROM media_file WHERE alist_path LIKE '/share/%'").fetchone()[0], paths[0])
+        import_jobs.stop(self.database_path)
+        with patch.object(import_jobs, "start"):
+            response = self.client.post("/manager/association/jobs", json={"action": "retry", "ids": [job["id"]]})
+        self.assertEqual(response.status_code, 202)
+        with patch.object(media_probe, "probe_video", return_value={"duration_ms": 2000}) as call:
+            import_jobs._execute(self.database_path, import_jobs._claim(self.database_path))
+        self.assertEqual(call.call_count, 1)
+        self.assertIn("/b.mkv", call.call_args.args[0])
+        self.assertEqual(self.finished([job["id"]])[0]["result"]["imported"], 2)
+
+    def test_first_probe_failure_still_runs_queued_files(self):
+        paths = ["/share/a.mkv", "/share/b.mkv", "/share/c.mkv"]
+        self.seed(paths)
+        def probe(url):
+            if "/a.mkv" in url:
+                raise media_probe.ProbeError("文件无法识别为视频，请检查文件。")
+            return {"duration_ms": 1000}
+        with patch.object(throttle, "ffprobe_workers", return_value=1), patch.object(media_probe, "probe_video", side_effect=probe) as call:
+            job = self.submit([self.selection(paths)])[0]
+            result = self.finished([job["id"]])[0]
+        self.assertEqual(call.call_count, 3)
+        self.assertEqual(result["result"]["imported"], 2)
+        self.assertEqual(result["progress"]["core"], 2)
+
+    def test_json_batch_probe_failure_still_writes_nothing(self):
+        paths = ["/share/a.mkv", "/share/b.mkv"]
+        def probe(url):
+            if "/b.mkv" in url:
+                raise media_probe.ProbeError("无法读取视频。")
+            return {"duration_ms": 1000}
+        with patch.object(media_probe, "probe_video", side_effect=probe):
+            payload = {"items": [{"title_id": "tt9000001", "path": path} for path in paths]}
+            response = self.client.post("/manager/import/batch", data={
+                "json_file": (io.BytesIO(json.dumps(payload).encode()), "media.json")}, follow_redirects=True)
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("批量录入失败，全部内容均未写入", response.get_data(as_text=True))
         with closing(self.connect()) as db:
             self.assertEqual(db.execute("SELECT COUNT(*) FROM media_file WHERE alist_path LIKE '/share/%'").fetchone()[0], 0)
+
+    def test_association_write_failure_rolls_back_only_its_file_and_reuses_probe(self):
+        paths = ["/share/a.mkv", "/share/b.mkv"]
+        self.seed(paths)
+        write = media_import._write_prepared_import
+        def failing_write(db, prepared, *args, **kwargs):
+            result = write(db, prepared, *args, **kwargs)
+            self.assertTrue(db.in_transaction)
+            if prepared.alist_path == paths[0]:
+                raise OSError("private write diagnostic")
+            return result
+        with patch.object(media_import, "_write_prepared_import", side_effect=failing_write):
+            job = self.submit([self.selection(paths)])[0]
+            result = self.finished([job["id"]])[0]
+        self.assertEqual(result["result"]["imported"], 1)
+        with closing(self.connect()) as db:
+            self.assertEqual([r[0] for r in db.execute("SELECT alist_path FROM media_file WHERE alist_path LIKE '/share/%'")], [paths[1]])
+        import_jobs.stop(self.database_path)
+        with patch.object(import_jobs, "start"):
+            self.client.post("/manager/association/jobs", json={"action": "retry", "ids": [job["id"]], "indexes": [1]})
+        with patch.object(media_probe, "probe_video") as probe:
+            import_jobs._execute(self.database_path, import_jobs._claim(self.database_path))
+            probe.assert_not_called()
+        self.assertEqual(self.finished([job["id"]])[0]["state"], "complete")
 
     def test_expired_lease_restores_probe_checkpoint_and_fences_old_worker(self):
         path = "/share/a.mkv"

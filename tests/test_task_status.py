@@ -182,3 +182,71 @@ class TaskStatusTest(unittest.TestCase):
             self.assertEqual(response.status_code,202)
             self.assertEqual(self.finished([job['id']])[0]['state'],'complete')
             probe.assert_not_called()
+
+    def test_retry_one_failed_file_keeps_success_and_other_failure(self):
+        paths = ['/share/a.mkv', '/share/b.mkv', '/share/c.mkv']
+        self.seed(paths)
+        def probe(url):
+            if '/c.mkv' not in url:
+                raise media_probe.ProbeError('文件无法识别为视频，请检查文件。')
+            return {'duration_ms': 42}
+        with patch.object(media_probe, 'probe_video', side_effect=probe):
+            job = self.submit([self.selection(paths)])[0]
+            self.finished([job['id']])
+        import_jobs.stop(self.database_path)
+        task = self.task()
+        self.assertEqual((task['state'], task['core'], task['failed']), ('partial', 1, 2))
+        self.assertTrue(all(issue.get('label') for issue in task['issues']))
+        detail = self.client.get('/manager/tasks/detail', query_string={'id': task['id']}).json
+        self.assertEqual(detail['outcome'], '已关联 1 个视频，失败 2 个视频')
+        self.assertEqual([file['written'] for file in detail['files']], [False, False, True])
+        self.assertEqual(detail['files'][0]['job_id'], job['id'])
+        for indexes in ([3], [999], [True], []):
+            response = self.client.post('/manager/association/jobs', json={'action': 'retry', 'ids': [job['id']], 'indexes': indexes})
+            self.assertEqual(response.status_code, 400)
+        with patch.object(import_jobs, 'start'):
+            response = self.client.post('/manager/association/jobs', json={'action': 'retry', 'ids': [job['id']], 'indexes': [1]})
+        self.assertEqual(response.status_code, 202)
+        # An unrelated failed file disappearing must not block this file's retry.
+        from services import media_discovery
+        media_discovery._scans[str(self.database_path)]['records'][0]['files'] = [
+            item for item in media_discovery._scans[str(self.database_path)]['records'][0]['files'] if item['path'] != paths[1]]
+        with patch.object(media_probe, 'probe_video', return_value={'duration_ms': 43}) as probe:
+            import_jobs._execute(self.database_path, import_jobs._claim(self.database_path))
+        self.assertEqual(probe.call_count, 1)
+        self.assertIn('/a.mkv', probe.call_args.args[0])
+        result = self.finished([job['id']])[0]
+        self.assertEqual([item['written'] for item in result['result']['rows']], [True, False, True])
+        self.assertTrue(result['result']['rows'][1]['error'])
+        detail = self.client.get('/manager/tasks/detail', query_string={'id': task['id']}).json
+        self.assertEqual(detail['outcome'], '已关联 2 个视频，失败 1 个视频')
+
+    def test_5xx_backoff_keeps_success_and_automatically_retries_only_failure(self):
+        import time
+        paths = ['/share/S01E01.mkv', '/share/S01E02.mkv']
+        self.seed(paths)
+        with patch.object(import_jobs, 'start'):
+            job = self.submit([self.selection(paths, 'tt9000002')])[0]
+        def probe(url):
+            if 'S01E01' in url:
+                message, code = media_probe.explain_failure('Server returned 5XX Server Error reply')
+                raise media_probe.ProbeError(message, code=code, retryable=True)
+            return {'duration_ms': 42}
+        with patch.object(media_probe, 'probe_video', side_effect=probe):
+            import_jobs._execute(self.database_path, import_jobs._claim(self.database_path))
+        waiting = import_store.status(self.database_path, [job['id']])['jobs'][0]
+        self.assertEqual(waiting['state'], 'queued')
+        self.assertGreater(waiting['next_at'], time.time())
+        task = self.task()
+        self.assertEqual((task['state'], task['core']), ('waiting', 1))
+        self.assertTrue(all(issue.get('label') for issue in task['issues']))
+        with closing(import_store._connect(self.database_path)) as db, db:
+            db.execute('UPDATE import_job SET next_at=0 WHERE job_id=?', (job['id'],))
+        with patch.object(media_probe, 'probe_video', return_value={'duration_ms': 43}) as probe:
+            import_jobs._execute(self.database_path, import_jobs._claim(self.database_path))
+        self.assertEqual(probe.call_count, 1)
+        self.assertIn('S01E01', probe.call_args.args[0])
+        self.assertEqual(self.finished([job['id']])[0]['state'], 'complete')
+        detail = self.client.get('/manager/tasks/detail', query_string={'id': task['id']}).json
+        self.assertEqual([file['written'] for file in detail['files']], [True, True])
+        self.assertEqual(detail['issues'], [])

@@ -349,7 +349,7 @@
         return task.detail || '';
     }
 
-    const FILE_STATE = {done: '完成', active: '进行中', pending: '等待', failed: '失败', skipped: '未写入'};
+    const FILE_STATE = {done: '已关联', active: '进行中', pending: '等待', failed: '失败', skipped: '未写入'};
     const fileLabel = file => [file.position, file.name, file.detail].filter(Boolean).join(' · ');
 
     // 逐集小格：每个视频一格，按季分行；悬停或点按在下面一行显示文件名和读到的参数，默认那一行是各状态的计数
@@ -418,6 +418,11 @@
             const line = info?.current ? `正在读取 ${info.current}` : current ? `正在处理：${current}` :
                 task.kind !== 'import' ? otherLine(task) : task.placeholder ? '已提交，等待开始' : '';
             if (line) { const node = el('p', 'text-truncate', line); node.title = line; target.append(node); }
+            if (task.state === 'waiting' && task.retry_at && !Object.keys(task.waits || {}).length) {
+                const note = el('p', 'text-warning-emphasis', '等待服务恢复，');
+                note.append(countdown(task.retry_at), '后自动重试。');
+                target.append(note);
+            }
             for (const [service, wait] of Object.entries(task.waits || {})) {
                 const note = el('p', 'text-warning-emphasis', `${serviceName(service)} · ${wait.reason}`);
                 if (wait.until || task.retry_at) { note.append(' · '); note.append(countdown(wait.until || task.retry_at)); }
@@ -439,13 +444,27 @@
             const positions = new Set(failedFiles.map(file => file.position).filter(Boolean));
             const reasons = new Set(failedFiles.map(file => file.detail));
             const issues = [
-                ...failedFiles.slice(0, 5).map(file => files.length === 1 ? file.detail : `${file.position || file.name} · ${file.detail}`),
-                ...(failedFiles.length > 5 ? [`另有 ${failedFiles.length - 5} 个视频失败`] : []),
                 // 汇总里的问题与按集列出的重复时跳过（同一集或同一原因）
-                ...(task.issues || []).filter(issue => !positions.has(issue.label) && !reasons.has(issue.reason))
+                ...(task.issues || []).filter(issue => !(issue.stage === 'probe' && !issue.label) && !positions.has(issue.label) && !reasons.has(issue.reason))
                     .map(issue => [issue.label, issue.service && serviceName(issue.service), issue.reason].filter(Boolean).join(' · ')),
             ].filter(Boolean);
-            if (issues.length) { const box = el('ul', 'island-issues'); [...new Set(issues)].forEach(issue => box.append(el('li', '', issue))); target.append(box); }
+            if (failedFiles.length || issues.length) {
+                const box = el('ul', 'island-issues');
+                failedFiles.slice(0, 5).forEach(file => {
+                    const line = el('li', '', `${file.position || file.name} · ${file.detail}`);
+                    if (file.job_id && !active(task)) {
+                        const retry = el('button', 'btn btn-sm chip-btn ms-2', '重试此文件');
+                        retry.type = 'button'; retry.disabled = pending.has(task.id);
+                        retry.setAttribute('aria-label', `重试 ${file.position || file.name}`);
+                        retry.addEventListener('click', () => action(task, 'retry', file));
+                        line.append(retry);
+                    }
+                    box.append(line);
+                });
+                if (failedFiles.length > 5) box.append(el('li', '', `另有 ${failedFiles.length - 5} 个文件失败`));
+                [...new Set(issues)].forEach(issue => box.append(el('li', '', issue)));
+                target.append(box);
+            }
         }
         if (errors.get(task.id)) { const error = el('p', 'text-danger-emphasis', errors.get(task.id)); error.setAttribute('role', 'alert'); target.append(error); }
         const actions = el('div', 'island-actions');
@@ -531,7 +550,7 @@
         } catch {} finally { loadingDetails.delete(id); }
     }
 
-    async function action(task, type) {
+    async function action(task, type, file = null) {
         if (pending.has(task.id)) return;
         pending.add(task.id); errors.delete(task.id);
         render();
@@ -540,7 +559,9 @@
             else {
                 const url = task.kind === 'imdb' ? '/settings/imdb-episodes' : task.kind === 'scan' ? root.dataset.scanUrl + '?refresh=1' : task.kind === 'rating' ? root.dataset.ratingUrl : root.dataset.jobsUrl;
                 const response = await fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(task.kind === 'import' ? {action: type, ids: type === 'cancel' ? task.cancel_ids : task.retry_ids} : {})});
+                    body: JSON.stringify(task.kind === 'import' ? {action: type,
+                        ids: file ? [file.job_id] : type === 'cancel' ? task.cancel_ids : task.retry_ids,
+                        ...(file ? {indexes: [file.index]} : {})} : {})});
                 if (!response.ok) { const data = await response.json().catch(() => ({})); throw new Error(data.error || '操作失败，请重试'); }
             }
             delete dismissed[task.id]; save('tasks-dismissed', dismissed);

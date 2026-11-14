@@ -49,3 +49,25 @@ def test_missing_ffprobe_still_reports_configured_path(monkeypatch):
     monkeypatch.setenv("FFPROBE_PATH", "admin")
     monkeypatch.setattr(media_probe.shutil, "which", lambda name: None)
     assert media_probe.executable() == "admin"
+
+
+@pytest.mark.parametrize("failure", ["HTTP error 500 Internal Server Error", "HTTP error 502 Bad Gateway",
+                                     "HTTP error 503 Service Unavailable", "Server returned 5XX Server Error reply",
+                                     "Server returned 502 Bad Gateway", "HTTP/1.1 500 Internal Server Error"])
+def test_server_errors_are_safe_and_retryable(monkeypatch, failure):
+    stderr = f"https://example.invalid/video?sign=SECRET: {failure}"
+    monkeypatch.setattr(media_probe.subprocess, "run", lambda *args, **kwargs:
+                        SimpleNamespace(returncode=1, stderr=stderr))
+    with pytest.raises(media_probe.ProbeError) as caught:
+        media_probe.probe_video("http://127.0.0.1:5000/stream/private-signature/video.mkv")
+    assert caught.value.code == "busy" and caught.value.retryable
+    assert "网盘暂时不可用" in str(caught.value) and "稍后重试" in str(caught.value)
+    assert "SECRET" not in str(caught.value) and "private-signature" not in str(caught.value)
+
+
+def test_non_http_numbers_are_not_retryable_server_errors(monkeypatch):
+    monkeypatch.setattr(media_probe.subprocess, "run", lambda *args, **kwargs:
+                        SimpleNamespace(returncode=1, stderr="Decoder failed at frame 502, packet size 503"))
+    with pytest.raises(media_probe.ProbeError) as caught:
+        media_probe.probe_video("C:/Movies/video.mkv")
+    assert caught.value.code == "invalid" and not caught.value.retryable

@@ -81,7 +81,9 @@ def explain_failure(stderr: str, video_url: str = "") -> tuple[str, str]:
         return f"连不上 MovieDB 播放地址{where}，请确认 MovieDB 仍在运行。", "connection"
     if re.search(r"\b(?:401|403)\b|expired|forbidden", stderr, re.I):
         return "网盘链接已过期或没有访问权限。", "expired"
-    if re.search(r"\b(?:429|503)\b|too many|频繁", stderr, re.I):
+    if re.search(r"\b(?:Server returned\s+|HTTP(?:/\d(?:\.\d)?)?\s+(?:error\s+)?)(?:5\d\d|5xx)\b", stderr, re.I):
+        return "网盘暂时不可用，请稍后重试；若持续失败，请检查网盘连接。", "busy"
+    if re.search(r"\b429\b|too many|频繁", stderr, re.I):
         return "网盘请求过于频繁，稍后会重试。", "busy"
     if re.search(r"\b404\b|not found", stderr, re.I):
         return "网盘上找不到这个文件，可能已被移动或删除。", "missing"

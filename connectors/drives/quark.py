@@ -79,11 +79,11 @@ class QuarkDrive(Drive):
         )
         self._save_cookie(response)
         if response.status_code == 401:
-            raise AuthError(f"{self.name} Cookie 已失效，请重新复制")
+            raise AuthError(f"{self.name} Cookie 已失效，请重新复制", status_code=response.status_code)
         try:
             payload = response.json()
         except ValueError:
-            raise DriveError(f"{self.name}返回了无法识别的响应") from None
+            raise DriveError(f"{self.name}返回了无法识别的响应", status_code=response.status_code) from None
         message = str(payload.get("message") or "")
         try:
             status = int(payload.get("status") or 0)
@@ -91,8 +91,8 @@ class QuarkDrive(Drive):
             status = 0
         if response.status_code >= 400 or status >= 400 or payload.get("code") != 0:
             if re.search(r"登录|login|token", message, re.IGNORECASE):
-                raise AuthError(f"{self.name} Cookie 已失效，请重新复制")
-            raise DriveError(f"{self.name}请求失败，请检查配置")
+                raise AuthError(f"{self.name} Cookie 已失效，请重新复制", status_code=response.status_code)
+            raise DriveError(f"{self.name}请求失败，请检查配置", status_code=response.status_code)
         return payload
 
     def check(self):

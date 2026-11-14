@@ -104,7 +104,7 @@ def _learn_alias(library_database, source_name, title):
 def complete_association(*, library_database, image_root, payload, on_progress=None,
                          probe_cache=None, on_probe=None, defer_enrichment=False,
                          commit_guard=None, allow_existing=False, expected_files=None):
-    """校验后整批导入。on_progress(phase, done, total)：link 取直链、probe 读取媒体信息、write 写入。"""
+    """校验作品后逐文件关联；单个文件失败不阻止其他文件写入。"""
     report = on_progress or (lambda *_: None)
     with events.activity("metadata", "check", "核对资料"):
         checked = check_association(library_database, payload, allow_existing=allow_existing)
@@ -134,12 +134,13 @@ def complete_association(*, library_database, image_root, payload, on_progress=N
     result = import_media_batch(library_database=library_database, image_root=image_root, items=items,
                                 on_progress=on_progress, link_resolver=resolve,
                                 probe_cache=probe_cache, on_probe=on_probe,
-                                defer_enrichment=defer_enrichment, commit_guard=commit_guard)
+                                defer_enrichment=defer_enrichment, commit_guard=commit_guard, allow_partial=True)
+    for success in result["successes"]:
+        checked["rows"][success["index"] - 1]["written"] = True
     for failure in result["failures"]:
         index = failure["index"] - 1
         if 0 <= index < len(checked["rows"]):
-            # Connector exceptions can contain signed URLs: keep the browser error safe.
-            checked["rows"][index]["error"] = "导入失败，请检查视频可访问性和元数据服务后重试。"
+            checked["rows"][index]["error"] = failure["message"] if failure.get("stage") else "关联失败，请检查网盘连接与季集信息后重试。"
     source = payload.get("source_name")
     if not result["failures"] and isinstance(source, str) and source.strip():
         _learn_alias(library_database, source, checked["title"])
@@ -148,4 +149,4 @@ def complete_association(*, library_database, image_root, payload, on_progress=N
             "retry_after": max((failure.get("retry_after", 0) for failure in result["failures"]), default=0),
             "enrichment_retry_after": max((success.get("enrichment_retry_after", 0) for success in result["successes"]), default=0),
             "enrichment_warning": any(success.get("enrichment_warning") for success in result["successes"]),
-            "error": "批量导入失败，全部内容均未写入。" if result["failures"] else ""}
+            "error": f"已关联 {len(result['successes'])} 个视频，失败 {len(result['failures'])} 个。" if result["failures"] else ""}

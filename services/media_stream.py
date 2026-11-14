@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import mimetypes
+import logging
 import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
 import requests
-from flask import Response, abort, redirect, request, send_file, stream_with_context
+from flask import Response, abort, g, redirect, request, send_file, stream_with_context
 from werkzeug.exceptions import NotFound
 
 from connectors.drives.base import DriveError
@@ -15,12 +16,26 @@ from services import media_source, stream_buffer
 CHUNK_SIZE = 1024 * 1024
 AUTH_STATUSES = {401, 403, 410}
 CONTENT_HEADERS = ("Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "Last-Modified", "ETag")
+logger = logging.getLogger(__name__)
+
+
+def _diagnostic(stage, error=None, status=None):
+    # Never log exception text/tracebacks: provider exceptions may contain credentials.
+    response = getattr(error, "response", None)
+    status = status if status is not None else getattr(error, "status_code", None)
+    status = status if status is not None else getattr(response, "status_code", None)
+    logger.warning("Media stream unavailable: stage=%s exception=%s upstream_status=%s",
+                   stage, type(error).__name__ if error is not None else "HTTPError",
+                   status if isinstance(status, int) else "unknown")
 
 
 def _request(drive, link, headers=None):
     request_headers = dict(link.headers)
     request_headers.update(headers or {})
-    return drive.session.get(link.url, headers=request_headers, stream=True, timeout=(10, 60))
+    response = drive.session.get(link.url, headers=request_headers, stream=True, timeout=(10, 60))
+    if response.status_code >= 500:
+        _diagnostic("upstream", status=response.status_code)
+    return response
 
 
 def _headers(response):
@@ -35,7 +50,9 @@ def _single(path, drive, link):
     response = _request(drive, link, headers)
     if response.status_code in AUTH_STATUSES:
         response.close()
+        g.stream_stage = "link_refresh"
         link, _ = media_source.open_link(path, fresh=True)
+        g.stream_stage = "upstream"
         response = _request(drive, link, headers)
 
     def body():
@@ -72,7 +89,9 @@ def _head(path, drive, link):
     response = _request(drive, link, {"Range": "bytes=0-0"})
     if response.status_code in AUTH_STATUSES:
         response.close()
+        g.stream_stage = "link_refresh"
         link, _ = media_source.open_link(path, fresh=True)
+        g.stream_stage = "upstream"
         response = _request(drive, link, {"Range": "bytes=0-0"})
     try:
         headers = _headers(response)
@@ -89,6 +108,7 @@ def _head(path, drive, link):
 
 def _segmented(path, drive, link, entry):
     if entry.size <= 0:
+        _diagnostic("file_size", ValueError())
         return Response("文件大小未知", status=502)
     requested = _range(entry.size)
     if requested is None:
@@ -113,18 +133,20 @@ def _segmented(path, drive, link, entry):
                         data = response.content
                         if len(data) == part_end - part_start + 1:
                             return data
+                    _diagnostic("range_read", ValueError(), status=response.status_code)
                 finally:
                     response.close()
             except FileNotFoundError:
                 raise
-            except (requests.RequestException, OSError, RuntimeError, ValueError):
-                pass
+            except (requests.RequestException, OSError, RuntimeError, ValueError) as error:
+                _diagnostic("range_read", error)
             if attempt == 0:
                 try:
                     state["link"] = media_source.open_link(path, fresh=True)[0]
                 except FileNotFoundError:
                     raise
-                except (requests.RequestException, OSError, RuntimeError, ValueError):
+                except (requests.RequestException, OSError, RuntimeError, ValueError) as error:
+                    _diagnostic("link_refresh", error)
                     return b""
         return b""
 
@@ -132,6 +154,7 @@ def _segmented(path, drive, link, entry):
     if first is unsupported:
         return _single(path, drive, state["link"])
     if not first:
+        _diagnostic("range_read", OSError())
         return Response(status=502)
 
     @stream_with_context
@@ -175,6 +198,7 @@ def _buffer_fetcher(path, drive, link, size):
             if stopped.is_set():
                 raise OSError("Stream buffer closed")
             current = state["link"]
+            response = None
             try:
                 response = _request(drive, current, {"Range": f"bytes={start}-{end}",
                                                     "Accept-Encoding": "identity"})
@@ -200,7 +224,8 @@ def _buffer_fetcher(path, drive, link, size):
                     response.close()
             except (stream_buffer.RangeUnsupported, FileNotFoundError):
                 raise
-            except (DriveError, requests.RequestException, OSError, ValueError):
+            except (DriveError, requests.RequestException, OSError, ValueError) as error:
+                _diagnostic("buffer_read", error, status=getattr(response, "status_code", None))
                 if attempt == 0 and not stopped.is_set():
                     with refresh_lock:
                         if state["link"] is current:
@@ -211,10 +236,14 @@ def _buffer_fetcher(path, drive, link, size):
 
 
 def _buffered(path, drive, link, entry):
-    # Conditional ranges belong to the upstream validator. Probes need only file
-    # headers, and unknown-size files cannot be split safely.
-    if entry.size <= 0 or request.headers.get("If-Range") or request.user_agent.string == "MovieDB-Probe":
+    # Conditional ranges belong to the upstream validator, and unknown-size files
+    # cannot be split safely.
+    if entry.size <= 0 or request.headers.get("If-Range"):
         return _single(path, drive, link)
+    # 探测只读文件头尾，不必预读整段缓冲；但仍按分块请求：夸克等网盘对不限长的 Range
+    # （ffprobe 默认发 bytes=0-）会限速到几乎停住，导致探测超时。
+    if request.user_agent.string == "MovieDB-Probe":
+        return _segmented(path, drive, link, entry)
     requested = _range(entry.size)
     if requested is None:
         return Response(status=416, headers={"Content-Range": f"bytes */{entry.size}"})
@@ -235,9 +264,10 @@ def _buffered(path, drive, link, entry):
         stream_buffer.discard(key, buffer)
         stream_buffer.release(key, buffer)
         raise
-    except (DriveError, requests.RequestException, OSError, ValueError):
+    except (DriveError, requests.RequestException, OSError, ValueError) as error:
         stream_buffer.discard(key, buffer)
         stream_buffer.release(key, buffer)
+        _diagnostic("buffer_read", error)
         return Response("网盘暂时无法读取视频，请稍后重试", status=502)
 
     released = False
@@ -286,10 +316,13 @@ def _response(token):
         path = media_source.parse_stream_token(token)
     except ValueError:
         abort(403)
+    g.stream_stage = "link"
     link, entry = media_source.open_link(path)
     if link.local_path:
         return send_file(link.local_path, conditional=True)
+    g.stream_stage = "resolve"
     drive, _ = media_source.resolve(path)
+    g.stream_stage = "upstream"
     if request.method == "HEAD":
         return _head(path, drive, link)
     if not link.proxy:
@@ -306,5 +339,6 @@ def response(token):
         return _response(token)
     except (FileNotFoundError, NotFound):
         return Response("找不到挂载或文件", status=404)
-    except (DriveError, requests.RequestException):
+    except (DriveError, requests.RequestException) as error:
+        _diagnostic(getattr(g, "stream_stage", "stream"), error)
         return Response("网盘暂时无法访问，请稍后重试", status=502)

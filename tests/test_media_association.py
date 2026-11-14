@@ -139,10 +139,9 @@ class AssociationIntegrationTest(unittest.TestCase):
             self.assertEqual(db.execute("SELECT COUNT(*) FROM media_file WHERE alist_path LIKE '/share/%'").fetchone()[0], 4)
             self.assertEqual(db.execute("PRAGMA integrity_check").fetchone()[0], "ok")
 
-    def test_failed_import_rolls_back_and_keeps_row_feedback(self):
+    def test_failed_file_keeps_other_associations_and_safe_row_feedback(self):
         paths = ["/share/S01E01.mkv", "/share/S01E02.mkv"]
         self.seed_discovery(paths)
-        before = self.database_path.read_bytes()
         with patch.object(media_source, "get_file", side_effect=lambda path: {
                 "signed_url": "https://video.test" + path + "?sign=secret", "raw_url": "https://video.test" + path}), \
              patch.object(media_probe, "probe_video", side_effect=[{"duration_ms": 1000}, requests.Timeout("sign=secret")]), \
@@ -152,7 +151,9 @@ class AssociationIntegrationTest(unittest.TestCase):
         self.assertFalse(result["valid"])
         self.assertTrue(result["rows"][1]["error"])
         self.assertNotIn("secret", json.dumps(result, ensure_ascii=False))
-        self.assertEqual(before, self.database_path.read_bytes())
+        self.assertEqual(result["imported"], 1)
+        with closing(self.connect()) as db:
+            self.assertEqual(db.execute("SELECT alist_path FROM media_file WHERE alist_path LIKE '/share/%'").fetchone()[0], paths[0])
 
     def test_progress_callback_reports_each_file(self):
         paths = ["/share/S01E01.mkv", "/share/S01E02.mkv"]
@@ -176,7 +177,7 @@ class AssociationIntegrationTest(unittest.TestCase):
             )
         self.assertEqual([count for phase, count in steps if phase == "link"], [0, 1, 2])
         self.assertEqual([count for phase, count in steps if phase == "probe"], [1, 2])
-        self.assertEqual(steps[-1], ("write", 0))
+        self.assertEqual(steps[-1], ("write", 2))
         self.assertEqual(result["imported"], 2)
         self.assertFalse(again["valid"])
 

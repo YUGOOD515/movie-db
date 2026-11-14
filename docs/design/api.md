@@ -86,6 +86,8 @@
 | POST | `/manager/<title_id>/artwork` | 重定向 | 设置主海报、背景、Logo |
 | GET/POST | `/title/<title_id>/deletion` | JSON | 删除预览（返回确认 token 和 HTML）/ 凭 token 执行删除 |
 
+关联任务允许部分文件成功；状态中的 `result.rows` 按文件返回 `index`、`path`、`written` 和 `error`。重试默认处理未关联文件；`action=retry` 携带单个任务的 `ids` 和可选 `indexes`（从 1 开始的失败文件序号列表）可只重试指定文件。任务详情中的文件提供 `job_id` / `index`，不需要向前端增加签名地址。`/manager/import/batch` 继续整批原子。
+
 ### 网盘（本机限定）
 
 | 方法 | 路径 | 说明 |

@@ -410,6 +410,7 @@ def _prepare_items(
     on_probe=None,
     defer_enrichment=False,
     scope=None,
+    file_failures=None,
 ) -> list[PreparedMediaImport]:
     """Prepare independent roots in shared pools, keeping SQLite readers local.
 
@@ -417,7 +418,7 @@ def _prepare_items(
     Probes acquire links just in time, share the global and per-source caps, and
     emit per-file progress. Legacy imports join images here; durable jobs commit
     core associations first and join optional work in the enrichment phase.
-    Any failed core preparation cancels queued work and preserves input ordering.
+    JSON imports cancel on preparation failure; association probes retain per-file failures.
     """
     seen_alist_paths: set[str] = set()
     submit = scope.submit if scope else lambda name, key, fn, *args, **kwargs: runtime.pool(name).submit(key, fn, *args, **kwargs)
@@ -533,6 +534,9 @@ def _prepare_items(
             index, title_id = probe_futures[future]
             error = future.exception()
             if error is not None:
+                if file_failures is not None:
+                    file_failures.append(_file_failure(error, index, title_id, "probe"))
+                    continue
                 failures.append((index, title_id, error))
                 for other in (*probe_futures, *image_futures):
                     other.cancel()
@@ -544,7 +548,8 @@ def _prepare_items(
         wait((*probe_futures, *(image_futures if failures or not defer_enrichment else ())))
     # Gather every running failure after cancellation, rather than claiming the
     # first completion is necessarily the lowest input index.
-    observed = {**probe_futures, **({} if defer_enrichment and not failures else image_futures)}
+    observed = {**(probe_futures if file_failures is None else {}),
+                **({} if defer_enrichment and not failures else image_futures)}
     for future, (index, title_id) in observed.items():
         if not future.cancelled() and future.done() and future.exception() is not None:
             failures.append((index, title_id, future.exception()))
@@ -564,6 +569,7 @@ def _prepare_items(
             bundle=context,
         )
         for index, title_id, target, _, alist_path, context in sorted(planned, key=lambda item: item[0])
+        if index in probes
     ]
 
 
@@ -753,9 +759,25 @@ IMPORT_ERRORS = (
 )
 
 
+def _file_failure(error, index, title_id, stage):
+    """Only connector-owned probe messages may reach the file result verbatim."""
+    if isinstance(error, media_probe.ProbeError):
+        message = events.safe_text(error)
+    elif isinstance(error, (requests.ConnectionError, requests.Timeout, throttle.RateLimitError)):
+        message = "网盘暂时不可用，请稍后重试；若持续失败，请检查网盘连接。"
+    elif stage == "write":
+        message = "写入媒体库失败，请稍后重试；若持续失败，请查看日志。"
+    else:
+        message = "文件读取或校验失败，请检查网盘连接，并重新扫描核对文件后重试。"
+    failure = {"index": index, "title_id": title_id, "message": message, "stage": stage}
+    if isinstance(error, (requests.ConnectionError, requests.Timeout, throttle.RateLimitError)) or getattr(error, "retryable", False):
+        failure.update(retryable=True, retry_after=getattr(error, "retry_after", None) or 5)
+    return failure
+
+
 def _run_import(library_database, image_root, items: list[dict], progress: dict, on_progress=None,
                 raw_urls: dict[str, str] | None = None, *, link_resolver=None, probe_cache=None, on_probe=None,
-                defer_enrichment=False, commit_guard=None) -> list[dict]:
+                defer_enrichment=False, commit_guard=None, file_failures=None) -> list[dict]:
     library_database = Path(library_database)
     image_root = Path(image_root)
     image_root.parent.mkdir(parents=True, exist_ok=True)
@@ -776,22 +798,41 @@ def _run_import(library_database, image_root, items: list[dict], progress: dict,
             link_resolver=link_resolver, probe_cache=probe_cache, on_probe=on_probe,
             defer_enrichment=defer_enrichment,
             scope=scope,
+            file_failures=file_failures,
         )
         if on_progress:
             on_progress("write", 0, len(items))
         try:
-            results = _persist_prepared_imports(library_database, image_root, prepared_items,
-                                               enrichment=not defer_enrichment, commit_guard=commit_guard)
+            committed, results = [], []
+            if file_failures is None:
+                results = _persist_prepared_imports(library_database, image_root, prepared_items,
+                                                   enrichment=not defer_enrichment, commit_guard=commit_guard)
+                committed = prepared_items
+            else:
+                # Association files commit independently; JSON batches keep the path above.
+                for prepared in prepared_items:
+                    if commit_guard:
+                        commit_guard()
+                    try:
+                        result = _persist_prepared_imports(library_database, image_root, [prepared],
+                                                          enrichment=not defer_enrichment, commit_guard=commit_guard)
+                    except _PersistenceError as error:
+                        file_failures.append(_file_failure(error, prepared.index, prepared.input_title_id, "write"))
+                    else:
+                        committed.append(prepared)
+                        results.extend(result)
+                        if on_progress:
+                            on_progress("write", len(committed), len(items))
             if defer_enrichment:
                 if on_progress:
-                    on_progress("enrich", len(items), len(items))
-                retry, warning = _enrich_prepared(library_database, image_root, prepared_items, commit_guard)
+                    on_progress("enrich", len(committed), len(items))
+                retry, warning = _enrich_prepared(library_database, image_root, committed, commit_guard) if committed else (0, False)
                 for result in results:
                     result["enrichment_retry_after"] = retry
                     result["enrichment_warning"] = warning
         finally:
             wait([item.bundle.image_future for item in prepared_items if item.bundle.image_future])
-    return [{"index": prepared.index, **result} for prepared, result in zip(prepared_items, results)]
+    return [{"index": prepared.index, **result} for prepared, result in zip(committed, results)]
 
 
 def normalize_batch_import_items(payload) -> list[dict]:
@@ -842,13 +883,16 @@ def import_media_batch(
     on_probe=None,
     defer_enrichment=False,
     commit_guard=None,
+    allow_partial=False,
 ) -> dict:
     """raw_urls 只供服务端内部传入（刚从 media_source 取得的 {alist_path: raw_url}），不接受请求数据。"""
     progress = {"index": 0, "title_id": ""}
+    failures = []
     try:
         successes = _run_import(library_database, image_root, items, progress, on_progress, raw_urls,
                                 link_resolver=link_resolver, probe_cache=probe_cache, on_probe=on_probe,
-                                defer_enrichment=defer_enrichment, commit_guard=commit_guard)
+                                defer_enrichment=defer_enrichment, commit_guard=commit_guard,
+                                file_failures=failures if allow_partial else None)
     except _PersistenceError as error:
         events.emit("issue", stage="write", **events.error_info(error))
         failure = {"index": error.index, "title_id": error.title_id, "message": str(error)}
@@ -858,5 +902,5 @@ def import_media_batch(
         if isinstance(error, (requests.ConnectionError, requests.Timeout, throttle.RateLimitError)) or getattr(error, "retryable", False):
             failure.update(retryable=True, retry_after=getattr(error, "retry_after", None) or 5)
     else:
-        return {"successes": successes, "failures": []}
+        return {"successes": successes, "failures": failures}
     return {"successes": [], "failures": [failure]}

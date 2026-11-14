@@ -56,6 +56,8 @@ def _group(rows, now, names):
         phase, done, count = state, core, total
     name = next((row["progress"].get("name") or row["name"] for row in rows if row["progress"].get("name") or row["name"]), names.get(first["title_id"], first["title_id"]))
     active_files = list(dict.fromkeys(item["label"] for item in current if item["stage"] == "probe" and item.get("label")))
+    issues = [issue for issue in issues if issue.get("label") or not any(
+        other.get("label") and other.get("reason") == issue.get("reason") for other in issues)]
     return {"id": f'import:{first["title_id"]}:{first["batch"]}', "kind": "import", "name": name,
             "state": state, "phase": phase, "done": done, "total": count, "core": core, "files": total,
             # 已拿到播放链接的文件数：关联四步里“获取链接”这一步的进度

@@ -28,8 +28,8 @@ class ImportDetailViewTest(unittest.TestCase):
         self.assertEqual(detail["meta"], "剧集 · 2022 · 3 个视频")
         self.assertTrue(detail["series"])
         self.assertEqual([file["season"] for file in detail["files"]], [1, 1, 2])
-        self.assertEqual([file["state"] for file in detail["files"]], ["done", "active", "pending"])
-        self.assertEqual(detail["files"][0]["detail"], "1920×1080")
+        self.assertEqual([file["state"] for file in detail["files"]], ["pending", "active", "pending"])
+        self.assertEqual(detail["files"][0]["detail"], "1920×1080 · 等待写入")
         self.assertEqual(detail["current"], "S01E02 · S01E02.mkv")
         self.assertEqual(detail["outcome"], "")
 
@@ -39,7 +39,7 @@ class ImportDetailViewTest(unittest.TestCase):
         detail = import_detail(summary("partial", 5, 3),
                                [row("complete", written), row("failed", broken, errors={broken[0]["path"]: "链接已失效"})],
                                None)
-        self.assertEqual(detail["outcome"], "已入库 3 集，2 集失败")
+        self.assertEqual(detail["outcome"], "已关联 3 集，失败 1 集，未写入 1 集")
         self.assertEqual([file["state"] for file in detail["files"]][-2:], ["failed", "skipped"])
         self.assertEqual(detail["files"][3]["detail"], "链接已失效")
 
@@ -48,7 +48,23 @@ class ImportDetailViewTest(unittest.TestCase):
         detail = import_detail(summary("failed", 1, 0), [row("failed", [item], errors={item["path"]: "读取失败"})], None)
         self.assertFalse(detail["series"])
         self.assertIsNone(detail["files"][0]["season"])
-        self.assertEqual(detail["outcome"], "1 个视频失败")
+        self.assertEqual(detail["outcome"], "失败 1 个视频")
+
+    def test_retry_scope_waits_without_hiding_other_failures(self):
+        items = [episode(1), episode(2), episode(3)]
+        errors = {item["path"]: "上次读取失败" for item in items}
+        for state in ("queued", "running"):
+            with self.subTest(state=state):
+                retry = row(state, items, errors=errors)
+                retry["payload"]["retry_indexes"] = [1, 2]
+                detail = import_detail(summary(state, 3, 0, current=["S01E02"] if state == "running" else []), [retry], None)
+                self.assertEqual([file["state"] for file in detail["files"]],
+                                 ["pending", "active" if state == "running" else "pending", "failed"])
+                self.assertEqual(detail["files"][0]["detail"], "等待重试")
+                self.assertEqual(detail["files"][2]["detail"], "上次读取失败")
+        retry["payload"].pop("retry_indexes")
+        detail = import_detail(summary("running", 3, 0), [retry], None)
+        self.assertTrue(all(file["state"] == "pending" and file["detail"] == "等待重试" for file in detail["files"]))
 
 
 if __name__ == "__main__":

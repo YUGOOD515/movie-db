@@ -51,7 +51,7 @@ class Reporter:
         with self.lock:
             self.data.update(phase=phase, total=total)
             self.data[phase] = done
-            if phase == "enrich":
+            if phase in ("write", "enrich"):
                 self.data["core"] = done
             self._save(force=phase in ("write", "enrich"))
 

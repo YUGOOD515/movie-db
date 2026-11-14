@@ -5,10 +5,11 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+import requests
 
 with patch.dict(os.environ, {"ALIST_AUTOSTART": "0", "MOVIEDB_AUTOSCAN_DISABLED": "1"}):
     import app as movie_app
-from connectors.drives.base import Entry, Link
+from connectors.drives.base import DriveError, Entry, Link
 from services import media_source, media_stream, stream_buffer
 
 
@@ -243,15 +244,30 @@ def test_buffered_falls_back_when_upstream_ignores_ranges(client, monkeypatch):
     assert "Range" not in session.calls[-1][1]["headers"]
 
 
-@pytest.mark.parametrize("headers", [{"Range": "bytes=2-5", "If-Range": '"etag"'},
-                                  {"Range": "bytes=2-5", "User-Agent": "MovieDB-Probe"}])
-def test_buffered_passes_conditionals_and_probes_through(client, monkeypatch, headers):
+def test_buffered_passes_conditionals_through(client, monkeypatch):
     session, _ = buffered_source(monkeypatch, b"0123456789abcdef",
                                  lambda *args: FakeResponse(206, b"2345"))
-    result = client.get("/stream/good/a.mkv", headers=headers)
+    result = client.get("/stream/good/a.mkv", headers={"Range": "bytes=2-5", "If-Range": '"etag"'})
     assert result.data == b"2345" and len(session.calls) == 1
     assert session.calls[0][1]["headers"]["Range"] == "bytes=2-5"
     assert not stream_buffer._buffers
+
+
+def test_buffered_probe_reads_bounded_parts_without_prefetch(client, monkeypatch):
+    # ffprobe 发不限长的 bytes=0-；夸克会把这种请求限速到停住，所以要拆成分块，且不占预读缓冲
+    data = b"0123456789abcdef"
+
+    def upstream(url, kwargs):
+        start, end = map(int, re.fullmatch(r"bytes=(\d+)-(\d+)", kwargs["headers"]["Range"]).groups())
+        return FakeResponse(206, data[start:end + 1], {"Content-Range": f"bytes {start}-{end}/{len(data)}"})
+
+    session, _ = buffered_source(monkeypatch, data, upstream)
+    result = client.get("/stream/good/a.mkv", headers={"Range": "bytes=0-", "User-Agent": "MovieDB-Probe"})
+    assert result.status_code == 206 and result.data == data
+    result.close()
+    assert not stream_buffer._buffers
+    ranges = [re.fullmatch(r"bytes=(\d+)-(\d+)", call[1]["headers"]["Range"]).groups() for call in session.calls]
+    assert ranges and all(int(end) - int(start) + 1 <= 4 for start, end in ranges)
 
 
 @pytest.mark.parametrize("mode", ["truncated", "wrong-range", "offline"])
@@ -274,3 +290,29 @@ def test_buffer_lease_released_when_response_closed_without_iteration(client, mo
         assert next(iter(stream_buffer._buffers.values())).users == 1
         result.close()
         assert next(iter(stream_buffer._buffers.values())).users == 0
+
+
+def test_link_failure_logs_only_stage_type_and_status(client, monkeypatch, caplog):
+    def fail(path, **kwargs):
+        raise DriveError("Cookie=SECRET https://example.invalid/video?sign=SIGNED", status_code=503)
+    monkeypatch.setattr(media_source, "open_link", fail)
+    result = client.get("/stream/private-signature/a.mkv")
+    assert result.status_code == 502
+    assert "stage=link exception=DriveError upstream_status=503" in caplog.text
+    assert all(value not in caplog.text for value in ["SECRET", "SIGNED", "private-signature", "example.invalid", "Cookie"])
+
+
+def test_upstream_exception_and_http_502_have_safe_diagnostics(client, monkeypatch, caplog):
+    link = Link("https://example.invalid/video?sign=SIGNED", {"Cookie": "SECRET"}, proxy=True)
+    response = requests.Response()
+    response.status_code = 504
+    def fail(*args):
+        raise requests.HTTPError("Cookie=SECRET URL=SIGNED", response=response)
+    install(monkeypatch, link, FakeSession(handler=fail))
+    assert client.get("/stream/private-signature/a.mkv").status_code == 502
+    assert "stage=upstream exception=HTTPError upstream_status=504" in caplog.text
+    caplog.clear()
+    install(monkeypatch, link, FakeSession([FakeResponse(502, b"unavailable")]))
+    assert client.get("/stream/private-signature/a.mkv").status_code == 502
+    assert "stage=upstream exception=HTTPError upstream_status=502" in caplog.text
+    assert all(value not in caplog.text for value in ["SECRET", "SIGNED", "private-signature", "example.invalid", "Cookie"])
