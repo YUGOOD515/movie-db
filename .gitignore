@@ -53,3 +53,6 @@ library.backup-20261020.db
 
 # 打包时由 CI 写入的内置 TMDB 密钥
 connectors/tmdb_builtin.py
+
+# Agent 测试提示词的密钥
+prompts/*.env
