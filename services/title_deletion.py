@@ -1,5 +1,6 @@
 """Preview and confirm whole-work deletion with reference-aware local image cleanup."""
 
+import functools
 import hashlib
 import json
 import os
@@ -20,15 +21,33 @@ class DeletionChanged(ValueError):
     pass
 
 
+# 一次删除检查里同一路径会被反复解析、同一目录会被反复检查：缓存起来，每次检查开始时清空。
+@functools.cache
+def _resolved(path):
+    return path.resolve()
+
+
+@functools.cache
+def _linked(path, boundary):
+    """path 或它在 boundary 之下的任一上级是符号链接 / 目录联接。"""
+    if path == boundary or boundary not in path.parents:
+        return False
+    return path.is_symlink() or (hasattr(path, "is_junction") and path.is_junction()) or _linked(path.parent, boundary)
+
+
+def _clear_caches():
+    _resolved.cache_clear()
+    _linked.cache_clear()
+
+
 def _safe_file(path, boundary):
-    boundary = boundary.resolve()
+    boundary = _resolved(boundary)
     try:
-        path.resolve().relative_to(boundary)
+        _resolved(path).relative_to(boundary)
     except ValueError:
         return False
     # Do not follow junctions or symbolic links while cleaning assets.
-    return not any(part.is_symlink() or (hasattr(part, "is_junction") and part.is_junction())
-                   for part in (path, *path.parents) if part != boundary and boundary in part.parents)
+    return not _linked(path, boundary)
 
 
 def _asset_paths(local_path, image_root):
@@ -43,10 +62,11 @@ def _asset_paths(local_path, image_root):
 
 
 def _key(path):
-    return os.path.normcase(str(path.resolve()))
+    return os.path.normcase(str(_resolved(path)))
 
 
 def _plan(db, title_id, image_root):
+    _clear_caches()
     image_root = Path(image_root).resolve()
     data = query_title_deletion(db, title_id)
     ids = set(data["ids"])

@@ -15,6 +15,9 @@ from services import media_source, stream_buffer
 
 CHUNK_SIZE = 1024 * 1024
 AUTH_STATUSES = {401, 403, 410}
+# 探测只读文件头尾：小分块让 ffprobe 早拿到首包；网盘按连接限速，多开几条连接读末尾的索引更快
+PROBE_PART_SIZE = 512 * 1024
+PROBE_CONCURRENCY = 4
 CONTENT_HEADERS = ("Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "Last-Modified", "ETag")
 logger = logging.getLogger(__name__)
 
@@ -106,7 +109,7 @@ def _head(path, drive, link):
         response.close()
 
 
-def _segmented(path, drive, link, entry):
+def _segmented(path, drive, link, entry, part_size=None, concurrency=None):
     if entry.size <= 0:
         _diagnostic("file_size", ValueError())
         return Response("文件大小未知", status=502)
@@ -114,8 +117,8 @@ def _segmented(path, drive, link, entry):
     if requested is None:
         return Response(status=416, headers={"Content-Range": f"bytes */{entry.size}"})
     start, end, ranged = requested
-    concurrency = link.concurrency or 2
-    part_size = link.part_size or 8 * 1024 * 1024
+    concurrency = concurrency or link.concurrency or 2
+    part_size = part_size or link.part_size or 8 * 1024 * 1024
     parts = list(range(start, end + 1, part_size))
     state = {"link": link}
     unsupported = object()
@@ -243,7 +246,7 @@ def _buffered(path, drive, link, entry):
     # 探测只读文件头尾，不必预读整段缓冲；但仍按分块请求：夸克等网盘对不限长的 Range
     # （ffprobe 默认发 bytes=0-）会限速到几乎停住，导致探测超时。
     if request.user_agent.string == "MovieDB-Probe":
-        return _segmented(path, drive, link, entry)
+        return _segmented(path, drive, link, entry, PROBE_PART_SIZE, PROBE_CONCURRENCY)
     requested = _range(entry.size)
     if requested is None:
         return Response(status=416, headers={"Content-Range": f"bytes */{entry.size}"})

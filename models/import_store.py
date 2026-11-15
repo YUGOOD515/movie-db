@@ -231,6 +231,23 @@ def finish(database, row, state, result, error, retry):
             (state, json.dumps(result, ensure_ascii=False) if result else None, error, time.time() + retry if retry else 0, time.time(), row["job_id"], row["owner"]))
         if changed.rowcount and state != "queued":
             db.execute("DELETE FROM import_reservation WHERE job_id = ?", (row["job_id"],))
+    if state == "complete":
+        settle_superseded(database, row["title_id"])
+
+
+def settle_superseded(database, title_id):
+    """同一作品之前失败的任务：文件已全部按原映射关联好（被后来的任务完成），就标成完成，不再留在任务中心。"""
+    library = str(Path(database).resolve())
+    with closing(_connect(database)) as db:
+        rows = db.execute("SELECT job_id, payload FROM import_job WHERE library_path = ? AND title_id = ? AND state = 'failed'",
+                          (library, title_id)).fetchall()
+    settled = [row["job_id"] for row in rows if _still_associated(database, json.loads(row["payload"]))]
+    if settled:
+        with closing(_connect(database)) as db, db:
+            db.executemany("UPDATE import_job SET state = 'complete', error = '', updated_at = ? WHERE job_id = ? AND state = 'failed'",
+                           [(time.time(), job_id) for job_id in settled])
+            db.executemany("DELETE FROM import_reservation WHERE job_id = ?", [(job_id,) for job_id in settled])
+    return settled
 
 
 def running_phases(database, owner):

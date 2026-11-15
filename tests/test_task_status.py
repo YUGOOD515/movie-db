@@ -102,6 +102,21 @@ class TaskStatusTest(unittest.TestCase):
         finally:
             release.set()
 
+    def test_completed_job_settles_older_failed_job_whose_files_are_now_linked(self):
+        job = self.queued()
+        with closing(import_store._connect(self.database_path)) as db, db:
+            db.execute("UPDATE import_job SET state='failed', error='旧的失败' WHERE job_id=?", (job['id'],))
+        # 文件还没关联好：旧任务保持失败
+        with patch.object(import_store, '_still_associated', return_value=False):
+            self.assertEqual(import_store.settle_superseded(self.database_path, 'tt9000002'), [])
+        self.assertEqual(self.task()['state'], 'failed')
+        # 别的任务完成、这些文件已按原映射关联：旧任务一并标成完成，不再留在任务中心
+        with patch.object(import_store, 'settle_superseded', wraps=import_store.settle_superseded) as settle,              patch.object(import_store, '_still_associated', return_value=True):
+            import_store.finish(self.database_path, {'job_id': 'other', 'owner': 'x', 'title_id': 'tt9000002'}, 'complete', None, '', 0)
+        settle.assert_called_once_with(self.database_path, 'tt9000002')
+        self.assertEqual(import_store.status(self.database_path, [job['id']])['jobs'][0]['state'], 'complete')
+        self.assertEqual(import_store.status(self.database_path, [job['id']])['jobs'][0]['error'], '')
+
     def test_busy_wait_and_retry_preserve_probe_checkpoint(self):
         job = self.queued()
         row = import_jobs._claim(self.database_path)

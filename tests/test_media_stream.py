@@ -262,6 +262,7 @@ def test_buffered_probe_reads_bounded_parts_without_prefetch(client, monkeypatch
         return FakeResponse(206, data[start:end + 1], {"Content-Range": f"bytes {start}-{end}/{len(data)}"})
 
     session, _ = buffered_source(monkeypatch, data, upstream)
+    monkeypatch.setattr(media_stream, "PROBE_PART_SIZE", 4)
     result = client.get("/stream/good/a.mkv", headers={"Range": "bytes=0-", "User-Agent": "MovieDB-Probe"})
     assert result.status_code == 206 and result.data == data
     result.close()

@@ -8,6 +8,8 @@ from connectors import throttle
 from connectors.drives.base import AuthError, Drive, DriveError, Entry, Field, Link, THROTTLED_MESSAGE
 
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) quark-cloud-drive/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch"
+# 列目录每页条数：实测一页能返回 500 条，几千个文件的大目录少翻几十页
+PAGE_SIZE = 500
 
 
 def _iso(milliseconds):
@@ -128,7 +130,7 @@ class QuarkDrive(Drive):
         result = []
         for page in range(1, 101):
             payload = self._request("GET", "/file/sort", params={
-                "pdir_fid": directory.id, "_size": 100, "_page": page, "_fetch_total": 1,
+                "pdir_fid": directory.id, "_size": PAGE_SIZE, "_page": page, "_fetch_total": 1,
                 "fetch_all_file": 1, "fetch_risk_file_name": 1,
             })
             data = payload.get("data") or {}
@@ -142,7 +144,7 @@ class QuarkDrive(Drive):
             if len(result) > 10000:
                 raise DriveError("目录文件过多")
             total = (payload.get("metadata") or {}).get("_total", 0)
-            if not items or page * 100 >= total:
+            if not items or page * PAGE_SIZE >= total:
                 break
         return result
 

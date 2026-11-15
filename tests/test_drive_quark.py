@@ -34,10 +34,10 @@ def test_pagination_mapping_and_puus_persistence():
     first = response({"code": 0, "status": 200, "data": {"list": [{
         "fid": 123, "file_name": "A &amp; B.mkv", "file": True, "size": 42,
         "updated_at": 1000, "created_at": 2000,
-    }]}, "metadata": {"_total": 101}}, headers={"Set-Cookie": "__puus=new; Path=/; HttpOnly"})
+    }]}, "metadata": {"_total": 501}}, headers={"Set-Cookie": "__puus=new; Path=/; HttpOnly"})
     second = response({"code": 0, "status": 200, "data": {"list": [{
         "fid": "dir", "file_name": "Folder", "file": False, "updated_at": 1000, "created_at": 2000,
-    }]}, "metadata": {"_total": 101}})
+    }]}, "metadata": {"_total": 501}})
     session = Mock()
     session.request.side_effect = [first, second]
     saved = Mock()
@@ -47,6 +47,7 @@ def test_pagination_mapping_and_puus_persistence():
     assert entries[0].modified.endswith("+00:00") and entries[1].is_dir
     assert saved.call_args.args[0]["cookie"] == "a=1; __puus=new"
     assert session.request.call_args_list[1].kwargs["params"]["_page"] == 2
+    assert session.request.call_args_list[1].kwargs["params"]["_size"] == 500
 
 
 @pytest.mark.parametrize("cls", [QuarkDrive, UCDrive])
