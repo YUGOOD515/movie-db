@@ -20,6 +20,7 @@ uv run --with pystray --with pywebview python desktop.py   # 桌面模式：独�
 uv run --with pystray python desktop.py --browser          # 旧版方式：系统浏览器 + 托盘 / 菜单栏
 uv run python desktop.py                  # 没有 pywebview / pystray 时退化为浏览器 + 控制台，Ctrl+C 退出
 uv run flask --app app run                # 也可以直接用 Flask 开发服务器
+uv run python scripts/run_fresh.py        # 一次性全新环境（默认 5056 端口），Ctrl+C 退出后自动删除临时库与配置
 ```
 
 `desktop.py` 支持 `--port`、`--browser`（用系统浏览器，等同 `MOVIEDB_UI=browser`）、`--no-browser`（只运行服务）、`--no-tray`、`--self-test`（打开窗口检查页面与接口后退出，CI 用）。还没有 `library.db` 时页面会进入首次使用引导；也可以照 `.env.example` 手动写 `.env`。

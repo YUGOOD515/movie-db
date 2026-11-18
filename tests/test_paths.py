@@ -128,3 +128,44 @@ def test_media_files_are_served_from_data_directory(tmp_path):
         response.close()
     finally:
         movie_app.app.config["MEDIA_ROOT"] = original
+
+
+def test_run_fresh_isolates_env_and_deletes_temp_data_on_exit(monkeypatch, tmp_path):
+    from scripts import run_fresh
+
+    dirty = {
+        "PATH": "/usr/bin",
+        "TMDB_TOKEN": "secret",
+        "LLM_API_KEY": "llm-secret",
+        "CLOUD_SNAPSHOT_URL": "https://cloud.test",
+        "PLAYER": "mpv",
+        "MOVIEDB_DATA_DIR": "/old",
+    }
+    env = run_fresh.build_clean_env(tmp_path / "fresh", 5056, dirty)
+    assert env["MOVIEDB_DATA_DIR"] == str(tmp_path / "fresh")
+    assert env["FLASK_SKIP_DOTENV"] == "1"
+    assert env["PATH"] == "/usr/bin"
+    for leaked in ("TMDB_TOKEN", "LLM_API_KEY", "CLOUD_SNAPSHOT_URL", "PLAYER"):
+        assert leaked not in env
+
+    created = []
+    real_mkdtemp = run_fresh.tempfile.mkdtemp
+    saved_env = dict(os.environ)
+
+    def mkdtemp(prefix):
+        folder = Path(real_mkdtemp(prefix=prefix, dir=tmp_path))
+        (folder / ".env").write_text("TMDB_TOKEN=temp\n", encoding="utf-8")
+        (folder / "local.db").write_bytes(b"sqlite")
+        created.append(folder)
+        return str(folder)
+
+    try:
+        monkeypatch.setattr(run_fresh.tempfile, "mkdtemp", mkdtemp)
+        monkeypatch.setattr(run_fresh, "sweep_stale", lambda *_: None)
+        monkeypatch.setattr(run_fresh, "spawn_cleanup_watcher", lambda pid, folder: shutil.rmtree(folder))
+        monkeypatch.setattr(run_fresh, "serve", lambda host, port, open_browser=False: 0)
+        assert run_fresh.main(["--port", "5099"]) == 0
+        assert len(created) == 1 and not created[0].exists()
+    finally:
+        os.environ.clear()
+        os.environ.update(saved_env)
