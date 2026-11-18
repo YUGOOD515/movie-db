@@ -103,10 +103,14 @@ def snapshot(database):
                         "issues": [{"reason": index["error"]}] if index.get("error") else []})
     if scan["status"] != "idle":
         recognizing = scan["status"] == "recognizing"
-        entries.append({"id": "scan", "kind": "scan", "name": "扫描媒体", "phase": "recognizing" if recognizing else "scan",
-                        "state": "running" if scan["status"] in ("running", "recognizing") else "failed" if scan.get("error") else "partial" if scan["warnings"] else "complete",
+        running = scan["status"] in ("running", "recognizing")
+        cancelled = scan["status"] == "cancelled"
+        entries.append({"id": "scan", "kind": "scan", "name": "扫描媒体",
+                        "phase": "cancelled" if cancelled else "recognizing" if recognizing else "scan",
+                        "state": "running" if running else "cancelled" if cancelled else "failed" if scan.get("error") else "partial" if scan["warnings"] else "complete",
                         "done": scan.get("recognized" if recognizing else "done") or 0,
                         "total": scan.get("to_recognize" if recognizing else "total") or 0,
+                        "cancel_ids": ["scan"] if running else [],
                         "issues": [{"reason": events.safe_text(value)} for value in ([scan["error"]] if scan.get("error") else scan["warnings"])],
                         "detail": f'AI {scan.get("ai_pending") or 0} · 核对 {scan.get("verifying") or 0}' if recognizing else ""})
     if rating.get("running") or rating.get("total") or rating.get("douban_total") or rating.get("douban_message"):

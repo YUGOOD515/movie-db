@@ -90,6 +90,7 @@ start_rating_refresh = _lazy("services.rating_sync", "start_rating_refresh")
 search_titles = _lazy("services.title_search", "search_titles")
 select_title = _lazy("services.title_search", "select_title")
 start_scan = _lazy("services.media_discovery", "start_scan")
+cancel_scan = _lazy("services.media_discovery", "cancel_scan")
 scan_status = _lazy("services.media_discovery", "scan_status")
 set_ignored = _lazy("services.media_discovery", "set_ignored")
 find_record = _lazy("services.media_discovery", "find_record")
@@ -361,11 +362,12 @@ def setup_save():
     if secret_key:
         app.secret_key = secret_key
     app.config.get("LIBRARY_READY", set()).discard(str(app.config["DATABASE"]))
-    if not app.config.get("TESTING") and not os.environ.get("MOVIEDB_AUTOSCAN_DISABLED"):
+    has_roots = bool(_local_store.list_roots(app.config["DATABASE"]))
+    if has_roots and not app.config.get("TESTING") and not os.environ.get("MOVIEDB_AUTOSCAN_DISABLED"):
         from services.media_discovery import start_autoscan
 
         start_autoscan(app.config["DATABASE"])
-    result["next"] = url_for("media", tab="associate", add_root=1)
+    result["next"] = url_for("media", tab="associate") if has_roots else url_for("media", tab="associate", add_root=1)
     return jsonify(result)
 
 
@@ -779,12 +781,14 @@ def media():
 
         alist_path = guess_path()
     missing_mounts = []
+    empty_library = False
     if active_tab == "associate" and not app.config["READ_ONLY"]:
         raw = {"titles": [], "artwork": [], "query": "", "title_type": title_type}
         missing = {}
         health = ""
-        if _setup.library_ready(app.config["DATABASE"]):
-            missing_mounts = _drives.missing_mounts(get_media_paths(get_db()))
+        media_paths = get_media_paths(get_db()) if _setup.library_ready(app.config["DATABASE"]) else []
+        missing_mounts = _drives.missing_mounts(media_paths) if media_paths else []
+        empty_library = not media_paths
     else:
         raw = query_manager(
             get_db(),
@@ -811,6 +815,7 @@ def media():
         drives=drive_list,
         missing_mounts=missing_mounts,
         alist_path=alist_path,
+        empty_library=empty_library,
     )
 
 
@@ -877,7 +882,11 @@ def import_title_poster():
 @app.route("/manager/discovery", methods=["GET", "POST"])
 def discover_import_media():
     if request.method == "POST":
-        start_scan(app.config["DATABASE"], refresh=request.args.get("refresh") == "1")
+        payload = request.get_json(silent=True) or {}
+        if (isinstance(payload, dict) and payload.get("action") == "cancel") or request.args.get("action") == "cancel":
+            cancel_scan(app.config["DATABASE"])
+        else:
+            start_scan(app.config["DATABASE"], refresh=request.args.get("refresh") == "1")
         return jsonify(scan_status(app.config["DATABASE"]))
     # 扫描期间页面每隔一两秒轮询：内容没变时回 304，省去传输与整表重绘。
     response = jsonify(scan_status(app.config["DATABASE"]))
@@ -909,6 +918,7 @@ def update_discovery_roots():
             _local_store.add_root(app.config["DATABASE"], path)
     except ValueError as error:
         return jsonify(error=str(error)), 400
+    cancel_scan(app.config["DATABASE"])
     return jsonify(roots=_local_store.list_roots(app.config["DATABASE"]))
 
 

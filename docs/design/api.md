@@ -69,7 +69,7 @@
 
 | 方法 | 路径 | 返回 | 说明 |
 |---|---|---|---|
-| GET/POST | `/manager/discovery` | JSON | 扫描状态 / 开始扫描（`refresh=1` 全量） |
+| GET/POST | `/manager/discovery` | JSON | 扫描状态 / 开始扫描（`refresh=1` 全量，`action=cancel` 停止） |
 | POST | `/manager/discovery/roots` | JSON | 添加或移除扫描目录（`action=remove`） |
 | GET | `/manager/discovery/browse` | JSON | 浏览网盘目录 |
 | POST | `/manager/discovery/ignore` | JSON | 忽略或恢复某条扫描结果 |

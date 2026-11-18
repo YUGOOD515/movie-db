@@ -100,6 +100,11 @@
     --bs-btn-close-focus-shadow: 0 0 0 0.2rem var(--bs-focus-ring-color);
 }
 
+.progress,
+.progress-stacked {
+    --bs-progress-bar-bg: var(--media-accent);
+}
+
 /* 键盘聚焦环：不带颜色变体的 .btn（来源列表、图标按钮、首页“详情”等）在 Bootstrap 里没有聚焦环，
    带变体的是各自的颜色；统一成强调色。设置分类的 .nav-link 聚焦环在 Bootstrap 里是写死的蓝。 */
 .btn {
@@ -2164,6 +2169,208 @@ a.detail-rating-item:focus-visible .detail-rating-score {
     font-size:1rem;
 }
 
+/* 首次使用指引（关联页顶部）：四步横排，当前一步是实心强调色圆点，下面一行写下一步做什么 */
+.association-guide {
+    display: grid;
+    gap: 0.875rem;
+    padding: 1rem 1.25rem;
+    background: var(--bs-tertiary-bg);
+}
+
+.association-guide-steps {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    color: var(--bs-secondary-color);
+}
+
+.association-guide-steps > li {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.association-guide-steps > li + li::before {
+    content: "";
+    width: 1.5rem;
+    height: 1px;
+    background: var(--bs-border-color);
+}
+
+.association-guide-steps > li[data-state="current"],
+.association-guide-steps > li[data-state="done"] {
+    color: var(--bs-body-color);
+}
+
+.association-guide-steps > li[data-state="current"] {
+    font-weight: 600;
+}
+
+/* 步骤圆点是正圆（几何例外） */
+.association-guide-dot {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    border: 1px solid var(--bs-border-color);
+    border-radius: 50%;
+    corner-shape: round;
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+}
+
+[data-state="current"] > .association-guide-dot {
+    border-color: var(--media-accent);
+    background: var(--media-accent);
+    color: var(--media-accent-contrast);
+}
+
+[data-state="done"] > .association-guide-dot {
+    border-color: transparent;
+    background: rgba(var(--media-accent-rgb), 0.12);
+}
+
+.association-guide-dot .app-icon {
+    font-size: 0.75rem;
+}
+
+.association-guide-next {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 1rem;
+    font-size: 0.875rem;
+}
+
+.association-guide-next > p {
+    flex: 1 1 18rem;
+    min-width: 0;
+}
+
+.association-guide-action {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.association-guide-action:empty {
+    display: none;
+}
+
+/* 扫描 / 识别进度：阶段 · 计数 · 剩余时间 · 停止，下面是进度条、明细和限速说明 */
+.scan-progress {
+    display: grid;
+    gap: 0.5rem;
+    padding: 0.75rem 0.75rem 0.875rem 1rem;
+    border: 1px solid var(--media-card-border);
+}
+
+.scan-progress-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    min-height: 2rem;
+    font-size: 0.875rem;
+}
+
+.scan-progress-head [data-icon="circle-alert"] {
+    color: var(--bs-warning);
+}
+
+.scan-progress-title {
+    font-weight: 600;
+}
+
+.scan-progress-count,
+.scan-progress-time {
+    color: var(--bs-secondary-color);
+    font-variant-numeric: tabular-nums;
+}
+
+.scan-progress-bar {
+    --bs-progress-height: 0.25rem;
+    margin-right: 0.25rem;
+}
+
+.scan-progress-detail,
+.scan-progress-wait {
+    margin: 0;
+    font-size: 0.8125rem;
+    color: var(--bs-secondary-color);
+}
+
+.scan-progress-wait {
+    display: flex;
+    align-items: baseline;
+    gap: 0.35rem;
+    color: var(--bs-warning-text-emphasis);
+}
+
+/* 本页提交的关联去了哪里、完成后去首页 */
+.association-next {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+    padding: 0.625rem 0.75rem 0.625rem 1rem;
+    border: 1px solid var(--media-card-border);
+    font-size: 0.875rem;
+}
+
+.association-next-text {
+    flex: 1 1 16rem;
+    min-width: 0;
+}
+
+.association-next-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.association-next[data-tone="done"] [data-icon="circle-check"] {
+    color: var(--bs-success);
+}
+
+.association-next[data-tone="problem"] [data-icon="triangle-alert"] {
+    color: var(--bs-warning);
+}
+
+/* 可确认列表上方的就近操作：勾选框与列表行的勾选框对齐（行左内边距 + 列表 1px 边框） */
+.discovery-confirm {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-height: 2rem;
+    margin-bottom: 0.5rem;
+    padding: 0 0.875rem 0 calc(0.75rem + 1px);
+    font-size: 0.875rem;
+}
+
+.discovery-confirm-all {
+    display: flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 0.75rem;
+    font-weight: 500;
+}
+
+.discovery-confirm-hint {
+    min-width: 0;
+    font-size: 0.8125rem;
+    color: var(--bs-secondary-color);
+}
+
+@media (max-width: 575.98px) {
+    .discovery-confirm-hint {
+        display: none;
+    }
+}
+
 /* 概览卡片：图片有未保存的修改时在标题旁标出，保存/放弃在底部状态栏。 */
 .artwork-pending-badge {
     display: none;
@@ -2879,6 +3086,36 @@ body.has-status-dock {
 
 .island-card:has(.island-card-link:not([hidden])) .island-card-text {
     padding-right: 4.5rem;
+}
+
+/* 进行中 / 排队的卡片右侧的“停止”：对齐卡片头部（海报高 3.375rem）的垂直中线，展开后改用详情里的文字按钮 */
+.island-card-stop {
+    position: absolute;
+    top: calc(var(--card-inset) + 1.6875rem);
+    right: 0.5rem;
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: var(--radius-menu-item);
+    transform: translateY(-50%);
+}
+
+.island-card-stop[hidden] {
+    display: none;
+}
+
+.island-card:has(.island-card-stop:not([hidden])) .island-card-text {
+    padding-right: 1.75rem;
+}
+
+/* 列表末尾：一键取消全部排队 */
+.island-footer {
+    display: flex;
+    flex-shrink: 0;
+    justify-content: flex-end;
+}
+
+.island-footer > .btn {
+    box-shadow: var(--toast-shadow);
 }
 
 .island-issues {

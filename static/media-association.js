@@ -37,6 +37,9 @@
     const importJobs = new Map(), importErrors = new Map();
     let jobLoading = false;
     let jobTimer = null;
+    // 本次打开页面后提交的关联（task_id → 作品名）：用来告诉用户进度在哪看、完成后去哪看
+    const submitted = new Map();
+    const firstRun = root.hasAttribute("data-first-run");
     const pendingPaths = () => new Set([...importJobs.values()].filter(job => ["queued", "running"].includes(job.state)).flatMap(job => job.paths));
     // 识别规则：季号来源、各文件夹的季号与集号偏移、当前样例。
     let seasonSource = "file", sampleIndex = 0, pendingMarks = null, suggestion = null;
@@ -58,6 +61,7 @@
             const previous = importJobs.get(job.id);
             if (restoring && !["queued", "running"].includes(job.state)) continue;
             importJobs.set(job.id, job);
+            if (restoring && job.task_id) submitted.set(job.task_id, job.name || job.title_id || "");
             if (["queued", "running"].includes(job.state)) job.paths.forEach(path => importErrors.delete(path));
             else if (!previous || ["queued", "running"].includes(previous.state)) {
                 if (job.state === "complete" || (job.state === "cancelled" && job.progress.core >= job.total)) {
@@ -111,7 +115,9 @@
                 poster: sources.find(source => source.titleId === job.title_id && source.src)?.src || "" };
             group.files += job.total;
             groups.set(job.task_id, group);
+            submitted.set(job.task_id, group.name);
         }
+        renderList();
         window.TaskCenter?.arrive([...groups.values()], sources);
     }
 
@@ -468,9 +474,10 @@
         }
         const empty = $("[data-discovery-empty]");
         const loading = tab === "linked" ? linkedLoading : scanning() || !scan.status;
-        const message = loading ? (tab === "linked" ? "正在加载已关联内容…" : scan.status === 'recognizing' ? '正在识别…' : '正在扫描…')
+        const message = loading ? (tab === "linked" ? "正在加载已关联内容…" : scan.status === 'recognizing' ? '正在识别，识别好的作品会陆续出现在这里…' : '正在扫描，找到的作品会陆续出现在这里…')
             : noDrives() && !records.length && tab !== 'linked' ? '还没有网盘。先添加网盘，再选择存放影视文件的目录，扫描后就能在这里确认关联。'
             : scan.status === 'error' ? (scan.error || '扫描失败，请重试') : search ? '没有匹配的内容'
+            : scan.status === 'cancelled' && !records.length && tab !== 'linked' ? '扫描已停止，还没有找到作品。'
             : pendingPaths().size ? '正在关联…'
             : {ready:'暂无可确认项', review:'暂无待核对项', unknown:'暂无未识别项', linked:'此范围暂无已关联内容', ignored:'暂无已忽略项'}[tab];
         empty.querySelector("[data-discovery-empty-text]").textContent = message;
@@ -501,6 +508,7 @@
             slowNote.title = slow.map(item => `${item.path}（${item.seconds} 秒）`).join("\n");
         }
         show(slowNote, slow.length > 0 && !scanning());
+        renderProgress(); renderNext(); renderGuide();
         renderBar();
     }
 
@@ -508,27 +516,55 @@
     const bar = window.StatusBar;
     const currentView = () => !editor.classList.contains("d-none") ? "editor" : !panel.classList.contains("d-none") ? "list" : "other";
 
+    // 可确认项的勾选：列表上方的就近操作条与底部状态栏共用同一份选择
+    function readySelection() {
+        const groups = grouped(visibleRecords().filter(item => stateOf(item) === "ready"));
+        const picked = groups.filter(group => !excluded.has(group.key));
+        const videos = picked.reduce((sum, group) => sum + group.records.reduce((count, item) => count + item.files.length, 0), 0);
+        return { groups, picked, text: picked.length ? `已选 ${picked.length} 项 · ${videos} 个视频` : "未选择",
+            label: picked.length ? `确认关联 ${picked.length} 项` : "确认关联" };
+    }
+    function selectAllReady(checked) {
+        for (const group of readySelection().groups) { if (checked) excluded.delete(group.key); else excluded.add(group.key); }
+        renderList();
+    }
+    function confirmPicked() {
+        const { picked } = readySelection();
+        confirm(picked.flatMap(group => group.records), picked.map(group => group.key));
+    }
+
+    function renderConfirm() {
+        const box = $("[data-discovery-confirm]");
+        const selection = readySelection();
+        const visible = tab === "ready" && (selection.groups.length > 0 || !!confirming);
+        show(box, visible);
+        if (!visible) return;
+        const all = box.querySelector("[data-confirm-all]"), run = box.querySelector("[data-confirm-run]");
+        all.checked = selection.picked.length > 0 && selection.picked.length === selection.groups.length;
+        all.indeterminate = selection.picked.length > 0 && selection.picked.length < selection.groups.length;
+        all.disabled = !!confirming;
+        box.querySelector("[data-confirm-text]").textContent = confirming ? `正在提交 ${confirming} 个视频…` : selection.text;
+        run.textContent = selection.label;
+        run.disabled = !!confirming || !selection.picked.length;
+    }
+
     function renderBar() {
+        renderConfirm();
         if (currentView() !== "list") return;
         if (confirming) {
             bar.progress("association", progressSpec(confirming));
             return;
         }
         if (tab === "ready") {
-            const groups = grouped(visibleRecords().filter(item => stateOf(item) === "ready"));
+            const selection = readySelection(), { groups, picked } = selection;
             if (groups.length) {
-                const picked = groups.filter(group => !excluded.has(group.key));
-                const videos = picked.reduce((sum, group) => sum + group.records.reduce((count, item) => count + item.files.length, 0), 0);
                 bar.selection("association", {
-                    text: picked.length ? `已选 ${picked.length} 项 · ${videos} 个视频` : "未选择",
+                    text: selection.text,
                     checked: picked.length === groups.length,
                     indeterminate: picked.length > 0 && picked.length < groups.length,
                     toggleLabel: "全选可确认项",
-                    onToggle: checked => {
-                        for (const group of groups) { if (checked) excluded.delete(group.key); else excluded.add(group.key); }
-                        renderList();
-                    },
-                    action: { label: picked.length ? `确认关联 ${picked.length} 项` : "确认关联", disabled: !picked.length, run: () => confirm(picked.flatMap(group => group.records), picked.map(group => group.key)) },
+                    onToggle: selectAllReady,
+                    action: { label: selection.label, disabled: !picked.length, run: confirmPicked },
                 });
                 return;
             }
@@ -547,6 +583,195 @@
         if (view === "list") renderBar();
         else if (view === "editor") renderTaskBar();
         else bar.clear("association");
+    }
+
+    // ---- 扫描进度、提交去向、首次指引 --------------------------------------
+
+    // 本页观察到的扫描节奏：用来估算剩余时间、判断“很久没有新进度”。打开页面时扫描已在进行，也从这一刻起算。
+    const pace = { phase: null, started: 0, base: 0, value: null, changed: 0 };
+    const scanCounts = () => scan.status === "recognizing" ? { done: scan.recognized || 0, total: scan.to_recognize || 0 } : { done: scan.done || 0, total: scan.total || 0 };
+    const duration = seconds => seconds >= 3600 ? `${Math.floor(seconds / 3600)} 小时 ${Math.round(seconds % 3600 / 60)} 分` : seconds >= 90 ? `${Math.round(seconds / 60)} 分钟` : `${Math.max(1, Math.round(seconds))} 秒`;
+
+    function trackPace() {
+        const now = Date.now();
+        if (!scanning()) { pace.phase = null; return; }
+        const counts = scanCounts();
+        if (pace.phase !== scan.status) Object.assign(pace, { phase: scan.status, started: now, base: counts.done, value: null });
+        const value = `${scan.status}:${counts.done}:${counts.total}:${scan.recognized || 0}:${records.length}`;
+        if (value !== pace.value) Object.assign(pace, { value, changed: now });
+    }
+
+    // 粗略的剩余时间：本页看到的速度 × 剩余数量；看到的进度太少时不估
+    function remaining() {
+        const { done, total } = scanCounts();
+        const seconds = (Date.now() - pace.started) / 1000, gained = done - pace.base;
+        if (!total || done >= total || seconds < 8 || gained < 2) return "";
+        const left = (total - done) * seconds / gained;
+        return left < 60 ? "不到 1 分钟" : `约还需 ${duration(left)}`;
+    }
+
+    function renderProgress() {
+        const box = $("[data-scan-progress]");
+        const running = scanning(), stopped = scan.status === "cancelled";
+        trackPace();
+        show(box, running || stopped);
+        if (!running && !stopped) return;
+        const { done, total } = scanCounts();
+        const recognizing = scan.status === "recognizing";
+        const phase = stopped ? "扫描已停止" : recognizing ? "正在识别作品" : total ? "正在扫描目录" : "正在读取目录列表";
+        const marker = box.querySelector("[data-scan-icon]");
+        if (marker.dataset.phase !== String(stopped)) { marker.dataset.phase = String(stopped); marker.replaceChildren(stopped ? icon("circle-alert") : spinner()); }
+        box.querySelector("[data-scan-phase]").textContent = phase;
+        const count = stopped || !total ? "" : recognizing ? `${Math.min(done, total)}/${total} 项` : `${Math.min(done, total)}/${total} 个目录`;
+        box.querySelector("[data-scan-count]").textContent = count;
+        box.querySelector("[data-scan-time]").textContent = running ? remaining() : "";
+        show(box.querySelector("[data-scan-stop]"), running);
+        show(box.querySelector("[data-scan-restart]"), stopped);
+        const progressBar = box.querySelector("[data-scan-bar]"), fill = progressBar.firstElementChild;
+        show(progressBar, running);
+        const known = total > 0, percent = known ? Math.round(Math.min(done, total) / total * 100) : 100;
+        fill.style.width = `${percent}%`;
+        fill.classList.toggle("progress-bar-striped", !known);
+        fill.classList.toggle("progress-bar-animated", !known);
+        if (known) progressBar.setAttribute("aria-valuenow", String(percent)); else progressBar.removeAttribute("aria-valuenow");
+        progressBar.setAttribute("aria-valuetext", [phase, count].filter(Boolean).join(" "));
+        const found = records.length;
+        const detail = stopped ? (found ? `已找到的 ${found} 项保留在下方，可以先确认关联，之后再重新扫描。` : "还没有找到作品，可以重新扫描。")
+            : recognizing ? [scan.ai_pending ? `AI 识别中 ${scan.ai_pending} 项` : "", scan.verifying ? `TMDB 核对中 ${scan.verifying} 项` : "", "识别好的作品会陆续出现在“可确认”里"].filter(Boolean).join(" · ")
+            : [found ? `已找到 ${found} 项` : "", scan.to_recognize ? `已识别 ${Math.min(scan.recognized || 0, scan.to_recognize)}/${scan.to_recognize}` : "", "大目录第一次扫描可能需要几分钟"].filter(Boolean).join(" · ");
+        box.querySelector("[data-scan-detail]").textContent = detail;
+        // 限速或长时间没有新进度：写明在等什么，免得以为断网了
+        const wait = box.querySelector("[data-scan-wait]"), services = running ? scan.services || [] : [];
+        const now = Date.now() / 1000, quiet = (Date.now() - pace.changed) / 1000;
+        let note = "";
+        if (services.length) {
+            note = services.map(service => {
+                const left = service.until ? Math.ceil(service.until - now) : 0;
+                return `${service.name}${service.reason ? `：${service.reason}` : "：限速"}${left > 0 ? `，约 ${duration(left)}后继续` : "，稍后自动继续"}`;
+            }).join("；") + "。这是服务限速，不是断网，扫描会自动继续。";
+        } else if (running && pace.changed && quiet >= 20) {
+            note = `网盘响应较慢，已 ${duration(quiet)}没有新进度，扫描仍在进行。`;
+        }
+        wait.querySelector("span").textContent = note;
+        show(wait, !!note);
+    }
+
+    // 提交后的去向：关联在后台进行（左上角圆钮），完成后给出“去首页观看”
+    function submittedSummary() {
+        const jobs = [...importJobs.values()];
+        const result = { total: submitted.size, running: 0, queued: 0, done: [], failed: 0 };
+        for (const [id, name] of submitted) {
+            const own = jobs.filter(job => job.task_id === id);
+            if (!own.length || own.some(job => job.state === "running")) result.running++;
+            else if (own.some(job => job.state === "queued")) result.queued++;
+            else if (own.some(job => job.state === "complete" || job.state === "cancelled" && job.progress?.core >= job.total)) result.done.push(name);
+            else result.failed++;
+        }
+        result.active = result.running + result.queued;
+        return result;
+    }
+    const homeLink = (label, primary) => {
+        const link = el("a", primary ? "btn btn-sm media-primary-action is-compact" : "btn btn-sm chip-btn");
+        link.href = root.dataset.homeUrl;
+        link.append(icon("play"), el("span", "", label));
+        return link;
+    };
+    const progressButton = () => button("查看进度", () => window.TaskCenter?.open());
+    const linkedButton = () => button("查看已关联", () => { tab = "linked"; renderList(); loadLinked(); });
+
+    function renderNext() {
+        const box = $("[data-association-next]"), summary = submittedSummary();
+        // 首次使用时同样的信息写在顶部指引里
+        if (firstRun || !summary.total) { show(box, false); return; }
+        const actions = box.querySelector("[data-next-actions]");
+        let text, mark;
+        if (summary.active) {
+            const parts = [summary.running ? `${summary.running} 部正在关联` : "", summary.queued ? `${summary.queued} 部排队中` : ""].filter(Boolean).join("，");
+            text = `已提交 ${summary.total} 部：${parts}。进度在左上角的圆钮里，完成后可在首页观看。`;
+            mark = "busy";
+        } else {
+            const names = summary.done.slice(0, 2).map(name => `《${name}》`).join("") + (summary.done.length > 2 ? ` 等 ${summary.done.length} 部` : "");
+            text = summary.done.length ? `${names}已关联完成${summary.failed ? `，${summary.failed} 部未完成，可在“待核对”里重新提交` : ""}，现在可以去首页观看了。`
+                : `${summary.failed} 部关联未完成，可在“待核对”里重新提交。`;
+            mark = summary.done.length ? "done" : "problem";
+        }
+        const textNode = box.querySelector("[data-next-text]");
+        if (textNode.textContent !== text) textNode.textContent = text;
+        if (box.dataset.tone !== mark) {
+            box.dataset.tone = mark;
+            box.querySelector("[data-next-icon]").replaceChildren(mark === "busy" ? spinner() : icon(mark === "done" ? "circle-check" : "triangle-alert"));
+            if (mark === "busy") actions.replaceChildren(progressButton(), homeLink("去首页", false));
+            else {
+                const close = button("", () => { submitted.clear(); renderNext(); }, "btn icon-btn discovery-icon-btn");
+                close.setAttribute("aria-label", "关闭提示"); close.append(icon("x"));
+                actions.replaceChildren(...(mark === "done" ? [homeLink("去首页观看", true), linkedButton()] : []), close);
+            }
+        }
+        show(box, true);
+    }
+
+    const GUIDE = ["root", "scan", "confirm", "watch"];
+    function renderGuide() {
+        const guide = $("[data-association-guide]");
+        if (!guide) return;
+        const summary = submittedSummary();
+        const counts = { ready: 0, other: 0 };
+        for (const item of availableRecords()) counts[stateOf(item) === "ready" ? "ready" : "other"]++;
+        let step, text, actions = [];
+        const chooseRoot = () => button("选择目录", () => $("[data-root-add]").click(), "btn btn-sm media-primary-action is-compact");
+        if (summary.total) {
+            step = "watch";
+            if (summary.active) { text = "正在后台关联：进度在左上角的圆钮里，可以点开查看或停止。完成后就能在首页看到。"; actions = [progressButton()]; }
+            else if (summary.done.length) { text = "关联完成！去首页看看你的影视库吧。以后添加了新视频，回到这里重新扫描即可。"; actions = [homeLink("去首页观看", true)]; }
+            else { step = "confirm"; text = "关联没有完成，失败原因写在“待核对”里，核对后重新提交。"; }
+        } else if (noDrives()) {
+            step = "root"; text = "先添加网盘：点左栏的“＋”，或点右侧的按钮。";
+            actions = [button("添加网盘", () => document.querySelector("[data-drive-add]")?.click(), "btn btn-sm media-primary-action is-compact")];
+        } else if (!scan.status) {
+            step = "root"; text = "正在读取扫描目录…";
+        } else if (!roots.length && !records.length && !scanning()) {
+            step = "root"; text = "选择网盘里存放电影、剧集的文件夹，MovieDB 会扫描其中的视频并自动识别。"; actions = [chooseRoot()];
+        } else if (counts.ready) {
+            step = "confirm";
+            text = `识别好了 ${counts.ready} 项：在“可确认”里勾选要加入的作品，再点“确认关联”。只勾选不会加入媒体库。`;
+            if (tab !== "ready") actions = [button("查看可确认", () => { tab = "ready"; renderList(); })];
+        } else if (scanning()) {
+            step = "scan"; text = "正在扫描和识别，进度见下方。识别好的作品会陆续出现在“可确认”里，不需要等到全部结束。";
+        } else if (counts.other) {
+            step = "confirm"; text = "没有能直接确认的作品：到“待核对”“未识别”里点“核对”或“关联”，逐个确认。";
+        } else if (scan.status === "cancelled") {
+            step = "scan"; text = "扫描已停止。点下方的“重新扫描”继续。";
+        } else if (scan.status === "error") {
+            step = "scan"; text = "扫描没有成功，原因见下方。检查网盘连接后重新扫描。";
+        } else {
+            step = "root"; text = "所选目录里没有找到视频。换一个存放影视文件的目录试试。"; actions = [chooseRoot()];
+        }
+        const current = GUIDE.indexOf(step), finished = step === "watch" && !summary.active && summary.done.length > 0;
+        guide.querySelectorAll("[data-guide-step]").forEach(node => {
+            const index = GUIDE.indexOf(node.dataset.guideStep);
+            const state = index < current || finished ? "done" : index === current ? "current" : "pending";
+            if (node.dataset.state === state) return;
+            node.dataset.state = state;
+            node.querySelector(".association-guide-dot").replaceChildren(state === "done" ? icon("check") : document.createTextNode(String(index + 1)));
+            if (state === "current") node.setAttribute("aria-current", "step"); else node.removeAttribute("aria-current");
+        });
+        const textNode = guide.querySelector("[data-guide-text]");
+        if (textNode.textContent !== text) textNode.textContent = text;
+        const slot = guide.querySelector("[data-guide-action]");
+        const signature = actions.map(node => node.textContent).join("|");
+        if (slot.dataset.signature !== signature) { slot.dataset.signature = signature; slot.replaceChildren(...actions); }
+    }
+
+    async function stopScan() {
+        const stop = $("[data-scan-stop]");
+        stop.disabled = true;
+        try {
+            await json(root.dataset.discoveryUrl, { action: "cancel" });
+            feedback("已停止扫描，已找到的结果保留在列表里。", "info");
+        } catch (error) { feedback(error.message, "danger"); }
+        finally { stop.disabled = false; }
+        await discover();
+        window.TaskCenter?.refresh();
     }
 
     function renderRoots() {
@@ -1721,6 +1946,12 @@
     });
     picker.addEventListener("hidden.bs.modal", () => { waitingForTitle = false; });
     $("[data-discovery-refresh]").addEventListener("click", () => discover(true, true));
+    $("[data-scan-stop]").addEventListener("click", stopScan);
+    $("[data-scan-restart]").addEventListener("click", () => discover(true, true));
+    $("[data-confirm-all]").addEventListener("change", event => selectAllReady(event.target.checked));
+    $("[data-confirm-run]").addEventListener("click", confirmPicked);
+    // 剩余时间、限速倒计时、“多久没有新进度”每秒更新（轮询遇到 304 时列表不会重画）
+    setInterval(() => { if (!document.hidden && scanning() && currentView() === "list") renderProgress(); }, 1000);
     $("[data-root-add]").addEventListener("click", () => openBrowser(sourcePath === "*" ? "/" : sourcePath));
     workspace.addEventListener("click", event => {
         const browseButton = event.target.closest("[data-root-open]");
@@ -1756,8 +1987,11 @@
     syncSource(); renderList(); loadLinked();
     discover().then(data => {
         pollJobs(true);
-        if (wantsRoot) $("[data-root-add]").click();
-        // 还没有任何网盘时不自动扫描：扫了也只会报“没有目录”，空状态会引导先添加网盘
+        // 引导页过来的新用户：选定目录后 updateRoot 才开始扫描，不在弹窗选目录的同时抢跑一次空扫
+        if (wantsRoot) { $("[data-root-add]").click(); return; }
+        // 还没有任何网盘时不自动扫描：扫了也只会报“没有目录”，空状态会引导先添加网盘；
+        // 首次使用还没选目录时同样不盲扫，顶部指引会让用户先选目录
+        if (firstRun && !roots.length) return;
         if (data && (data.status === "idle" || data.restored) && !noDrives()) discover(true);
     });
 })();

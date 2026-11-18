@@ -489,7 +489,7 @@ BATCH_WAIT = 1.0
 
 
 def recognize_many(library_database, records: list[dict], *, titles: list[dict] | None = None,
-                   on_result=None, on_progress=None, workers: int = 16) -> dict:
+                   on_result=None, on_progress=None, workers: int = 16, cancel=None) -> dict:
     """批量识别（流水线）：规则、AI、TMDB 核对三段同时进行。
 
     - 规则：workers 个线程并行清洗与搜索 TMDB（整体受 throttle 的 TMDB 速率约束），不需要 AI 的记录当场完成；
@@ -512,6 +512,7 @@ def recognize_many(library_database, records: list[dict], *, titles: list[dict] 
     errors: list[RuntimeError] = []
     arrivals: queue.Queue = queue.Queue()
     submitted, ended = object(), object()
+    cancelled = lambda: cancel is not None and cancel.is_set()
 
     def bump(**changes):
         with lock:
@@ -523,6 +524,8 @@ def recognize_many(library_database, records: list[dict], *, titles: list[dict] 
 
     def emit(context, answer=None):
         try:
+            if cancelled():
+                return None
             result = complete(library_database, context, answer, usage=stats["usage"])
         except RuntimeError as error:
             errors.append(error)
@@ -544,6 +547,10 @@ def recognize_many(library_database, records: list[dict], *, titles: list[dict] 
         return result
 
     def first_stage(record):
+        if cancelled():
+            arrivals.put(None)
+            bump(done=1)
+            return
         context = None
         try:
             if not errors:
@@ -586,6 +593,9 @@ def recognize_many(library_database, records: list[dict], *, titles: list[dict] 
 
         def ask(contexts, depth=0, transient=0):
             """请求一批并把答案交给核对线程；拆分与漏项重试都在这里循环完成。"""
+            if cancelled():
+                bump(ai=-len(contexts), done=len(contexts))
+                return
             if stopped:
                 fail(contexts, stopped[0])
                 return
@@ -656,17 +666,24 @@ def recognize_many(library_database, records: list[dict], *, titles: list[dict] 
 
         def flush():
             nonlocal buffer
-            if buffer:
-                with lock:
-                    stats["needs_ai"] += len(buffer)
-                batches.append(asks.submit(ask, buffer))
+            if not buffer:
+                return
+            if cancelled():
+                bump(ai=-len(buffer), done=len(buffer))
                 buffer = []
+                return
+            with lock:
+                stats["needs_ai"] += len(buffer)
+            batches.append(asks.submit(ask, buffer))
+            buffer = []
 
         capacity = threading.Semaphore(workers * 4)
 
         def produce():
             try:
                 for record in records:
+                    if cancelled():
+                        break
                     capacity.acquire()
                     if streaming:
                         bump(total=1)

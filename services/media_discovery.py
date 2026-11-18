@@ -10,10 +10,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import closing
 from datetime import datetime
 from pathlib import PurePosixPath
-from threading import Lock, Thread
+from threading import Event, Lock, Thread
 
 import requests
 
+from connectors import throttle
 from models import drive_store
 from models import local_store as store
 from models.database import connect_database
@@ -24,6 +25,11 @@ logger = logging.getLogger(__name__)
 
 _lock = Lock()
 _scans = {}
+_cancels: dict[int, Event] = {}
+
+
+class _ScanCancelled(Exception):
+    pass
 
 
 def canonical_path(value):
@@ -34,15 +40,19 @@ def canonical_path(value):
     return value
 
 
-def find_share_root():
+def find_share_root(cancel: Event | None = None):
     configured = (os.environ.get("MEDIA_IMPORT_ROOT") or os.environ.get("ALIST_IMPORT_ROOT", "")).strip().rstrip("/")
     if configured:
         return canonical_path(configured)
     parents = ["/"]
     for _ in range(3):
+        if cancel is not None and cancel.is_set():
+            raise _ScanCancelled
         following = []
         found = []
         for parent in parents:
+            if cancel is not None and cancel.is_set():
+                raise _ScanCancelled
             for item in media_source.list_directory(parent):
                 if not item.get("is_dir"):
                     continue
@@ -83,13 +93,15 @@ MAX_FOLDERS, MAX_FILES = 1000, 10000
 SLOW_EMPTY_SECONDS = 10
 
 
-def collect_folder(path, refresh=False, pool=None, skip=(), skipped=None):
+def collect_folder(path, refresh=False, pool=None, skip=(), skipped=None, cancel: Event | None = None):
     """遍历 path 下全部视频。传入 pool 时每轮并行读取多个子目录（实际并发受 AList 限速约束），
     大合集不再只占用一个线程逐个目录读取。skip 里的目录（已忽略）不再展开，路径记入 skipped。"""
     files, warnings, pending = [], [], [path]
     visited = set()
 
     def read(parent):
+        if cancel is not None and cancel.is_set():
+            return parent, []
         try:
             return parent, media_source.list_directory(parent, refresh=refresh)
         except (requests.RequestException, RuntimeError, ValueError, FileNotFoundError):
@@ -97,6 +109,8 @@ def collect_folder(path, refresh=False, pool=None, skip=(), skipped=None):
             return parent, None
 
     while pending:
+        if cancel is not None and cancel.is_set():
+            return files, warnings
         batch = []
         while pending and len(batch) < 8:
             parent = pending.pop()
@@ -184,12 +198,12 @@ def split_collection(record):
             for item in files]
 
 
-def scan_roots(database):
+def scan_roots(database, cancel: Event | None = None):
     """返回 [(路径, 是否自动识别)]；用户未选择目录时沿用「来自：分享」自动识别。"""
     roots = store.list_roots(database)
     if roots:
         return [(root, False) for root in roots]
-    return [(find_share_root(), True)]
+    return [(find_share_root(cancel=cancel), True)]
 
 
 def _health_from_scan(associated, roots, listings):
@@ -222,21 +236,26 @@ def _ai_summary(stats: dict) -> str:
     return text
 
 
-def _recognize_pending(key, database, records=None):
+def _recognize_pending(key, database, records=None, state=None, cancel: Event | None = None):
     from services import recognition
 
+    cancelled = lambda: cancel is not None and cancel.is_set()
     streaming = records is not None
-    if not streaming:
-        with _lock:
-            records = list(_scans[key]["records"])
+    with _lock:
+        target = state if state is not None else _scans[key]
+        if not streaming:
+            records = list(target["records"])
+    if cancelled():
+        return
     cached = store.load_recognitions(database)
     pending = (record for record in records if cached.get(record["path"], {}).get("signature") != recognition.signature(record))
     if not streaming:
         pending = list(pending)
     with _lock:
-        _scans[key].update(status=_scans[key]["status"] if streaming else "recognizing", recognized=0,
-                           to_recognize=0 if streaming else len(pending),
-                           rule_done=0, ai_pending=0, verifying=0)
+        if not cancelled():
+            target.update(status=target["status"] if streaming else "recognizing", recognized=0,
+                          to_recognize=0 if streaming else len(pending),
+                          rule_done=0, ai_pending=0, verifying=0)
     if not streaming and not pending:
         return
     try:
@@ -245,6 +264,8 @@ def _recognize_pending(key, database, records=None):
         titles = []
 
     def saved(record, result):
+        if cancelled():
+            return
         if record.get("incomplete") and result.get("title"):
             result = {**result, "status": "review", "incomplete": True}
         store.save_recognition(database, record["path"],
@@ -253,44 +274,50 @@ def _recognize_pending(key, database, records=None):
     def progress(counts):
         # 规则、AI、核对三段并行：分别显示各段进度，recognized 为已完成（含失败）的条数。
         with _lock:
-            _scans[key].update(recognized=counts["done"], rule_done=counts["rules"],
-                               to_recognize=counts["total"],
-                               ai_pending=counts["ai"], verifying=counts["verifying"])
+            if not cancelled():
+                target.update(recognized=counts["done"], rule_done=counts["rules"],
+                              to_recognize=counts["total"],
+                              ai_pending=counts["ai"], verifying=counts["verifying"])
 
     try:
-        stats = recognition.recognize_many(database, pending, titles=titles, on_result=saved, on_progress=progress)
+        stats = recognition.recognize_many(database, pending, titles=titles, on_result=saved, on_progress=progress, cancel=cancel)
     except RuntimeError:
         # TMDB 未配置：停止识别，保留规则清洗后的搜索词。
         return
+    if cancelled():
+        return
     with _lock:
-        state = _scans[key]
-        state.update(ai_pending=0, verifying=0, rule_done=state.get("to_recognize", 0))
-        state["ai_summary"] = _ai_summary(stats)
+        if cancelled():
+            return
+        target.update(ai_pending=0, verifying=0, rule_done=target.get("to_recognize", 0))
+        target["ai_summary"] = _ai_summary(stats)
         if stats["deferred"]:
-            state["warnings"].append(
+            target["warnings"].append(
                 f"AI 接口限流或额度已用尽，{stats['deferred']} 项暂用规则识别结果；恢复后重新扫描会自动补识别。")
         if stats["failed"]:
-            state["warnings"].append(
+            target["warnings"].append(
                 f"AI 识别失败 {stats['failed']} 项：{stats['error']} 这些项暂用规则结果，重新扫描会再试。")
         if stats.get("offline"):
-            state["warnings"].append(
+            target["warnings"].append(
                 f"暂时连不上 TMDB，{stats['offline']} 项未能识别。请检查网络，或在设置里填写代理后重新扫描。")
 
 
 @contextmanager
-def _recognition_pipeline(key, database):
+def _recognition_pipeline(key, database, state=None, cancel: Event | None = None):
     arrivals = queue.Queue(maxsize=64)
 
     def run():
         records = iter(arrivals.get, None)
         try:
-            _recognize_pending(key, database, records)
+            _recognize_pending(key, database, records, state=state, cancel=cancel)
         except Exception:
             # 识别出了意料之外的错（例如接口返回结构异常）：目录已经扫完，保留扫描结果，
             # 只提示部分条目未识别，下次扫描会重试，不让整次扫描变成“失败”
             logger.exception("扫描中的识别出错")
             with _lock:
-                _scans[key]["warnings"].append("识别中途出错，部分条目未识别；重新扫描会再试。")
+                target = state if state is not None else _scans.get(key)
+                if target is not None and not (cancel is not None and cancel.is_set()):
+                    target["warnings"].append("识别中途出错，部分条目未识别；重新扫描会再试。")
         finally:
             # Even a missing TMDB configuration must drain the bounded input so
             # the scanner can finish and report its directory warnings.
@@ -307,18 +334,28 @@ def _recognition_pipeline(key, database):
 
 
 def _run_scan(key, database, refresh):
+    with _lock:
+        run_state = _scans[key]
+        cancel = _cancels.setdefault(id(run_state), Event())
     try:
-        roots = scan_roots(database)
+        roots = scan_roots(database, cancel=cancel)
+        if cancel.is_set():
+            raise _ScanCancelled
         with _lock:
-            _scans[key].update(roots=[{"path": path, "auto": auto} for path, auto in roots],
-                               root=roots[0][0] if roots else "")
+            if cancel.is_set():
+                raise _ScanCancelled
+            run_state.update(roots=[{"path": path, "auto": auto} for path, auto in roots],
+                             root=roots[0][0] if roots else "")
         listings, plan = {}, []
         for root, _ in roots:
+            if cancel.is_set():
+                raise _ScanCancelled
             try:
                 entries = media_source.list_directory(root, refresh=refresh)
             except (requests.RequestException, RuntimeError, ValueError, FileNotFoundError):
                 with _lock:
-                    _scans[key]["warnings"].append(f"{root}：读取失败，请检查目录是否存在。")
+                    if not cancel.is_set():
+                        run_state["warnings"].append(f"{root}：读取失败，请检查目录是否存在。")
                 continue
             listings[root] = {"entries": {entry["name"] for entry in entries}, "complete": set(), "seen": set()}
             plan.extend((root, entry) for entry in entries)
@@ -326,19 +363,25 @@ def _run_scan(key, database, refresh):
             associated = get_associated_paths(db)
         ignored = store.ignored_paths(database)
         with _lock:
-            _scans[key].update(total=len(plan))
+            if cancel.is_set():
+                raise _ScanCancelled
+            run_state.update(total=len(plan))
 
         def scan(root, entry):
+            if cancel.is_set():
+                return root, entry["name"], [], [], set(), True, None
             path = str(PurePosixPath(root) / entry["name"])
             started, skipped = time.monotonic(), []
             if entry.get("is_dir") and path in ignored:
                 # 已忽略的目录整棵跳过，不再向网盘列目录
                 files, warnings, skipped = [], [], [path]
             elif entry.get("is_dir"):
-                files, warnings = collect_folder(path, refresh, listing_pool, ignored, skipped)
+                files, warnings = collect_folder(path, refresh, listing_pool, ignored, skipped, cancel=cancel)
             else:
                 files = [_file(path, entry)] if PurePosixPath(path).suffix.lower() in media_source.VIDEO_EXTENSIONS else []
                 warnings = []
+            if cancel.is_set():
+                return root, entry["name"], [], [], set(), True, None
             visible, hidden = [], {}
             for item in files:
                 owner = next((ignored_path for ignored_path in sorted(ignored, key=len, reverse=True)
@@ -348,7 +391,7 @@ def _run_scan(key, database, refresh):
                 else:
                     visible.append(item)
             records = group_pending(path, entry, visible, associated)
-            if entry.get("is_dir") and not warnings:
+            if entry.get("is_dir") and not warnings and not cancel.is_set():
                 from services.recognition_harness import plan_groups
                 records = plan_groups(database, path, records)
             records.extend({"path": owner, "name": ignored[owner], "files": [None] * count,
@@ -363,34 +406,42 @@ def _run_scan(key, database, refresh):
             return root, entry["name"], records, warnings, {item["path"] for item in files}, bool(skipped), slow
 
         # 顶层条目 4 路并行；目录读取共用一个池，单个大合集也能并行展开。
-        with _recognition_pipeline(key, database) as recognizing, \
+        with _recognition_pipeline(key, database, state=run_state, cancel=cancel) as recognizing, \
                 ThreadPoolExecutor(max_workers=4, thread_name_prefix="scan") as pool, \
                 ThreadPoolExecutor(max_workers=4, thread_name_prefix="alist-list") as listing_pool:
             for future in as_completed([pool.submit(scan, root, entry) for root, entry in plan]):
                 root, name, records, warnings, seen, partial, slow = future.result()
+                if cancel.is_set():
+                    continue
                 with _lock:
-                    state = _scans[key]
+                    if cancel.is_set():
+                        continue
                     for record in records:
                         record["root"] = root
                         record["incomplete"] = bool(warnings)
                         if record.get("_ignored"):
-                            state["ignored"].append({"path": record["path"], "name": record["name"],
-                                                     "count": len(record["files"])})
+                            run_state["ignored"].append({"path": record["path"], "name": record["name"],
+                                                         "count": len(record["files"])})
                         else:
-                            state["records"].append(record)
-                    state["warnings"].extend(warnings)
-                    state["done"] += 1
+                            run_state["records"].append(record)
+                    run_state["warnings"].extend(warnings)
+                    run_state["done"] += 1
                     if slow:
-                        state["slow_empty"].append(slow)
+                        run_state["slow_empty"].append(slow)
                     # 跳过了子目录就不算完整列出，免得把里面已入库的视频判成失效
                     if not warnings and not partial:
                         listings[root]["complete"].add(name)
                     listings[root]["seen"].update(seen)
                 for record in records:
+                    if cancel.is_set():
+                        break
                     if not record.get("_ignored"):
                         recognizing.put(record)
             with _lock:
-                _scans[key]["status"] = "recognizing"
+                if not cancel.is_set():
+                    run_state["status"] = "recognizing"
+        if cancel.is_set():
+            raise _ScanCancelled
         health = _health_from_scan(associated, list(listings), listings)
         if health:
             store.save_health(database, health)
@@ -400,23 +451,48 @@ def _run_scan(key, database, refresh):
         except Exception:
             pass
         with _lock:
-            snapshot = {field: _scans[key][field] for field in ("roots", "root", "records", "ignored", "warnings", "slow_empty")}
+            if cancel.is_set():
+                raise _ScanCancelled
+            snapshot = {field: run_state[field] for field in ("roots", "root", "records", "ignored", "warnings", "slow_empty")}
         store.save_snapshot(database, snapshot)
         with _lock:
-            _scans[key]["status"] = "complete"
+            if not cancel.is_set():
+                run_state["status"] = "complete"
+    except _ScanCancelled:
+        with _lock:
+            run_state["status"] = "cancelled"
     except (OSError, requests.RequestException, RuntimeError, ValueError) as error:
         with _lock:
-            _scans[key].update(status="error", error=(str(error) if isinstance(error, ValueError)
-                else "无法读取网盘，请检查挂载配置、账号和目录权限后重试。"))
+            if not cancel.is_set():
+                run_state.update(status="error", error=(str(error) if isinstance(error, ValueError)
+                    else "无法读取网盘，请检查挂载配置、账号和目录权限后重试。"))
     except Exception:
         with _lock:
-            _scans[key].update(status="error", error="扫描失败，请检查媒体库及网盘配置后重试。")
+            if not cancel.is_set():
+                run_state.update(status="error", error="扫描失败，请检查媒体库及网盘配置后重试。")
+    finally:
+        with _lock:
+            _cancels.pop(id(run_state), None)
 
 
 def _empty_state(status):
     return {"status": status, "root": "", "roots": [], "records": [], "ignored": [], "warnings": [], "slow_empty": [],
             "done": 0, "total": 0, "recognized": 0, "to_recognize": 0, "rule_done": 0, "ai_pending": 0, "verifying": 0,
             "ai_summary": ""}
+
+
+def cancel_scan(database) -> bool:
+    """停止正在进行的扫描与识别，不再排队续扫。"""
+    key = str(database)
+    with _lock:
+        current = _scans.get(key)
+        if not current or current.get("status") not in ("running", "recognizing"):
+            return False
+        _cancels.setdefault(id(current), Event()).set()
+        current.pop("rescan", None)
+        current.pop("rescan_refresh", None)
+        current["status"] = "cancelled"
+        return True
 
 
 def start_scan(database, refresh=False):
@@ -428,17 +504,20 @@ def start_scan(database, refresh=False):
             current["rescan"] = True
             current["rescan_refresh"] = bool(current.get("rescan_refresh")) or refresh
             return False
-        _scans[key] = _empty_state("running")
+        run_state = _empty_state("running")
+        _scans[key] = run_state
     Thread(target=_scan_then_rescan, args=(key, database, refresh), daemon=True).start()
     return True
 
 
 def _scan_then_rescan(key, database, refresh):
+    with _lock:
+        run_state = _scans.get(key)
     try:
         _run_scan(key, database, refresh)
     finally:
         with _lock:
-            state = _scans.get(key) or {}
+            state = run_state if run_state is not None else (_scans.get(key) or {})
             again, refresh_again = state.pop("rescan", False), state.pop("rescan_refresh", False)
         if again:
             start_scan(database, refresh_again)
@@ -516,6 +595,7 @@ def scan_status(database, *, prune=True):
         state["missing"] = sum(missing_by_title(database, associated).values())
         from connectors import llm
         state["ai"] = llm.describe()
+        state["services"] = throttle.diagnostics()
     return state
 
 
@@ -570,6 +650,22 @@ def browse(path):
 _autoscan_started = set()
 
 
+def _has_scan_scope(database) -> bool:
+    """新用户还没选扫描目录且库里没有任何作品时，不在后台盲目翻找「来自：分享」。"""
+    if (os.environ.get("MEDIA_IMPORT_ROOT") or os.environ.get("ALIST_IMPORT_ROOT", "")).strip():
+        return True
+    try:
+        if store.list_roots(database):
+            return True
+    except Exception:
+        pass
+    try:
+        with closing(connect_database(database)) as db:
+            return bool(get_associated_paths(db))
+    except Exception:
+        return False
+
+
 def start_autoscan(database, *, attempts=24, delay=5):
     """启动后在后台扫描一次：等网盘就绪后扫描、检查失效文件并预识别。"""
     import time
@@ -578,6 +674,8 @@ def start_autoscan(database, *, attempts=24, delay=5):
     if key in _autoscan_started or os.environ.get("MOVIEDB_AUTOSCAN", "1").strip() == "0":
         return False
     if not any(row["enabled"] for row in drive_store.list_drives()):
+        return False
+    if not _has_scan_scope(database):
         return False
     _autoscan_started.add(key)
 

@@ -78,11 +78,22 @@
         return task.total > 0 ? Math.max(0, Math.min(1, task.done / task.total)) : null;
     }
 
+    // 排队的关联前面还有几项（按列表顺序数进行中和排队的关联）
+    function ahead(task) {
+        const queue = visible().filter(item => item.kind === 'import' && active(item) && !leaving.has(item.id));
+        const index = queue.findIndex(item => item.id === task.id);
+        return index < 0 ? 0 : index;
+    }
+
     function caption(task) {
         if (task.state === 'cancelled') return '已停止';
         if (leaving.has(task.id) || written(task) && !problem(task) || task.state === 'complete') return task.kind === 'import' ? (task.files > 0 ? `已入库 ${task.files} 个视频` : '关联完成') : '完成';
         if (task.state === 'waiting') return '等待重试';
-        if (task.state === 'queued') return '排队中';
+        if (task.state === 'queued') {
+            if (task.kind !== 'import') return '排队中';
+            const count = ahead(task);
+            return count ? `排队中 · 前面还有 ${count} 项` : '排队中 · 下一个开始';
+        }
         if (task.state === 'failed') return task.kind === 'import' ? '关联失败' : '失败';
         if (task.state === 'partial') return '需处理';
         if (task.kind === 'import') { const step = stepOf(task); return [STEPS[step.index], step.count].filter(Boolean).join(' '); }
@@ -215,8 +226,10 @@
     function headline(tasks) {
         if (!tasks.length) return ['接口等待恢复', state.services.map(item => item.name).join('、')];
         if (tasks.length === 1) return [tasks[0].name, caption(tasks[0])];
-        const running = tasks.filter(active).length, problems = tasks.filter(task => problem(task) && !leaving.has(task.id)).length;
-        const parts = [running ? `${running} 进行中` : '', problems ? `${problems} 需处理` : ''].filter(Boolean).join(' · ');
+        const running = tasks.filter(task => active(task) && task.state === 'running').length;
+        const queued = tasks.filter(task => active(task) && task.state !== 'running').length;
+        const problems = tasks.filter(task => problem(task) && !leaving.has(task.id)).length;
+        const parts = [running ? `${running} 进行中` : '', queued ? `${queued} 排队` : '', problems ? `${problems} 需处理` : ''].filter(Boolean).join(' · ');
         return [tasks.every(task => task.kind === 'import') ? `关联 ${tasks.length} 部` : `${tasks.length} 项任务`, parts || caption(tasks[0])];
     }
 
@@ -287,8 +300,12 @@
             const detail = el('div', 'island-card-detail'); detail.id = detailId; detail.hidden = true;
             // 完成时在百分比的位置换成“打开作品页”（链接不能放进按钮里，所以叠在卡片右上角）
             const link = el('a', 'island-card-link', '打开作品页'); link.hidden = true;
-            node.append(head, link, detail);
-            row = {node, head, name, value, meta, track, link, detail}; rows.set(task.id, row);
+            // 进行中、排队中的任务在卡片右侧直接给“停止”（按钮不能放进卡片头部的按钮里，所以叠在右侧）
+            const stop = el('button', 'btn icon-btn island-card-stop'); stop.type = 'button'; stop.hidden = true;
+            stop.append(icon('x'));
+            stop.addEventListener('click', () => { const current = all().find(item => item.id === task.id); if (current) action(current, 'cancel'); });
+            node.append(head, link, stop, detail);
+            row = {node, head, name, value, meta, track, link, stop, detail}; rows.set(task.id, row);
         }
         const finishing = leaving.has(task.id) || !active(task) && !problem(task);
         row.node.classList.toggle('is-problem', problem(task) && !finishing);
@@ -310,6 +327,10 @@
         const href = finishing && task.state !== 'cancelled' ? titleUrl(task) : '';
         row.link.hidden = !href;
         if (href) { row.link.href = href; row.link.setAttribute('aria-label', `打开作品页：${task.name}`); }
+        row.stop.hidden = expanded || finishing || !active(task) || actionType(task) !== 'cancel';
+        row.stop.disabled = pending.has(task.id);
+        row.stop.setAttribute('aria-label', `${stopLabel(task)}：${task.name}`);
+        row.stop.title = stopLabel(task);
         row.detail.hidden = !expanded;
         if (expanded) renderDetail(task, row.detail);
         return row.node;
@@ -338,6 +359,7 @@
 
     const actionType = task => task.localAction ? 'retry' : task.cancel_ids?.length ? 'cancel' :
         task.retry_ids?.length || problem(task) && ['scan', 'rating', 'imdb'].includes(task.kind) ? 'retry' : null;
+    const stopLabel = task => task.kind === 'scan' ? '停止扫描' : task.state === 'queued' ? '取消排队' : '停止关联';
 
     // 扫描、评分、IMDb：只用汇总里已有的字段，没有的不编
     function otherLine(task) {
@@ -476,7 +498,7 @@
         }
         const type = actionType(task);
         if (type && !finishing && !(type === 'cancel' && !active(task))) {
-            const button = el('button', `btn btn-sm ${type === 'cancel' ? 'chip-btn' : 'media-primary-action is-compact'}`, task.actionLabel || (type === 'cancel' ? '停止关联' : '重试'));
+            const button = el('button', `btn btn-sm ${type === 'cancel' ? 'chip-btn' : 'media-primary-action is-compact'}`, task.actionLabel || (type === 'cancel' ? stopLabel(task) : '重试'));
             button.type = 'button'; button.dataset.role = 'action'; button.disabled = pending.has(task.id);
             button.addEventListener('click', () => action(task, type));
             actions.append(button);
@@ -500,6 +522,20 @@
             nodes.push(note);
         } else list.querySelector('.island-note')?.remove();
         nodes.push(...tasks.map(renderCard));
+        const queued = tasks.filter(task => task.kind === 'import' && task.state === 'queued' && active(task) && task.cancel_ids?.length && !leaving.has(task.id));
+        let footer = list.querySelector('.island-footer');
+        if (queued.length > 1) {
+            if (!footer) {
+                footer = el('li', 'island-footer');
+                const button = el('button', 'btn btn-sm chip-btn'); button.type = 'button';
+                button.addEventListener('click', () => cancelQueued(button));
+                footer.append(button);
+            }
+            const button = footer.firstChild;
+            button.textContent = `取消排队中的 ${queued.length} 项`;
+            button.disabled = queuedPending;
+            nodes.push(footer);
+        } else footer?.remove();
         nodes.forEach((node, index) => { if (list.children[index] !== node) list.insertBefore(node, list.children[index] || null); });
         updateClocks();
     }
@@ -550,6 +586,19 @@
         } catch {} finally { loadingDetails.delete(id); }
     }
 
+    let queuedPending = false;
+    async function cancelQueued() {
+        const ids = visible().filter(task => task.kind === 'import' && task.state === 'queued' && active(task)).flatMap(task => task.cancel_ids || []);
+        if (!ids.length || queuedPending) return;
+        queuedPending = true; render();
+        try {
+            const response = await fetch(root.dataset.jobsUrl, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({action: 'cancel', ids})});
+            if (!response.ok) { const data = await response.json().catch(() => ({})); throw new Error(data.error || '操作失败，请重试'); }
+            window.dispatchEvent(new CustomEvent('tasks:action', {detail: {kind: 'import', action: 'cancel'}}));
+        } catch (error) { window.showAppToast?.(error.message, 'danger'); }
+        finally { queuedPending = false; refresh(); render(); }
+    }
+
     async function action(task, type, file = null) {
         if (pending.has(task.id)) return;
         pending.add(task.id); errors.delete(task.id);
@@ -557,11 +606,12 @@
         try {
             if (task.localAction) await task.localAction();
             else {
-                const url = task.kind === 'imdb' ? '/settings/imdb-episodes' : task.kind === 'scan' ? root.dataset.scanUrl + '?refresh=1' : task.kind === 'rating' ? root.dataset.ratingUrl : root.dataset.jobsUrl;
+                const stopScan = task.kind === 'scan' && type === 'cancel';
+                const url = task.kind === 'imdb' ? '/settings/imdb-episodes' : task.kind === 'scan' ? root.dataset.scanUrl + (stopScan ? '' : '?refresh=1') : task.kind === 'rating' ? root.dataset.ratingUrl : root.dataset.jobsUrl;
                 const response = await fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify(task.kind === 'import' ? {action: type,
                         ids: file ? [file.job_id] : type === 'cancel' ? task.cancel_ids : task.retry_ids,
-                        ...(file ? {indexes: [file.index]} : {})} : {})});
+                        ...(file ? {indexes: [file.index]} : {})} : stopScan ? {action: 'cancel'} : {})});
                 if (!response.ok) { const data = await response.json().catch(() => ({})); throw new Error(data.error || '操作失败，请重试'); }
             }
             delete dismissed[task.id]; save('tasks-dismissed', dismissed);

@@ -496,11 +496,45 @@ class DiscoveryStateTest(unittest.TestCase):
         self.assertGreaterEqual(missing, 1)
         self.assertEqual(media_health.missing_by_title(self.database_path).get("tt6226232"), missing)
 
-    def test_autoscan_respects_switch(self):
+    def test_autoscan_respects_switch_and_skips_unscoped_empty_library(self):
         with patch.dict(os.environ, {"MOVIEDB_AUTOSCAN": "0", "ALIST_USERNAME": "u", "ALIST_PASSWORD": "p"}):
             self.assertFalse(discovery.start_autoscan(self.database_path))
         with patch.dict(os.environ, {"ALIST_USERNAME": "", "ALIST_PASSWORD": ""}):
             self.assertFalse(discovery.start_autoscan(self.database_path))
+        from pathlib import Path
+        empty_db = Path(self.database_path).parent / "empty.db"
+        from services import setup_wizard
+        setup_wizard.ensure_library(empty_db)
+        from models import drive_store
+        with patch.object(drive_store, "list_drives", return_value=[{"mount": "baidu", "enabled": True}]):
+            self.assertFalse(discovery.start_autoscan(empty_db))
+            store.add_root(empty_db, "/baidu/Movies")
+            with patch.object(discovery, "Thread") as thread:
+                self.assertTrue(discovery.start_autoscan(empty_db))
+                thread.assert_called_once()
+        discovery._autoscan_started.discard(str(empty_db))
+
+    def test_cancel_scan_and_root_update_interrupt_active_scan(self):
+        key = str(self.database_path)
+        discovery._scans[key] = {**discovery._empty_state("running"), "done": 1, "total": 5, "rescan": True}
+        try:
+            tasks_resp = self.client.get("/manager/tasks").json
+            scan_task = next(item for item in tasks_resp["tasks"] if item["kind"] == "scan")
+            self.assertEqual(scan_task["cancel_ids"], ["scan"])
+            cancelled = self.client.post("/manager/discovery", json={"action": "cancel"}).json
+            self.assertEqual(cancelled["status"], "cancelled")
+            self.assertFalse(cancelled["rescan"])
+            scan_task = next(item for item in self.client.get("/manager/tasks").json["tasks"] if item["kind"] == "scan")
+            self.assertEqual((scan_task["state"], scan_task["cancel_ids"]), ("cancelled", []))
+            # 修改扫描目录也会立即打断正在跑的旧扫描，后续 start_scan 直接开跑而不是排队
+            discovery._scans[key] = {**discovery._empty_state("recognizing"), "roots": [{"path": "/baidu/来自：分享", "auto": True}]}
+            self.client.post("/manager/discovery/roots", json={"path": "/baidu/Movies", "action": "add"})
+            self.assertEqual(discovery._scans[key]["status"], "cancelled")
+            with patch.object(discovery, "Thread") as thread:
+                self.assertTrue(discovery.start_scan(self.database_path))
+                thread.assert_called_once()
+        finally:
+            discovery._scans.pop(key, None)
 
     def test_confirm_learns_alias(self):
         media_association._learn_alias(self.database_path, "R 人苼苆剨朮", {"title_id": "tt1", "name": "人生切割术", "year": 2022, "media_type": "tv"})
