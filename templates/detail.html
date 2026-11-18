@@ -241,6 +241,15 @@
                         {% for link in media.external_links %}
                             <a class="small fw-semibold link-secondary link-offset-2 link-underline-opacity-0 link-underline-opacity-100-hover" href="{{ link.url }}" target="_blank" rel="noopener noreferrer">{{ link.label }}{{ ui_icon('external-link', 'ms-1') }}</a>
                         {% endfor %}
+                        {% if media.hero_image or media.poster_path %}
+                            <div class="dropdown dropup">
+                                <button class="btn btn-link btn-sm p-0 small fw-semibold link-secondary link-offset-2 link-underline-opacity-0 link-underline-opacity-100-hover" type="button" data-bs-toggle="dropdown" aria-expanded="false">{{ ui_icon('download', 'me-1') }}保存原图</button>
+                                <div class="dropdown-menu media-menu">
+                                    <a class="dropdown-item{% if not media.hero_image %} d-none{% endif %}" href="{% if media.hero_image %}{{ url_for('static', filename=media.hero_image) }}{% endif %}" download data-save-backdrop><span data-save-backdrop-label>{{ "背景剧照" if media.backdrop_path or media.media_type == "movie" else "本集剧照" }}</span></a>
+                                    {% if media.poster_path %}<a class="dropdown-item" href="{{ url_for('static', filename=media.poster_path) }}" download>海报</a>{% endif %}
+                                </div>
+                            </div>
+                        {% endif %}
                         <button type="button" class="btn btn-sm btn-outline-danger ms-auto" data-title-delete-open data-preview-url="{{ url_for('preview_title_removal', title_id=media.media_id) }}" data-delete-url="{{ url_for('remove_title', title_id=media.media_id) }}">{{ ui_icon('trash-2', 'me-1') }}删除作品</button>
                     </nav>
             </div>

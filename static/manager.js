@@ -182,6 +182,9 @@
         card.querySelectorAll("[data-preview-type]").forEach((image) => {
             originals.set(image, { src: image.getAttribute("src"), hidden: image.classList.contains("d-none") });
         });
+        // 保存原图按钮跟随当前预览的那张图。
+        const downloads = new Map();
+        card.querySelectorAll("[data-artwork-download]").forEach((link) => downloads.set(link, link.getAttribute("href")));
 
         function setOptionState(option, status) {
             const statusSpan = option.querySelector(".artwork-option-status");
@@ -220,6 +223,8 @@
                     preview.classList.remove("d-none");
                     preview.parentElement?.querySelector(".image-fallback")?.classList.add("d-none");
                 }
+                const download = card.querySelector(`[data-artwork-download="${imageType}"]`);
+                if (download && option.dataset.original) download.href = option.dataset.original;
                 const input = form.querySelector(`[data-artwork-input="${imageType}"]`);
                 if (input) input.value = option.dataset.position;
                 markOptions(imageType, option.dataset.position);
@@ -232,6 +237,7 @@
                 image.setAttribute("src", state.src || "");
                 image.classList.toggle("d-none", state.hidden);
             });
+            downloads.forEach((href, link) => link.setAttribute("href", href));
             form.querySelectorAll("[data-artwork-input]").forEach((input) => {
                 input.value = "1";
                 markOptions(input.dataset.artworkInput, "1");
@@ -258,6 +264,7 @@
                 state.src = image.getAttribute("src");
                 state.hidden = image.classList.contains("d-none");
             });
+            downloads.forEach((_, link) => downloads.set(link, link.getAttribute("href")));
             refreshDirty();
         }
 

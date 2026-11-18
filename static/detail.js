@@ -131,7 +131,22 @@
             currentEpisodeNum = parseInt(initialActivePanel.dataset.episodeNumber, 10) || 0;
         }
 
+        // “保存原图”菜单跟随当前展示的全剧背景或单集剧照。
+        const saveBackdrop = document.querySelector("[data-save-backdrop]");
+        function syncSaveBackdrop(backdropUrl) {
+            if (!saveBackdrop) {
+                return;
+            }
+            saveBackdrop.classList.toggle("d-none", !backdropUrl);
+            saveBackdrop.setAttribute("href", backdropUrl || "");
+            const label = saveBackdrop.querySelector("[data-save-backdrop-label]");
+            if (label) {
+                label.textContent = seriesMode ? "全剧背景" : "本集剧照";
+            }
+        }
+
         function switchBackdrop(backdropUrl, direction) {
+            syncSaveBackdrop(backdropUrl);
             if (!backdropStage) {
                 return;
             }
