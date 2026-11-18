@@ -11,7 +11,8 @@ from unittest.mock import patch
 import pytest
 
 from connectors import player
-from services import setup_wizard
+from connectors.drives.base import Entry, Link
+from services import media_source, playback, setup_wizard
 
 
 @pytest.fixture
@@ -152,4 +153,132 @@ def test_play_route_reports_missing_player(monkeypatch):
     play_video.assert_not_called()
     with client.session_transaction() as session:
         assert any("IINA" in message for _, message in session.get("_flashes", []))
+
+
+def test_match_subtitles_handles_single_movie_dir_tv_episodes_and_mount_root():
+    exts = media_source.VIDEO_EXTENSIONS
+    # 独立电影目录：中文命名的外挂字幕和 Subs 子目录都能配对，且简中 ASS 排第一
+    matched = playback.match_subtitles(
+        "/baidu/阿凡达 (2009)/Avatar.2009.BluRay.mkv",
+        [
+            {"name": "Avatar.2009.BluRay.mkv", "is_dir": False},
+            {"name": "阿凡达.繁体.srt", "is_dir": False},
+            {"name": "阿凡达.简英双语.ass", "is_dir": False},
+            {"name": "Subs", "is_dir": True},
+        ],
+        [("/baidu/阿凡达 (2009)/Subs", [{"name": "Avatar.2009.BluRay.eng.srt", "is_dir": False}])],
+        video_extensions=exts,
+    )
+    assert matched == [
+        "/baidu/阿凡达 (2009)/阿凡达.简英双语.ass",
+        "/baidu/阿凡达 (2009)/阿凡达.繁体.srt",
+        "/baidu/阿凡达 (2009)/Subs/Avatar.2009.BluRay.eng.srt",
+    ]
+    # 同语言时同前缀优先，简中整体优先于其他语言
+    ranked = playback.match_subtitles(
+        "/baidu/阿凡达 (2009)/Avatar.mkv",
+        [
+            {"name": "Avatar.mkv", "is_dir": False},
+            {"name": "Avatar.eng.srt", "is_dir": False},
+            {"name": "其他名.简中.srt", "is_dir": False},
+            {"name": "Avatar.chs.ass", "is_dir": False},
+        ],
+        video_extensions=exts,
+    )
+    assert ranked == [
+        "/baidu/阿凡达 (2009)/Avatar.chs.ass",
+        "/baidu/阿凡达 (2009)/其他名.简中.srt",
+        "/baidu/阿凡达 (2009)/Avatar.eng.srt",
+    ]
+    # 多集目录：只匹配对应集号，不串集
+    tv = playback.match_subtitles(
+        "/baidu/Severance/[GroupA] Severance.S01E02.1080p.mkv",
+        [
+            {"name": "[GroupA] Severance.S01E01.1080p.mkv", "is_dir": False},
+            {"name": "[GroupA] Severance.S01E02.1080p.mkv", "is_dir": False},
+            {"name": "[SubGroup] Severance S01E01.chs.ass", "is_dir": False},
+            {"name": "[SubGroup] Severance S01E02.chs.ass", "is_dir": False},
+        ],
+        video_extensions=exts,
+    )
+    assert tv == ["/baidu/Severance/[SubGroup] Severance S01E02.chs.ass"]
+    # 网盘挂载根目录即使只有一个视频，也不乱抓无关文件名的字幕
+    root_subs = playback.match_subtitles(
+        "/baidu/Avatar.mkv",
+        [
+            {"name": "Avatar.mkv", "is_dir": False},
+            {"name": "Titanic.chs.srt", "is_dir": False},
+            {"name": "Avatar.zh-CN.srt", "is_dir": False},
+        ],
+        video_extensions=exts,
+    )
+    assert root_subs == ["/baidu/Avatar.zh-CN.srt"]
+
+
+def test_launch_arguments_include_external_subtitles(monkeypatch):
+    subs = ["/tmp/subs/a.chs.ass", "/tmp/subs/a.eng.srt"]
+    cases = {
+        "mpc-hc": ["/bin/mpc-hc", "https://media.test/a.mkv", "/sub", subs[0], "/sub", subs[1]],
+        "mpv": [f"--sub-file={subs[0]}", f"--sub-file={subs[1]}"],
+        "iina": [f"--mpv-sub-files={os.pathsep.join(subs)}"],
+        "vlc": [f"--sub-file={subs[0]}"],
+    }
+    for kind, expected in cases.items():
+        monkeypatch.setattr(player, "resolve_player", lambda k=kind: (k, "/bin/" + k))
+        with patch.object(player, "_popen") as popen, patch.object(player.threading, "Thread"):
+            player.play_video("https://media.test/a.mkv", subtitles=subs)
+        command = popen.call_args.args[0]
+        if kind == "mpc-hc":
+            assert command == expected
+        else:
+            for item in expected:
+                assert item in command
+            assert command[-1] == "https://media.test/a.mkv"
+
+
+def test_prepare_subtitles_stages_remote_file_and_play_route_passes_it(monkeypatch, tmp_path):
+    monkeypatch.setattr(media_source.tempfile, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.setattr(media_source, "list_directory", lambda path, refresh=False: [
+        {"name": "Avatar.mkv", "is_dir": False, "size": 1000},
+        {"name": "Avatar.chs.srt", "is_dir": False, "size": 12},
+    ])
+    monkeypatch.setattr(
+        media_source,
+        "open_link",
+        lambda path, fresh=False: (Link(url="https://cdn.test/sub.srt", headers={"User-Agent": "test"}), Entry(id="1", name="Avatar.chs.srt", is_dir=False, size=12)),
+    )
+
+    class DummyResponse:
+        status_code = 200
+        def iter_content(self, _chunk):
+            yield b"1\n00:00:01\n\n"
+        def close(self):
+            pass
+
+    class DummySession:
+        def __init__(self):
+            self.calls = 0
+        def get(self, *args, **kwargs):
+            self.calls += 1
+            return DummyResponse()
+
+    session = DummySession()
+    monkeypatch.setattr(media_source, "resolve", lambda path, refresh=False: (type("D", (), {"session": session})(), None))
+    first = media_source.prepare_subtitles("/baidu/Movies/Avatar.mkv")
+    assert len(first) == 1 and Path(first[0]).read_bytes() == b"1\n00:00:01\n\n"
+    assert session.calls == 1
+    # 大小未变时直接命中本地缓存，不重复下载
+    second = media_source.prepare_subtitles("/baidu/Movies/Avatar.mkv")
+    assert second == first and session.calls == 1
+
+    with patch.dict(os.environ, {"ALIST_AUTOSTART": "0", "MOVIEDB_AUTOSCAN_DISABLED": "1"}):
+        import app as movie_app
+    monkeypatch.setattr(movie_app, "get_playable_file", lambda db, file_id: {"alist_path": "/baidu/Movies/Avatar.mkv"})
+    monkeypatch.setattr(movie_app, "get_db", lambda: None)
+    monkeypatch.setattr(player, "resolve_player", lambda: ("mpc-hc", r"C:\MPC-HC\mpc-hc64.exe"))
+    client = movie_app.app.test_client()
+    with patch.object(player, "play_video") as play_video:
+        response = client.post("/play/1", headers={"Origin": "http://localhost"})
+    assert response.status_code == 204
+    assert play_video.call_args.kwargs["subtitles"] == first
 

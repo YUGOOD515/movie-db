@@ -290,12 +290,15 @@ def play_video(
     video_url: str,
     start_position_ms: int = 0,
     progress_callback=None,
+    subtitles: list[str] | tuple[str, ...] = (),
 ):
     generation = _next_playback_generation()
     kind, path = resolve_player()
     start_seconds = max(int(start_position_ms), 0) / 1000
+    subs = [str(item) for item in (subtitles or ()) if item]
     if kind == "mpc-hc":
-        process = _popen([path, video_url])
+        sub_args = [arg for sub in subs for arg in ("/sub", sub)]
+        process = _popen([path, video_url, *sub_args])
         monitor = _monitor_mpc_playback
         args = (generation, video_url, max(int(start_position_ms), 0), progress_callback)
     elif kind in ("mpv", "iina"):
@@ -303,14 +306,18 @@ def play_video(
         if kind == "mpv":
             command = [path, "--force-window=immediate", f"--start={start_seconds:.3f}"]
             command += [f"--input-ipc-server={ipc}"] if ipc else []
-        else:  # iina-cli：mpv 选项加 --mpv- 前缀
+            command += [f"--sub-file={sub}" for sub in subs]
+        else:  # iina-cli：mpv 选项加 --mpv- 前缀；sub-files 用系统路径分隔符拼接本机字幕路径
             command = [path, f"--mpv-start={start_seconds:.3f}"]
             command += [f"--mpv-input-ipc-server={ipc}"] if ipc else []
+            if subs:
+                command.append(f"--mpv-sub-files={os.pathsep.join(subs)}")
         process = _popen([*command, video_url])
         monitor = _monitor_mpv_playback if ipc else None
         args = (generation, ipc, progress_callback)
     elif kind == "vlc":
-        process = _popen([path, f"--start-time={start_seconds:.0f}", video_url])
+        sub_args = [f"--sub-file={subs[0]}"] if subs else []
+        process = _popen([path, f"--start-time={start_seconds:.0f}", *sub_args, video_url])
         monitor = None
     elif kind == "custom":
         process = _popen([path, video_url])

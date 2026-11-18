@@ -1203,11 +1203,18 @@ def play_media_file(file_id: int):
         flash(str(error), "warning")
         return redirect(_referrer_url())
     video_url = media_source.stream_url(source["alist_path"])
+    subtitles = []
+    if kind in ("mpc-hc", "mpv", "iina", "vlc"):
+        try:
+            subtitles = media_source.prepare_subtitles(source["alist_path"])
+        except Exception:
+            app.logger.warning("Failed to prepare external subtitles for file_id=%s", file_id)
     try:
         player.play_video(
             video_url,
             start_position_ms=start_position,
             progress_callback=save_progress,
+            subtitles=subtitles,
         )
     except OSError:
         app.logger.exception("Player launch failed: %s", kind)

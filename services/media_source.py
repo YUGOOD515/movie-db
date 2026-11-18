@@ -5,9 +5,11 @@ import hashlib
 import hmac
 import os
 import secrets
+import shutil
+import tempfile
 import threading
 import time
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from urllib.parse import quote, unquote, urlparse
 
 from connectors.drives import DRIVERS
@@ -19,6 +21,9 @@ VIDEO_EXTENSIONS = frozenset({
     ".3gp", ".avi", ".flv", ".m2ts", ".m4v", ".mkv", ".mov", ".mp4",
     ".mpeg", ".mpg", ".mts", ".ts", ".webm", ".wmv",
 })
+MAX_SUBTITLE_BYTES = 25 * 1024 * 1024
+SUBTITLE_CACHE_TTL = 24 * 3600
+_SUBTITLE_AUTH_STATUSES = {401, 403, 410}
 CACHE_TTL = 1800
 
 _lock = threading.RLock()
@@ -277,3 +282,104 @@ def migrate_alist():
         "path_password": os.environ.get("ALIST_PATH_PASSWORD", ""),
     }, True)
     return True
+
+
+def _prune_subtitle_cache(root: Path) -> None:
+    cutoff = time.time() - SUBTITLE_CACHE_TTL
+    try:
+        children = list(root.iterdir())
+    except OSError:
+        return
+    for child in children:
+        try:
+            if child.stat().st_mtime < cutoff:
+                shutil.rmtree(child, ignore_errors=True)
+        except OSError:
+            pass
+
+
+def _stage_subtitle_file(sub_path: str, cache_dir: Path) -> str | None:
+    name = PurePosixPath(sub_path).name
+    if not name or "/" in name or "\\" in name or name in (".", ".."):
+        return None
+    link, entry = open_link(sub_path)
+    if link.local_path:
+        return str(link.local_path)
+    if entry.size and entry.size > MAX_SUBTITLE_BYTES:
+        return None
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    target = cache_dir / name
+    if entry.size and entry.size > 0 and target.is_file() and target.stat().st_size == entry.size:
+        return str(target)
+    drive, _ = resolve(sub_path)
+    response = drive.session.get(link.url, headers=dict(link.headers), stream=True, timeout=(5, 15))
+    if response.status_code in _SUBTITLE_AUTH_STATUSES:
+        response.close()
+        link, _ = open_link(sub_path, fresh=True)
+        response = drive.session.get(link.url, headers=dict(link.headers), stream=True, timeout=(5, 15))
+    try:
+        if response.status_code != 200:
+            return None
+        temp_file = cache_dir / f".{secrets.token_hex(6)}-{name}"
+        written = 0
+        try:
+            with temp_file.open("wb") as handle:
+                for chunk in response.iter_content(64 * 1024):
+                    if not chunk:
+                        continue
+                    written += len(chunk)
+                    if written > MAX_SUBTITLE_BYTES:
+                        raise ValueError("subtitle too large")
+                    handle.write(chunk)
+            temp_file.replace(target)
+        except Exception:
+            temp_file.unlink(missing_ok=True)
+            return None
+        return str(target) if written > 0 else None
+    finally:
+        response.close()
+
+
+def prepare_subtitles(video_path: str) -> list[str]:
+    """查找同目录及字幕子目录的外挂字幕并准备本机可读路径（网盘字幕缓存到临时目录）。"""
+    from services.playback import SUBTITLE_DIRS, match_subtitles
+
+    parent = str(PurePosixPath(video_path).parent)
+    if not parent or parent == "/":
+        return []
+    parent_entries = list_directory(parent)
+    subdir_entries: list[tuple[str, list[dict]]] = []
+    for item in parent_entries:
+        if item.get("is_dir") and item.get("name") and item["name"].casefold() in SUBTITLE_DIRS:
+            sub_dir = str(PurePosixPath(parent) / item["name"])
+            try:
+                subdir_entries.append((sub_dir, list_directory(sub_dir)))
+            except Exception:
+                continue
+    matched = match_subtitles(
+        video_path, parent_entries, subdir_entries, video_extensions=VIDEO_EXTENSIONS
+    )
+    if not matched:
+        return []
+    all_names = {
+        str(PurePosixPath(folder) / item["name"])
+        for folder, entries in [(parent, parent_entries), *subdir_entries]
+        for item in entries if not item.get("is_dir") and item.get("name")
+    }
+    cache_root = Path(tempfile.gettempdir()) / "moviedb-subs"
+    _prune_subtitle_cache(cache_root)
+    cache_dir = cache_root / hashlib.sha256(parent.encode("utf-8")).hexdigest()[:16]
+    local_paths: list[str] = []
+    for sub_path in matched:
+        try:
+            staged = _stage_subtitle_file(sub_path, cache_dir)
+            if not staged:
+                continue
+            if sub_path.lower().endswith(".sub"):
+                idx_path = sub_path[:-4] + ".idx"
+                if idx_path in all_names:
+                    _stage_subtitle_file(idx_path, cache_dir)
+            local_paths.append(staged)
+        except Exception:
+            continue
+    return local_paths
