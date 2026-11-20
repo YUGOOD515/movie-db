@@ -43,7 +43,7 @@ uv run python scripts/run_fresh.py --keys # 同上，但沿用仓库 .env 里的
 | `templates/`、`static/` | Jinja 模板、样式与按页拆分的脚本；第三方库在 `static/vendor/` |
 | `migrations/` | 数据库结构，`library_schema.sql` 为当前结构 |
 | `scripts/` | 命令行工具：缩略图、评分、快照发布、`.env` 核对等 |
-| `packaging/` | Windows / macOS 安装包与精简版 ffprobe 的构建脚本 |
+| `packaging/` | Windows / macOS 安装包与精简版 ffprobe 的构建脚本；`mpv/` 为内置 mpv 的配置与许可证 |
 | `cloud/` | 云端只读快照的 Cloudflare Workers |
 
 代码约定见 [AGENTS.MD](../../AGENTS.MD)；设计细节见 [前端设计](../design/frontend.md)、[后端设计](../design/backend.md)、[HTTP 接口](../design/api.md)。
@@ -124,11 +124,22 @@ uv run python packaging/build_macos.py [--arch arm64|x86_64] [--ffprobe-dir <目
 
 精简版不认识的少见格式只会缺少画质信息，不影响导入；需要时同样可以用 `FFPROBE_PATH` 换成完整版。
 
+### mpv
+
+两个脚本默认内置 mpv 官方发布包（版本、下载地址与 SHA-256 固定在 `build_windows.py` / `build_macos.py` 里，校验不通过就停止打包）：
+
+- Windows：`mpv-v<版本>-x86_64-pc-windows-msvc.zip`，只取 `mpv.exe` 与 `vulkan-1.dll`，放在 `runtime\mpv\`。
+- macOS：`mpv-v<版本>-macos-15-arm.zip` / `-intel.zip`，整个 `mpv.app` 放在 `Contents/Resources/runtime/mpv/`，签名时先签 `mpv.app` 再签 MovieDB.app。官方包要求 macOS 15，更低版本上 MovieDB 自动改用 IINA 或自己安装的 mpv。
+- `packaging/mpv/` 里的 `mpv.conf`、`LICENSE.GPL`、`Copyright` 会一起复制，并生成写有下载地址、SHA-256 与源码地址的 `SOURCE.txt`。
+- `--mpv-zip <文件>`：使用已下载的官方 zip（离线或缓存）；`--no-mpv`：不内置。
+
+升级 mpv 时改版本号和三个 SHA-256，再用 CI 的小样播放测试验证。
+
 ## 持续集成与发布
 
 `.github/workflows/tests.yml` 在 PR 上运行 Linux、Windows、macOS 的 Python 测试、前端规则测试与关联脚本语法检查，不连接真实网盘或评分服务。安装包工作流复用同一测试矩阵，全部通过后才构建 Windows / macOS 安装包；`models/`、查询、迁移和环境配置变更也会触发构建。
 
-`.github/workflows/windows-package.yml`（“安装包（Windows / macOS）”）在推送到 `main`、`release/**`、`feat/**`、`perf/**` 且改动了程序文件时运行：编译并校验精简版 ffprobe，构建 Windows 安装包与免安装 zip、两种架构的 macOS .dmg，并测试安装、免安装版数据位置、旧版数据迁移与 .dmg 签名。各分支的构建产物在运行记录底部的 Artifacts 下载（需登录 GitHub）。
+`.github/workflows/windows-package.yml`（“安装包（Windows / macOS）”）在推送到 `main`、`release/**`、`feat/**`、`perf/**` 且改动了程序文件时运行：编译并校验精简版 ffprobe，构建 Windows 安装包与免安装 zip、两种架构的 macOS .dmg，用内置 mpv 播放全部测试小样，并测试安装、免安装版数据位置、旧版数据迁移与 .dmg 签名。各分支的构建产物在运行记录底部的 Artifacts 下载（需登录 GitHub）。
 
 推送到 `main` 时，如果还没有 `v<pyproject.toml 版本号>` 的 Release，就自动创建并上传安装包，发行说明取 [CHANGELOG.md](../../CHANGELOG.md) 中 `## v<版本号>` 的段落。
 

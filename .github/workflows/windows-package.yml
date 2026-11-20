@@ -162,10 +162,26 @@ jobs:
             if ($code -ne "302") { Fail "首次使用没有跳转到引导页（HTTP $code）" }
             $status = Invoke-RestMethod http://127.0.0.1:5070/setup/status
             if (-not ($status.ffprobe.ok -and $status.ffprobe.bundled)) { Fail "没有识别到内置 ffprobe" }
-            "引导页正常；ffprobe $($status.ffprobe.version)"
+            $player = Invoke-RestMethod http://127.0.0.1:5070/setup/test/player -Method Post -ContentType "application/json" -Body "{}" -Headers @{ Origin = "http://127.0.0.1:5070" }
+            if (-not ($player.ok -and ($player.details -contains "随安装包提供的 mpv"))) { Fail "没有识别到内置 mpv：$($player | ConvertTo-Json -Compress)" }
+            "引导页正常；ffprobe $($status.ffprobe.version)；内置 mpv"
           } finally {
             Stop-Process -Id $server.Id -Force -ErrorAction SilentlyContinue
           }
+
+      - name: 内置 mpv 播放测试小样
+        run: |
+          $mpv = "dist\MovieDB\runtime\mpv\mpv.exe"
+          $config = (Resolve-Path dist\MovieDB\runtime\mpv\config).Path
+          & $mpv --no-config --version | Select-Object -First 1
+          # 用 MovieDB 自带的配置（gpu-next、硬件解码），只把画面和声音输出换成空设备
+          $samples = Get-ChildItem ffslim\samples -File | Where-Object Extension -ne ".json"
+          $failed = foreach ($sample in $samples) {
+            $process = Start-Process $mpv -ArgumentList "--config-dir=`"$config`"", "--vo=null", "--ao=null", "--frames=24", "--really-quiet", "`"$($sample.FullName)`"" -Wait -PassThru -NoNewWindow
+            if ($process.ExitCode -ne 0) { "$($sample.Name)（退出码 $($process.ExitCode)）" }
+          }
+          if ($failed) { "::error title=内置 mpv 播放失败::$($failed -join '，')"; exit 1 }
+          "内置 mpv 能播放全部 $($samples.Count) 个小样"
 
       - name: 原生窗口自检（WebView2）
         run: |
@@ -217,7 +233,7 @@ jobs:
           Set-Content "$dir\app\.env" "ALIST_ORIGIN=http://127.0.0.1:5244" -Encoding utf8
           Set-Content "$dir\app\static\images\movies\ci.txt" "legacy" -Encoding utf8
           Start-Process $installer.FullName -ArgumentList "/S" -Wait
-          foreach ($path in "$dir\runtime\python\MovieDB.exe", "$dir\runtime\ffmpeg\ffprobe.exe", "$dir\app\desktop.py",
+          foreach ($path in "$dir\runtime\python\MovieDB.exe", "$dir\runtime\ffmpeg\ffprobe.exe", "$dir\runtime\mpv\mpv.exe", "$dir\app\desktop.py",
                             "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\MovieDB.lnk", "$dir\Uninstall.exe") {
             if (-not (Test-Path $path)) { Fail "安装后缺少 $path" }
           }
@@ -372,7 +388,7 @@ jobs:
           hdiutil detach /tmp/moviedb-dmg -quiet
           app="$RUNNER_TEMP/Applications/MovieDB.app"
           codesign --verify --deep --strict "$app" || { echo "::error::签名无效"; exit 1; }
-          for file in MacOS/MovieDB MacOS/MovieDB-python Resources/runtime/ffmpeg/ffprobe; do
+          for file in MacOS/MovieDB MacOS/MovieDB-python Resources/runtime/ffmpeg/ffprobe Resources/runtime/mpv/mpv.app/Contents/MacOS/mpv; do
             lipo -info "$app/Contents/$file"
             lipo -info "$app/Contents/$file" | grep -q "${{ matrix.arch }}" || { echo "::error::$file 不是 ${{ matrix.arch }} 架构"; exit 1; }
           done
@@ -384,6 +400,22 @@ jobs:
           "$FFPROBE_PATH" -hide_banner -version | head -1
           uv run --frozen python packaging/check_ffprobe.py verify ffslim/samples ffslim/samples/expected.json --https 2>&1 | tee probe.log
           test "${PIPESTATUS[0]}" -eq 0 || { echo "::error title=ffprobe 结果不一致（${{ matrix.arch }}）::$(tail -25 probe.log | awk '{ gsub(/%/, "%25"); gsub(/\r/, ""); printf "%s%%0A", $0 }')"; exit 1; }
+
+      - name: 内置 mpv 播放测试小样
+        run: |
+          mpv="$APP/Contents/Resources/runtime/mpv/mpv.app/Contents/MacOS/mpv"
+          config="$APP/Contents/Resources/runtime/mpv/config"
+          sw_vers -productVersion
+          "$mpv" --no-config --version | head -1
+          failed=""
+          count=0
+          for sample in ffslim/samples/*; do
+            case "$sample" in *.json) continue ;; esac
+            count=$((count + 1))
+            "$mpv" --config-dir="$config" --vo=null --ao=null --frames=24 --really-quiet "$sample" < /dev/null || failed="$failed $(basename "$sample")"
+          done
+          test -z "$failed" || { echo "::error title=内置 mpv 播放失败（${{ matrix.arch }}）::$failed"; exit 1; }
+          echo "内置 mpv 能播放全部 $count 个小样"
 
       - name: 启动、首次设置与数据位置
         run: |

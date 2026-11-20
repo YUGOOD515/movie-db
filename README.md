@@ -15,8 +15,8 @@ A self-hosted movie & TV library for videos stored on cloud drives. MovieDB's bu
 - **Built-in drive layer** — direct support for Quark, UC, Aliyun Drive, Baidu Netdisk and 115 (QR login), 123 Cloud and WebDAV (password), OneDrive and Google Drive (web authorization) and local folders, plus AList / OpenList passthrough; credentials renew automatically, and existing AList / OpenList storages can be imported in one step. Read-only listing and playback, never uploads or deletes.
 - **Smart discovery** — scans the drive folders you choose, cleans up release names, matches them on TMDB and works out seasons and episodes. Uncertain names can go to an AI model (any OpenAI-compatible API; DeepSeek recommended). Results are grouped into *Ready*, *Review* and *Unrecognized*, and you confirm in bulk.
 - **Link editor** — check every file against TMDB episodes, fix numbering with a visual filename-rule editor, handle per-folder seasons, continuous numbering and multiple versions of the same episode.
-- **Local playback** — opens MovieDB `/stream` URLs in MPC-HC, IINA, mpv, VLC or the system default app, with redirect, single-connection and ranged multi-part proxying. AList / OpenList, Quark and UC default to bounded background read-ahead shared across player requests; MPC-HC, IINA and mpv record progress and resume where you left off.
-- **Desktop app** — Windows installer or portable zip, macOS `.dmg` for Apple silicon and Intel; bundles Python, all dependencies and ffprobe, and runs in its own native window (the system WebView2 / WKWebView — no bundled browser engine).
+- **Local playback** — opens MovieDB `/stream` URLs in the bundled mpv by default, or in MPC-HC, IINA, VLC or the system default app, with redirect, single-connection and ranged multi-part proxying. AList / OpenList, Quark and UC default to bounded background read-ahead shared across player requests; mpv, MPC-HC and IINA record progress and resume where you left off.
+- **Desktop app** — Windows installer or portable zip, macOS `.dmg` for Apple silicon and Intel; bundles Python, all dependencies, ffprobe and the mpv player, and runs in its own native window (the system WebView2 / WKWebView — no bundled browser engine).
 - **Guided setup** — a first-run walkthrough and a settings page that checks each service as you configure it.
 - **Optional remote access** — reach the library through a Cloudflare Tunnel, with a read-only snapshot on Cloudflare Workers when your computer is offline.
 
@@ -33,7 +33,7 @@ A self-hosted movie & TV library for videos stored on cloud drives. MovieDB's bu
 
 - **A local folder or a supported cloud-drive account** — add it directly during setup; no AList installation is required. See [drive credentials](docs/en/adding-media.md#drives-and-credentials).
 - Posters and details come from TMDB. The installers ship with a built-in API key, so you don't need your own (you can still set one in Settings).
-- Optional: an **MDBList** API key for extra ratings, an **AI** API key for smarter recognition, and a **video player** (MPC-HC on Windows, IINA on macOS, or mpv / VLC).
+- Optional: an **MDBList** API key for extra ratings, an **AI** API key for smarter recognition, and a **video player** if you run from source (the installers bundle mpv; otherwise MPC-HC on Windows, IINA on macOS).
 
 ## Install
 
@@ -95,12 +95,13 @@ Set the `MOVIEDB_DATA_DIR` environment variable to use another location. **Setti
 
 | Player | Platform | Watch progress |
 |---|---|---|
-| MPC-HC | Windows (default) | Recorded and resumed; enable the web interface in MPC-HC *Options → Web Interface* |
-| IINA | macOS (default) | Recorded and resumed |
-| mpv | All | Recorded and resumed (resume only on Windows) |
+| Bundled mpv | Windows, macOS 15 or later (default) | Recorded and resumed |
+| MPC-HC | Windows | Recorded and resumed; enable the web interface in MPC-HC *Options → Web Interface* |
+| IINA | macOS | Recorded and resumed |
+| Your own mpv | All | Recorded and resumed |
 | VLC, system default app | All | Opens only, no progress |
 
-Leave the player empty to pick the first one installed.
+Leave the player empty to use the bundled mpv, or the first player installed when there is none.
 
 ## Run from source
 
@@ -125,4 +126,4 @@ On macOS, install the tools with `brew install uv ffmpeg` and a player such as `
 
 ## License
 
-MovieDB's own code is licensed under the **GNU Affero General Public License v3.0 or later** (full text in [LICENSE](LICENSE)); third-party attribution is listed in [NOTICE](NOTICE). Bundled third-party code and assets keep their original licenses (for example the libraries in `static/vendor/` and the LGPL build of ffprobe in the installers). Movie data and images come from [TMDB](https://www.themoviedb.org); this product uses the TMDB API but is not endorsed or certified by TMDB.
+MovieDB's own code is licensed under the **GNU Affero General Public License v3.0 or later** (full text in [LICENSE](LICENSE)); third-party attribution is listed in [NOTICE](NOTICE). Bundled third-party code and assets keep their original licenses (for example the libraries in `static/vendor/` the LGPL build of ffprobe and the GPLv2+ mpv in the installers). Movie data and images come from [TMDB](https://www.themoviedb.org); this product uses the TMDB API but is not endorsed or certified by TMDB.

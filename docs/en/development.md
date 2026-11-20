@@ -43,7 +43,7 @@ uv run python scripts/run_fresh.py --keys # same, but reuses the TMDB, AI and MD
 | `templates/`, `static/` | Jinja templates, styles and per-page scripts; third-party libraries in `static/vendor/` |
 | `migrations/` | Database schema; `library_schema.sql` is the current one |
 | `scripts/` | Command-line tools: thumbnails, ratings, snapshot publishing, `.env` check… |
-| `packaging/` | Build scripts for the Windows / macOS installers and the slim ffprobe |
+| `packaging/` | Build scripts for the Windows / macOS installers and the slim ffprobe; `mpv/` holds the bundled mpv's configuration and licenses |
 | `cloud/` | Cloudflare Workers for the read-only snapshot |
 
 Coding conventions are in [AGENTS.MD](../../AGENTS.MD); design notes are in [frontend](../design/frontend.md), [backend](../design/backend.md) and [HTTP API](../design/api.md) (all in Chinese).
@@ -124,11 +124,22 @@ Both scripts offer three options:
 
 Rare formats the slim build doesn't know only lose their quality info; importing still works. Use `FFPROBE_PATH` to switch to a full build if you need it.
 
+### mpv
+
+Both scripts bundle the official mpv release by default (version, download URL and SHA-256 are pinned in `build_windows.py` / `build_macos.py`; packaging stops if the checksum does not match):
+
+- Windows: `mpv-v<version>-x86_64-pc-windows-msvc.zip`; only `mpv.exe` and `vulkan-1.dll` go into `runtime\mpv\`.
+- macOS: `mpv-v<version>-macos-15-arm.zip` / `-intel.zip`; the whole `mpv.app` goes into `Contents/Resources/runtime/mpv/`, and it is signed before MovieDB.app. The official build needs macOS 15; on earlier versions MovieDB falls back to IINA or your own mpv.
+- `mpv.conf`, `LICENSE.GPL` and `Copyright` from `packaging/mpv/` are copied alongside, plus a generated `SOURCE.txt` with the download URL, SHA-256 and source link.
+- `--mpv-zip <file>` uses an official zip you already downloaded (offline or cached); `--no-mpv` bundles none.
+
+To upgrade mpv, change the version and the three SHA-256 values, then let the CI sample playback test verify it.
+
 ## CI and releases
 
 `.github/workflows/tests.yml` runs Python tests, frontend rules and association-script syntax checks on Linux, Windows and macOS for pull requests, without contacting live media or rating services. Packaging reuses this test matrix and waits for it before building installers. Model, query, migration and environment-configuration changes also trigger packaging.
 
-`.github/workflows/windows-package.yml` (“安装包（Windows / macOS）”) runs on pushes to `main`, `release/**`, `feat/**` and `perf/**` that touch program files. It builds and verifies the slim ffprobe, builds the Windows installer and portable zip and the macOS `.dmg` for both architectures, and tests installation, the portable data location, migration of old data and the `.dmg` signature. Build artifacts of any branch can be downloaded at the bottom of the run page (GitHub sign-in required).
+`.github/workflows/windows-package.yml` (“安装包（Windows / macOS）”) runs on pushes to `main`, `release/**`, `feat/**` and `perf/**` that touch program files. It builds and verifies the slim ffprobe, builds the Windows installer and portable zip and the macOS `.dmg` for both architectures, plays every test clip with the bundled mpv, and tests installation, the portable data location, migration of old data and the `.dmg` signature. Build artifacts of any branch can be downloaded at the bottom of the run page (GitHub sign-in required).
 
 On `main`, if no release `v<version from pyproject.toml>` exists yet, one is created with the installers attached; its notes are the `## v<version>` section of [CHANGELOG.md](../../CHANGELOG.md).
 

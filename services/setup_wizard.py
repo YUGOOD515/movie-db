@@ -402,7 +402,9 @@ def test_player(form: dict) -> dict:
         return {"ok": True, "message": "将用系统默认程序打开", "details": ["没有找到 IINA、mpv 等播放器"],
                 "warnings": ["系统默认程序无法记录观看进度。"]}
     details, warnings = [f"已找到 {name}"], []
-    if kind == "mpc-hc":
+    if player.is_bundled(path):
+        details = ["随安装包提供的 mpv", "可以记录观看进度"]
+    elif kind == "mpc-hc":
         web = _url(_field(form, "MPC_WEB_URL") or os.environ.get("MPC_WEB_URL") or "http://127.0.0.1:13579", "Web 接口")
         try:
             requests.get(web + "/variables.html", timeout=2)

@@ -117,8 +117,8 @@ Mounts and credentials are managed under **Manage → Source data** and stored i
 | `FFPROBE_CONCURRENCY` | Total ffprobe processes shared by all imports, default 3, range 1–8 |
 | `FFPROBE_PER_SOURCE` | Probe concurrency per first-level mount directory, defaults to the global cap |
 | `IMAGE_CONCURRENCY` | Shared thumbnail/tone processing concurrency, default 2 |
-| `PLAYER` | `mpc-hc` / `iina` / `mpv` / `vlc` / `system`; empty picks automatically |
-| `PLAYER_PATH` | Program path for players other than MPC-HC; on macOS this can be an `.app` |
+| `PLAYER` | `mpc-hc` / `iina` / `mpv` / `vlc` / `system`; empty picks automatically (the bundled mpv first) |
+| `PLAYER_PATH` | Program path for players other than MPC-HC; when set, the bundled mpv is not used; on macOS this can be an `.app` |
 | `MPC_PATH`, `MPC_WEB_URL` | MPC-HC program path and web interface (default `http://127.0.0.1:13579`) |
 | `MOVIEDB_TONES_DISABLED` | Set to `1` to skip computing artwork colors and BlurHash placeholders at startup |
 | `MOVIEDB_KEEPALIVE_DISABLED` | Set to `1` to stop renewing drive credentials automatically (for tests) |
@@ -137,14 +137,17 @@ After updating the code, `uv run python scripts/check_env.py` compares `.env` wi
 
 ## Players
 
-**Play** opens MovieDB's `/stream` URL in a local player, and MovieDB redirects or proxies the drive content. Choose a player under **Settings → Connection → Player**; when empty, MovieDB picks the first one installed (Windows: MPC-HC → mpv → VLC; macOS: IINA → mpv → VLC).
+**Play** opens MovieDB's `/stream` URL in a local player, and MovieDB redirects or proxies the drive content. The installers bundle the official mpv (Windows, and macOS 15 or later), which is used when the setting is empty, so playback and progress tracking work right after installing. You can switch to another player under **Settings → Connection → Player**. Without the bundled mpv (running from source, the component unchecked in the installer, or macOS earlier than 15), MovieDB picks the first player installed (Windows: MPC-HC → mpv → VLC; macOS: IINA → mpv → VLC).
 
 | Player | Platform | Watch progress |
 |---|---|---|
-| MPC-HC | Windows (default) | Recorded and resumed; enable the web interface in MPC-HC *Options → Web Interface* |
-| IINA | macOS (default) | Recorded and resumed (via mpv's JSON IPC) |
-| mpv | All | Recorded and resumed (resume only on Windows) |
+| Bundled mpv | Windows, macOS 15 or later (default) | Recorded and resumed (mpv's JSON IPC; a named pipe on Windows) |
+| MPC-HC | Windows | Recorded and resumed; enable the web interface in MPC-HC *Options → Web Interface* |
+| IINA | macOS | Recorded and resumed (via mpv's JSON IPC) |
+| Your own mpv | All | Recorded and resumed |
 | VLC, system default app | All | Opens only, no progress |
+
+The bundled mpv uses MovieDB's own configuration (`runtime/mpv/config/mpv.conf`: `gpu-next` rendering, hardware decoding, Chinese subtitles first). HDR10 and Dolby Vision are tone-mapped by libplacebo, and HDR is passed through when the display has HDR turned on. An mpv you installed yourself keeps your own configuration.
 
 If no player is found, the page points you to the settings instead of failing.
 

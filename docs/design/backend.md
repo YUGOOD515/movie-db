@@ -65,6 +65,7 @@
 ## 媒体来源与播放
 
 - 播放器和 ffprobe 只访问 MovieDB 自己的 `/stream` 地址，由 `services/media_stream.py` 转发；不把网盘直链交给外部程序，因为直链会过期且可能带令牌。同目录及 `Subs`/`字幕` 等子目录下的外挂字幕在启动播放器前由 MovieDB 缓存到本机临时目录（本机挂载直接用原路径），再以本地文件路径传给播放器（避免 MPC-HC、IINA、VLC 对远程 HTTP 字幕地址的兼容问题），查找或下载失败不阻塞视频播放。
+- 播放器默认用安装包自带的官方 mpv（`paths.BUNDLED_MPV`），作为独立进程启动，通过 JSON IPC 读取进度：macOS / Linux 用 Unix 套接字，Windows 用命名管道。不嵌入 libmpv，因为界面是系统 WebView，嵌入画面要另做原生窗口，浏览器模式也用不了。只有内置 mpv 加 `--config-dir` 使用 `packaging/mpv/mpv.conf`，用户自己的播放器不改动配置。官方 macOS 包要求 macOS 15，更低版本不使用内置 mpv（`player.BUNDLED_MPV_MIN_MACOS`）。
 - `/stream` 的 502 与上游 5XX 记录失败阶段、异常类型及已知上游 HTTP 状态（不可得时为 unknown）。驱动可随 `DriveError` 保留状态码；不记录异常原文、堆栈、Cookie、直链或本机播放签名。
 - 由哪个网盘提供路径由 `services/media_source.route` 决定：第一级目录由同名网盘提供；网盘停用后路径不可用，只有用户在网盘页选择“改由透传提供”时才交给透传（`*`）。改变路由的操作会触发重新扫描。
 - 网盘驱动实现 `connectors/drives/base.py` 的 `Drive` 接口（`root` / `check` / `list` / `link` / `keepalive`）。

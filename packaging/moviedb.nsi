@@ -52,7 +52,7 @@ VIAddVersionKey /LANG=2052 "LegalCopyright" "YUGOOD515"
 
 ; 只结束本安装目录里的 MovieDB 进程，不影响其他 Python 程序。
 !macro StopRunning
-    nsExec::Exec `powershell -NoProfile -NonInteractive -Command "Get-Process MovieDB,pythonw,python -ErrorAction SilentlyContinue | Where-Object { $$_.Path -like '$INSTDIR\runtime\*' } | Stop-Process -Force"`
+    nsExec::Exec `powershell -NoProfile -NonInteractive -Command "Get-Process MovieDB,pythonw,python,mpv -ErrorAction SilentlyContinue | Where-Object { $$_.Path -like '$INSTDIR\runtime\*' } | Stop-Process -Force"`
     Pop $0
     Sleep 500
 !macroend
@@ -98,6 +98,15 @@ Section "ffprobe（读取分辨率、HDR 与音轨）" SecFfprobe
 SectionEnd
 !endif
 
+!ifndef NO_MPV
+Section "内置 mpv 播放器" SecMpv
+    ; 升级时整个替换，避免残留旧版本的文件
+    RMDir /r "$INSTDIR\runtime\mpv"
+    SetOutPath "$INSTDIR\runtime"
+    File /r "${STAGE}\runtime\mpv"
+SectionEnd
+!endif
+
 Section "桌面快捷方式" SecDesktop
     SetOutPath "$INSTDIR\app"
     CreateShortcut "$DESKTOP\${APP}.lnk" "${LAUNCHER}" '"$INSTDIR\app\desktop.py"' "$INSTDIR\moviedb.ico" 0 SW_SHOWNORMAL "" "打开 ${APP}"
@@ -109,6 +118,11 @@ Section "-Finish"
             RMDir /r "$INSTDIR\runtime\ffmpeg"
         ${EndIf}
     !endif
+    !ifndef NO_MPV
+        ${IfNot} ${SectionIsSelected} ${SecMpv}
+            RMDir /r "$INSTDIR\runtime\mpv"
+        ${EndIf}
+    !endif
     ${GetSize} "$INSTDIR" "/S=0K" $0 $1 $2
     IntFmt $0 "0x%08X" $0
     WriteRegDWORD HKCU "${UNINSTALL_KEY}" "EstimatedSize" "$0"
@@ -118,6 +132,9 @@ SectionEnd
     !insertmacro MUI_DESCRIPTION_TEXT ${SecMain} "程序本体与内置 Python 运行环境。"
     !ifndef NO_FFPROBE
         !insertmacro MUI_DESCRIPTION_TEXT ${SecFfprobe} "导入时读取视频的分辨率、HDR、编码与音轨（约 8MB）。已自行安装 FFmpeg 可取消。"
+    !endif
+    !ifndef NO_MPV
+        !insertmacro MUI_DESCRIPTION_TEXT ${SecMpv} "播放影片并记录观看进度，支持 HDR 与杜比视界（约 64MB）。打算改用 MPC-HC 或 VLC 可取消。"
     !endif
     !insertmacro MUI_DESCRIPTION_TEXT ${SecDesktop} "在桌面创建 ${APP} 快捷方式。"
 !insertmacro MUI_FUNCTION_DESCRIPTION_END

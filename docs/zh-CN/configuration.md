@@ -117,8 +117,8 @@
 | `FFPROBE_CONCURRENCY` | 所有导入任务合计的 ffprobe 进程数，默认 3，范围 1–8 |
 | `FFPROBE_PER_SOURCE` | 每个挂载第一级目录的探测并发，默认跟随总上限 |
 | `IMAGE_CONCURRENCY` | 缩略图与色调处理的共享并发数，默认 2 |
-| `PLAYER` | `mpc-hc` / `iina` / `mpv` / `vlc` / `system`，留空自动选择 |
-| `PLAYER_PATH` | 非 MPC-HC 播放器的程序路径，macOS 可以填 `.app` |
+| `PLAYER` | `mpc-hc` / `iina` / `mpv` / `vlc` / `system`，留空自动选择（安装包自带的 mpv 优先） |
+| `PLAYER_PATH` | 非 MPC-HC 播放器的程序路径，填写后不再使用内置 mpv；macOS 可以填 `.app` |
 | `MPC_PATH`、`MPC_WEB_URL` | MPC-HC 程序路径与 Web 接口地址（默认 `http://127.0.0.1:13579`） |
 | `MOVIEDB_TONES_DISABLED` | 设为 `1` 时启动不补算海报环境色与 BlurHash |
 | `MOVIEDB_KEEPALIVE_DISABLED` | 设为 `1` 时不自动续期网盘凭据（测试用） |
@@ -137,14 +137,17 @@
 
 ## 播放器
 
-点“播放”时由本机播放器打开 MovieDB 的 `/stream` 地址，再由 MovieDB 跳转或转发网盘内容。在“设置 → 连接 → 播放器”中选择，留空时自动选择已安装的（Windows：MPC-HC → mpv → VLC；macOS：IINA → mpv → VLC）。
+点“播放”时由本机播放器打开 MovieDB 的 `/stream` 地址，再由 MovieDB 跳转或转发网盘内容。安装包自带官方 mpv（Windows 与 macOS 15 及以上），留空时优先使用它，装好即可播放并记录进度；也可以在“设置 → 连接 → 播放器”中改用其他播放器。没有内置 mpv 时（源码运行、安装时取消了该组件，或 macOS 15 以下）按已安装的自动选择（Windows：MPC-HC → mpv → VLC；macOS：IINA → mpv → VLC）。
 
 | 播放器 | 平台 | 观看进度 |
 |---|---|---|
-| MPC-HC | Windows（默认） | 记录并续播，需要在 MPC-HC“选项 → Web 界面”中开启 Web 接口 |
-| IINA | macOS（默认） | 记录并续播（mpv 的 JSON IPC） |
-| mpv | 全部 | 记录并续播（Windows 上只续播） |
+| 内置 mpv | Windows、macOS 15 及以上（默认） | 记录并续播（mpv 的 JSON IPC，Windows 走命名管道） |
+| MPC-HC | Windows | 记录并续播，需要在 MPC-HC“选项 → Web 界面”中开启 Web 接口 |
+| IINA | macOS | 记录并续播（mpv 的 JSON IPC） |
+| 自己安装的 mpv | 全部 | 记录并续播 |
 | VLC、系统默认程序 | 全部 | 只打开，不记录 |
+
+内置 mpv 使用 MovieDB 自带的配置（`runtime/mpv/config/mpv.conf`：`gpu-next` 渲染、硬件解码、优先中文字幕），HDR10 与杜比视界由 libplacebo 做色彩映射，显示器开了 HDR 时直接输出 HDR。自己安装的 mpv 仍使用你自己的配置。
 
 没有找到播放器时，页面会提示去设置页选择，不会报错。
 

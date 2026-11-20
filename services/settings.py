@@ -134,22 +134,24 @@ if IS_WINDOWS:
     PLAYER_SETTINGS: tuple[Setting, ...] = (
         S("PLAYER", "播放器", "select", options=(
             ("", "自动选择"), ("mpc-hc", "MPC-HC"), ("mpv", "mpv"), ("vlc", "VLC" + _NO_PROGRESS),
-            ("system", "系统默认程序" + _NO_PROGRESS))),
-        S("MPC_PATH", "MPC-HC 程序", "path", placeholder="C:\\Program Files\\MPC-HC\\mpc-hc64.exe"),
-        S("MPC_WEB_URL", "Web 接口", "url", placeholder="http://127.0.0.1:13579",
+            ("system", "系统默认程序" + _NO_PROGRESS)),
+          hint="安装包自带 mpv，自动选择时优先使用；也可以改用 MPC-HC 或 VLC。"),
+        S("MPC_PATH", "MPC-HC 程序", "path", advanced=True, placeholder="C:\\Program Files\\MPC-HC\\mpc-hc64.exe"),
+        S("MPC_WEB_URL", "Web 接口", "url", advanced=True, placeholder="http://127.0.0.1:13579",
           hint="在 MPC-HC“选项 → Web 界面”中开启，用于记录观看进度。"),
         S("PLAYER_PATH", "其他播放器程序", "path", advanced=True, placeholder="C:\\Program Files\\mpv\\mpv.exe",
-          hint="使用 mpv 或 VLC 时填写；留空自动查找。"),
+          hint="填写后改用这个程序（如自己安装的 mpv、VLC）；留空使用内置 mpv。"),
     )
 else:
     PLAYER_SETTINGS = (
         S("PLAYER", "播放器", "select", options=(
             ("", "自动选择"), *((("iina", "IINA"),) if IS_MACOS else ()), ("mpv", "mpv"),
             ("vlc", "VLC" + _NO_PROGRESS), ("system", "系统默认程序" + _NO_PROGRESS)),
-          hint="IINA 和 mpv 可以记录观看进度。" if IS_MACOS else "mpv 可以记录观看进度。"),
+          hint="安装包自带 mpv（需要 macOS 15 及以上），自动选择时优先使用；IINA 和 mpv 都可以记录观看进度。"
+          if IS_MACOS else "mpv 可以记录观看进度。"),
         S("PLAYER_PATH", "程序路径", "path",
           placeholder="/Applications/IINA.app" if IS_MACOS else "/usr/bin/mpv",
-          hint="留空自动查找" + ("；可以直接选择 .app。" if IS_MACOS else "。")),
+          hint="填写后改用这个程序" + ("，可以直接选择 .app；留空使用内置 mpv 或自动查找。" if IS_MACOS else "；留空自动查找。")),
     )
 SECTIONS: tuple[Section, ...] = (
     Section("connection", "连接", "播放器与本机服务", (
@@ -248,9 +250,11 @@ def _tmdb_status() -> dict:
 
 def _player_status() -> dict:
     try:
-        kind, _path = player.resolve_player()
+        kind, path = player.resolve_player()
     except player.PlayerNotFound:
         return {"state": "warn", "text": "未找到"}
+    if player.is_bundled(path):
+        return _ok("内置 mpv")
     return _ok("系统默认程序" if kind == "system" else player.label(kind))
 
 

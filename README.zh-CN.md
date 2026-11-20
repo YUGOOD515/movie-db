@@ -13,8 +13,8 @@
 - **内置网盘层**：直接支持夸克、UC、阿里云盘、百度网盘、115 网盘（扫码登录），123 云盘、WebDAV（账号密码），OneDrive、Google Drive（网页授权）和本机目录，也可连接已有 AList / OpenList；凭据自动续期，已有的 AList / OpenList 存储可一键导入。只读列目录和播放，不上传或删除。
 - **智能识别待关联**：扫描所选网盘目录，清洗伪装文件名、搜索 TMDB 并推测季集；拿不准的交给 AI（任意 OpenAI 兼容接口，推荐 DeepSeek）。结果分为“可确认 / 待核对 / 未识别”，一键批量入库。
 - **关联界面**：逐个文件核对 TMDB 单集，用可视化的文件名规则编辑器修正季集，支持按文件夹设季号、连续编号顺延、同一集多个版本。
-- **本机播放**：用 MPC-HC、IINA、mpv、VLC 或系统默认程序打开 MovieDB `/stream` 地址；支持跳转、单连接和并发分段转发。AList / OpenList、夸克和 UC 默认启用有上限的后台预读，多次播放器请求共用同一份缓存；MPC-HC、IINA、mpv 记录进度并续播。
-- **桌面应用**：Windows 安装包或免安装 zip，macOS 提供 Apple 芯片与 Intel 两种 .dmg；自带 Python、全部依赖和 ffprobe；界面显示在独立的原生窗口里（系统自带的 WebView2 / WKWebView，不附带浏览器内核）。
+- **本机播放**：默认用安装包自带的 mpv，也可以改用 MPC-HC、IINA、VLC 或系统默认程序，打开 MovieDB `/stream` 地址；支持跳转、单连接和并发分段转发。AList / OpenList、夸克和 UC 默认启用有上限的后台预读，多次播放器请求共用同一份缓存；mpv、MPC-HC、IINA 记录进度并续播。
+- **桌面应用**：Windows 安装包或免安装 zip，macOS 提供 Apple 芯片与 Intel 两种 .dmg；自带 Python、全部依赖、ffprobe 和 mpv 播放器；界面显示在独立的原生窗口里（系统自带的 WebView2 / WKWebView，不附带浏览器内核）。
 - **引导与设置**：首次使用全屏引导，设置页逐项检测连接状态。
 - **远程访问（可选）**：经 Cloudflare Tunnel 远程使用；电脑离线时自动切换到 Cloudflare Workers 上的只读快照。
 
@@ -31,7 +31,7 @@
 
 - **一个本机目录或网盘账号**：首次引导直接添加，不需要安装 AList。各网盘凭据获取方式见[添加媒体](docs/zh-CN/adding-media.md#网盘与凭据)。
 - 海报与资料来自 TMDB：安装包已内置访问密钥，不需要自己申请（也可以在设置里换成自己的）。
-- 可选：**MDBList** API Key（补充评分）、**AI** 平台的 API Key（更准确的识别）、**播放器**（Windows 推荐 MPC-HC，macOS 推荐 IINA，也可用 mpv / VLC）。
+- 可选：**MDBList** API Key（补充评分）、**AI** 平台的 API Key（更准确的识别）、**播放器**（安装包已自带 mpv；源码运行时 Windows 推荐 MPC-HC，macOS 推荐 IINA）。
 
 ## 安装
 
@@ -93,12 +93,13 @@ MovieDB 在本机 `http://127.0.0.1:5000` 运行服务（5000 端口被其他程
 
 | 播放器 | 平台 | 观看进度 |
 |---|---|---|
-| MPC-HC | Windows（默认） | 记录并续播，需要在 MPC-HC“选项 → Web 界面”中开启 Web 接口 |
-| IINA | macOS（默认） | 记录并续播 |
-| mpv | 全部 | 记录并续播（Windows 上只续播） |
+| 内置 mpv | Windows、macOS 15 及以上（默认） | 记录并续播 |
+| MPC-HC | Windows | 记录并续播，需要在 MPC-HC“选项 → Web 界面”中开启 Web 接口 |
+| IINA | macOS | 记录并续播 |
+| 自己安装的 mpv | 全部 | 记录并续播 |
 | VLC、系统默认程序 | 全部 | 只打开，不记录 |
 
-播放器留空时自动选择已安装的。
+播放器留空时优先使用安装包自带的 mpv，没有时自动选择已安装的。
 
 ## 从源码运行
 
@@ -123,4 +124,4 @@ macOS 上先 `brew install uv ffmpeg`，再装一个播放器，例如 `brew ins
 
 ## 许可
 
-MovieDB 自有代码采用 **GNU Affero 通用公共许可证第 3 版或更新版本**（全文见 [LICENSE](LICENSE)），第三方代码说明见 [NOTICE](NOTICE)。随附的第三方代码与资源沿用各自的许可（例如 `static/vendor/` 中的库，以及安装包内 LGPL 版的 ffprobe）。影视资料与图片来自 [TMDB](https://www.themoviedb.org)；本产品使用 TMDB API，但未获 TMDB 认可或认证。
+MovieDB 自有代码采用 **GNU Affero 通用公共许可证第 3 版或更新版本**（全文见 [LICENSE](LICENSE)），第三方代码说明见 [NOTICE](NOTICE)。随附的第三方代码与资源沿用各自的许可（例如 `static/vendor/` 中的库，安装包内 LGPL 版的 ffprobe，以及 GPLv2+ 的 mpv）。影视资料与图片来自 [TMDB](https://www.themoviedb.org)；本产品使用 TMDB API，但未获 TMDB 认可或认证。

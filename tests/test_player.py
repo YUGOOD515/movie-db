@@ -141,6 +141,20 @@ def test_setup_check_reports_progress_support(no_players, tmp_path):
     assert not result["ok"]
 
 
+def test_setup_and_settings_name_the_bundled_mpv(no_players, monkeypatch, tmp_path):
+    from services import paths, settings
+
+    bundled = _executable(tmp_path, "mpv.exe")
+    monkeypatch.setattr(paths, "BUNDLED_MPV", Path(bundled))
+    monkeypatch.setattr(player, "bundled_mpv", lambda: bundled)
+    result = setup_wizard.test_player({})
+    assert result["ok"] and result["details"] == ["随安装包提供的 mpv", "可以记录观看进度"]
+    assert settings._player_status()["text"].endswith(" · 内置 mpv")
+    other = _executable(tmp_path, "my-mpv")
+    result = setup_wizard.test_player({"PLAYER_PATH": other})
+    assert "随安装包提供的 mpv" not in result["details"]
+
+
 def test_play_route_reports_missing_player(monkeypatch):
     with patch.dict(os.environ, {"ALIST_AUTOSTART": "0", "MOVIEDB_AUTOSCAN_DISABLED": "1"}):
         import app as movie_app

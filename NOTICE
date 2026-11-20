@@ -18,6 +18,17 @@ connectors/drives/ 中的网盘驱动（夸克 / UC、阿里云盘 Open、百度
 
 改写部分同样遵循 GNU AGPL-3.0-or-later。两者同为 AGPL-3.0，因此可以合法引用。
 
+随安装包分发的程序
+------------------
+
+Windows 安装包与 macOS .dmg 内置 mpv 播放器的官方发布版本（作为独立程序运行，未与
+MovieDB 链接），许可证、版权说明与源码地址随附在安装目录的 runtime/mpv/ 中：
+
+    mpv
+    https://mpv.io  源码：https://github.com/mpv-player/mpv
+    Copyright (C) mpv/MPlayer/mplayer2 projects
+    License: GNU General Public License v2.0 or later
+
 第三方服务
 ----------
 
