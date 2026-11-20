@@ -1,4 +1,4 @@
-"""组装 Windows 安装包：嵌入式 Python + 依赖 + ffprobe + 应用代码，再用 NSIS 打包。
+"""组装 Windows 安装包：嵌入式 Python + 依赖 + ffprobe + mpv + 应用代码，再用 NSIS 打包。
 
 界面用系统自带的 WebView2 显示（pywebview），不附带浏览器内核；依赖里用不到的部分由 slim.py 删除。
 启动程序 runtime/python/MovieDB.exe 是 pythonw.exe 的副本，换上 MovieDB 的图标与名称（有 rcedit 时），
@@ -9,6 +9,9 @@
     uv run python packaging/build_windows.py --ffprobe-dir <目录>
         # 使用 packaging/build_ffprobe.sh 编译的精简版 ffprobe（单文件约 8 MB，CI 默认）；
         # 不指定时下载 BtbN 的完整 LGPL 版（约 160 MB）
+    uv run python packaging/build_windows.py --no-mpv     # 不内置 mpv
+    uv run python packaging/build_windows.py --mpv-zip <路径>
+        # 使用本地已下载的官方 mpv 发布包（CI 缓存或离线组装时使用）
 
 Windows 与 Linux 上都能组装（依赖按 Windows 平台下载二进制 wheel）；有 makensis 时生成
 MovieDB-Setup-<版本>.exe，否则只生成免安装的 zip。下载的文件缓存在 .cache/packaging/。
@@ -17,6 +20,7 @@ MovieDB-Setup-<版本>.exe，否则只生成免安装的 zip。下载的文件�
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -40,6 +44,12 @@ FFMPEG_FALLBACK = ("https://github.com/BtbN/FFmpeg-Builds/releases/download/late
                    "ffmpeg-n8.1-latest-win64-lgpl-shared-8.1.zip")
 # 只取 ffprobe 及其依赖的动态库；LGPL 版本可随软件分发。
 FFPROBE_FILES = re.compile(r"(ffprobe\.exe|(avcodec|avdevice|avfilter|avformat|avutil|swresample|swscale)-\d+\.dll)$", re.I)
+MPV_VERSION = "0.42.0"
+MPV_RELEASE = f"https://github.com/mpv-player/mpv/releases/download/v{MPV_VERSION}/"
+MPV_WINDOWS_URL = MPV_RELEASE + f"mpv-v{MPV_VERSION}-x86_64-pc-windows-msvc.zip"
+MPV_WINDOWS_SHA256 = "8dd69cbab079086765fa5d873c09513b2834b85d146c1301718a757e8c0595ef"
+MPV_WINDOWS_FILES = ("mpv.exe", "vulkan-1.dll")
+MPV_ASSETS = ROOT / "packaging" / "mpv"
 # 仅桌面版需要：托盘图标、原生窗口（pywebview 使用系统自带的 WebView2 / WKWebView，不附带浏览器内核）
 EXTRA_PACKAGES = ["pystray==0.19.5", "pywebview==6.2.1"]
 SOURCE_ONLY = ["proxy_tools"]  # pywebview 的依赖，只发布了源码包（纯 Python）
@@ -195,6 +205,62 @@ def install_ffprobe(target: Path, cache: Path) -> str:
     return Path(url).name
 
 
+def sha256_of(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as file:
+        for chunk in iter(lambda: file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def verify_sha256(path: Path, expected: str, *, remove_on_mismatch: bool) -> str:
+    actual = sha256_of(path)
+    if actual != expected.lower():
+        if remove_on_mismatch:
+            path.unlink(missing_ok=True)
+        sys.exit(f"{path.name} 校验失败：期望 {expected}，实际 {actual}")
+    return actual
+
+
+def write_mpv_extras(target: Path, source: str, sha256: str) -> None:
+    """写入 MovieDB 自带的 mpv 配置、GPL 许可证、版权说明与来源信息。"""
+    config = target / "config"
+    config.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(MPV_ASSETS / "mpv.conf", config / "mpv.conf")
+    for name in ("LICENSE.GPL", "Copyright"):
+        shutil.copy2(MPV_ASSETS / name, target / name)
+    (target / "SOURCE.txt").write_text(
+        f"mpv {MPV_VERSION}（GPLv2+，见 LICENSE.GPL 与 Copyright）\n"
+        f"下载：{source}\n"
+        f"SHA-256：{sha256}\n"
+        f"源码：https://github.com/mpv-player/mpv/tree/v{MPV_VERSION}\n",
+        encoding="utf-8",
+    )
+
+
+def install_mpv(target: Path, cache: Path, archive: Path | None = None) -> str:
+    if archive is None:
+        zip_path = download(MPV_WINDOWS_URL, cache / Path(MPV_WINDOWS_URL).name)
+        source = MPV_WINDOWS_URL
+    else:
+        if not archive.is_file():
+            sys.exit(f"找不到 mpv 压缩包：{archive}")
+        zip_path = archive
+        source = archive.name
+    sha256 = verify_sha256(zip_path, MPV_WINDOWS_SHA256, remove_on_mismatch=archive is None)
+    with zipfile.ZipFile(zip_path) as bundle:
+        names = set(bundle.namelist())
+        missing = [name for name in MPV_WINDOWS_FILES if name not in names]
+        if missing:
+            sys.exit(f"{zip_path.name} 中缺少文件：{', '.join(missing)}")
+        target.mkdir(parents=True, exist_ok=True)
+        for name in MPV_WINDOWS_FILES:
+            with bundle.open(name) as src, (target / name).open("wb") as dst:
+                shutil.copyfileobj(src, dst, 1024 * 1024)
+    write_mpv_extras(target, source, sha256)
+    return MPV_VERSION
+
+
 def tracked_files() -> list[str]:
     try:
         output = subprocess.run(["git", "ls-files", "-z"], cwd=ROOT, check=True, capture_output=True).stdout
@@ -268,6 +334,9 @@ def main() -> int:
     parser.add_argument("--cache", type=Path, default=ROOT / ".cache" / "packaging")
     parser.add_argument("--no-ffprobe", action="store_true", help="不内置 ffprobe")
     parser.add_argument("--ffprobe-dir", type=Path, help="使用 build_ffprobe.sh 编译的精简版 ffprobe 所在目录")
+    mpv_group = parser.add_mutually_exclusive_group()
+    mpv_group.add_argument("--no-mpv", action="store_true", help="不内置 mpv")
+    mpv_group.add_argument("--mpv-zip", type=Path, help="使用本地的官方 mpv 发布包（CI 缓存或离线时使用）")
     parser.add_argument("--zip", action="store_true", help="同时生成免安装 zip（没有 makensis 时总会生成）")
     args = parser.parse_args()
 
@@ -285,18 +354,22 @@ def main() -> int:
         ffmpeg = install_slim_ffprobe(stage / "runtime" / "ffmpeg", args.ffprobe_dir.resolve())
     else:
         ffmpeg = install_ffprobe(stage / "runtime" / "ffmpeg", cache)
+    mpv = None if args.no_mpv else install_mpv(
+        stage / "runtime" / "mpv", cache, args.mpv_zip.resolve() if args.mpv_zip else None)
     count = copy_app(stage / "app")
     write_icon(stage / "moviedb.ico")
     branded = make_launcher(stage / "runtime" / "python", stage / "moviedb.ico", version, cache)
     (stage / "MovieDB.cmd").write_text(  # 免安装版的启动方式；安装版使用开始菜单快捷方式
         '@echo off\r\nstart "" "%~dp0runtime\\python\\MovieDB.exe" "%~dp0app\\desktop.py"\r\n', encoding="utf-8")
-    (stage / "VERSION.txt").write_text(f"MovieDB {version}\nPython {PYTHON_VERSION}\nffprobe {ffmpeg or '未内置'}\n",
-                                       encoding="utf-8")
+    (stage / "VERSION.txt").write_text(
+        f"MovieDB {version}\nPython {PYTHON_VERSION}\nffprobe {ffmpeg or '未内置'}\nmpv {mpv or '未内置'}\n",
+        encoding="utf-8")
 
-    parts = {name: folder_size(stage / name) for name in ("runtime/python", "runtime/ffmpeg", "app")}
+    parts = {name: folder_size(stage / name) for name in ("runtime/python", "runtime/ffmpeg", "runtime/mpv", "app")}
     log(f"MovieDB.exe {'已换上 MovieDB 图标' if branded else '沿用 Python 图标'}")
     log(f"应用文件 {count} 个；Python 与依赖 {megabytes(parts['runtime/python'])}，"
-        f"ffprobe {megabytes(parts['runtime/ffmpeg']) if ffmpeg else '未内置'}，应用 {megabytes(parts['app'])}，"
+        f"ffprobe {megabytes(parts['runtime/ffmpeg']) if ffmpeg else '未内置'}，"
+        f"mpv {megabytes(parts['runtime/mpv']) if mpv else '未内置'}，应用 {megabytes(parts['app'])}，"
         f"合计 {megabytes(folder_size(stage))}")
 
     outputs = []
@@ -310,6 +383,7 @@ def main() -> int:
         subprocess.run([makensis, "-V2", "-INPUTCHARSET", "UTF8", f"-DVERSION={version}", f"-DSTAGE={stage.resolve()}",
                         f"-DOUTFILE={installer.resolve()}", f"-DFILELIST={filelist.resolve()}",
                         *([] if ffmpeg else ["-DNO_FFPROBE"]),
+                        *([] if mpv else ["-DNO_MPV"]),
                         str(ROOT / "packaging" / "moviedb.nsi")], check=True)
         outputs.append(installer)
     if args.zip or not makensis:
@@ -328,6 +402,8 @@ def main() -> int:
             file.writelines(f"| {output.name} | {megabytes(output.stat().st_size)} |\n" for output in outputs)
             file.write(f"| 安装后占用 | {megabytes(folder_size(stage))} |\n")
             file.write(f"| 其中 Python 与依赖 | {megabytes(parts['runtime/python'])} |\n")
+            if mpv:
+                file.write(f"| 其中 mpv | {megabytes(parts['runtime/mpv'])} |\n")
     return 0
 
 

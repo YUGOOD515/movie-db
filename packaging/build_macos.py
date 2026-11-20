@@ -1,8 +1,10 @@
-"""组装 macOS 版：MovieDB.app（内置 Python + 依赖 + ffprobe + 应用代码），再做成 .dmg。
+"""组装 macOS 版：MovieDB.app（内置 Python + 依赖 + ffprobe + mpv + 应用代码），再做成 .dmg。
 
     uv run python packaging/build_macos.py                      # 本机架构，输出到 dist/
     uv run python packaging/build_macos.py --arch x86_64        # Intel 版（在 Apple 芯片上也能组装）
     uv run python packaging/build_macos.py --ffprobe-dir <目录> # 内置 build_ffprobe.sh 编译的精简版 ffprobe
+    uv run python packaging/build_macos.py --no-mpv             # 不内置 mpv
+    uv run python packaging/build_macos.py --mpv-zip <路径>     # 使用本地的官方 mpv 发布包
 
 Python 来自 python-build-standalone（与 uv 使用的是同一套），依赖按 macOS 平台下载二进制 wheel，
 并去掉用不到的部分（见 slim.py）。Python 可执行文件放在 Contents/MacOS/MovieDB-python，进程因此
@@ -15,6 +17,7 @@ Python 来自 python-build-standalone（与 uv 使用的是同一套），依赖
 from __future__ import annotations
 
 import argparse
+import io
 import os
 import plistlib
 import platform
@@ -23,11 +26,13 @@ import subprocess
 import sys
 import tarfile
 import time
+import zipfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from build_windows import (  # noqa: E402  共用：下载缓存、依赖导出、应用文件清单
-    EXTRA_PACKAGES, ROOT, binary_only, copy_app, download, folder_size, log, megabytes, project_version, uv,
+    EXTRA_PACKAGES, MPV_RELEASE, MPV_VERSION, ROOT, binary_only, copy_app, download, folder_size, log, megabytes,
+    project_version, uv, verify_sha256, write_mpv_extras,
 )
 from slim import slim_site_packages  # noqa: E402
 
@@ -36,6 +41,12 @@ PBS_RELEASE = os.environ.get("MOVIEDB_PBS_RELEASE", "20261020")
 PBS_URL = ("https://github.com/astral-sh/python-build-standalone/releases/download/{release}/"
            "cpython-{version}%2B{release}-{triple}-install_only_stripped.tar.gz")
 TRIPLES = {"arm64": "aarch64-apple-darwin", "x86_64": "x86_64-apple-darwin"}
+MPV_MACOS = {  # 架构 → (下载地址, SHA-256)
+    "arm64": (MPV_RELEASE + f"mpv-v{MPV_VERSION}-macos-15-arm.zip",
+              "be1b8d2445e6880860869c080b8710dee189721f1fa4689840db6a2c10d7be69"),
+    "x86_64": (MPV_RELEASE + f"mpv-v{MPV_VERSION}-macos-15-intel.zip",
+               "2d2f34350ff844b6014c35f21ca142937275e19c0c673150a8564fcd2f3bfa14"),
+}
 MINIMUM_MACOS = "11.0"
 BUNDLE_ID = "io.github.yugood515.moviedb"
 IS_MACOS = sys.platform == "darwin"
@@ -147,6 +158,41 @@ def install_ffprobe(target: Path, source: Path) -> str:
     return f"精简版 {version}".strip()
 
 
+def install_mpv(target: Path, cache: Path, arch: str, archive: Path | None = None) -> str:
+    url, expected = MPV_MACOS[arch]
+    if archive is None:
+        zip_path = download(url, cache / Path(url).name)
+        source = url
+    else:
+        if not archive.is_file():
+            sys.exit(f"找不到 mpv 压缩包：{archive}")
+        zip_path = archive
+        source = archive.name
+    sha256 = verify_sha256(zip_path, expected, remove_on_mismatch=archive is None)
+    with zipfile.ZipFile(zip_path) as bundle:
+        if "mpv.tar.gz" not in bundle.namelist():
+            sys.exit(f"{zip_path.name} 中没有 mpv.tar.gz")
+        tar_bytes = bundle.read("mpv.tar.gz")
+    with tarfile.open(fileobj=io.BytesIO(tar_bytes), mode="r:gz") as inner:
+        for member in inner.getmembers():
+            name = member.name
+            while name.startswith("./"):
+                name = name[2:]
+            if name != "mpv.app" and not name.startswith("mpv.app/"):
+                sys.exit(f"{zip_path.name} 中的 mpv.tar.gz 包含意外条目：{member.name}")
+        target.mkdir(parents=True, exist_ok=True)
+        try:
+            inner.extractall(target, filter="data")
+        except tarfile.FilterError as error:
+            sys.exit(f"{zip_path.name} 中的 mpv.tar.gz 包含不安全路径：{error}")
+    binary = target / "mpv.app" / "Contents" / "MacOS" / "mpv"
+    if not binary.is_file():
+        sys.exit(f"{zip_path.name} 中缺少 mpv.app/Contents/MacOS/mpv")
+    binary.chmod(0o755)
+    write_mpv_extras(target, source, sha256)
+    return MPV_VERSION
+
+
 def precompile(python_root: Path, app: Path) -> None:
     """预先编译字节码：.app 里不能在运行时写文件（会破坏签名），没有 .pyc 启动会慢。"""
     minor = tuple(int(part) for part in PYTHON_VERSION.split(".")[:2])
@@ -218,13 +264,20 @@ def _is_macho(path: Path) -> bool:
 
 
 def sign(bundle: Path) -> None:
-    """临时签名：先逐个签内置的可执行文件与动态库，再签整个 .app。"""
-    binaries = [str(path) for path in (bundle / "Contents" / "Resources").rglob("*")
+    """临时签名（由内向外）：先签内置的可执行文件与动态库，再签嵌套的 .app，最后签整个 .app。"""
+    resources = bundle / "Contents" / "Resources"
+    binaries = [str(path) for path in resources.rglob("*")
                 if path.is_file() and not path.is_symlink() and _is_macho(path)]
     binaries.append(str(bundle / "Contents" / "MacOS" / "MovieDB-python"))
     for start in range(0, len(binaries), 200):
         subprocess.run(["codesign", "--force", "--sign", "-", "--timestamp=none", *binaries[start:start + 200]],
                        check=True)
+    nested_apps = sorted(
+        (path for path in resources.rglob("*.app") if path.is_dir() and not path.is_symlink()),
+        key=lambda path: (-len(path.parts), str(path)),
+    )
+    for app in nested_apps:
+        subprocess.run(["codesign", "--force", "--sign", "-", "--timestamp=none", str(app)], check=True)
     subprocess.run(["codesign", "--force", "--sign", "-", "--timestamp=none", str(bundle)], check=True)
     subprocess.run(["codesign", "--verify", "--deep", "--strict", str(bundle)], check=True)
 
@@ -256,6 +309,9 @@ def main() -> int:
     parser.add_argument("--cache", type=Path, default=ROOT / ".cache" / "packaging")
     parser.add_argument("--ffprobe-dir", type=Path,
                         help="build_ffprobe.sh 编译的精简版 ffprobe 所在目录；不指定时不内置 ffprobe")
+    mpv_group = parser.add_mutually_exclusive_group()
+    mpv_group.add_argument("--no-mpv", action="store_true", help="不内置 mpv")
+    mpv_group.add_argument("--mpv-zip", type=Path, help="使用本地的官方 mpv 发布包（CI 缓存或离线时使用）")
     parser.add_argument("--no-dmg", action="store_true", help="只组装 MovieDB.app")
     args = parser.parse_args()
 
@@ -273,6 +329,8 @@ def main() -> int:
     install_packages(site_packages(python), args.arch, cache)
     log(f"通用二进制去掉其他架构，节省 {megabytes(thin_binaries(python, args.arch))}")
     ffmpeg = install_ffprobe(resources / "runtime" / "ffmpeg", args.ffprobe_dir.resolve()) if args.ffprobe_dir else None
+    mpv = None if args.no_mpv else install_mpv(
+        resources / "runtime" / "mpv", cache, args.arch, args.mpv_zip.resolve() if args.mpv_zip else None)
     count = copy_app(resources / "app")
     precompile(python, resources / "app")
     move_python_executable(python, contents / "MacOS")
@@ -281,9 +339,10 @@ def main() -> int:
     write_info(contents, version)
     (resources / "VERSION.txt").write_text(
         f"MovieDB {version}\nPython {PYTHON_VERSION}（python-build-standalone {PBS_RELEASE}）\n"
-        f"ffprobe {ffmpeg or '未内置'}\n", encoding="utf-8")
-    log(f"应用文件 {count} 个；Python 与依赖 {megabytes(folder_size(python) + folder_size(contents / 'MacOS'))}，ffprobe "
-        f"{megabytes(folder_size(resources / 'runtime' / 'ffmpeg')) if ffmpeg else '未内置'}，"
+        f"ffprobe {ffmpeg or '未内置'}\nmpv {mpv or '未内置'}\n", encoding="utf-8")
+    log(f"应用文件 {count} 个；Python 与依赖 {megabytes(folder_size(python) + folder_size(contents / 'MacOS'))}，"
+        f"ffprobe {megabytes(folder_size(resources / 'runtime' / 'ffmpeg')) if ffmpeg else '未内置'}，"
+        f"mpv {megabytes(folder_size(resources / 'runtime' / 'mpv')) if mpv else '未内置'}，"
         f"合计 {megabytes(folder_size(bundle))}")
 
     outputs = []
