@@ -15,6 +15,7 @@ wheels/
 static/images/
 static/icons/*
 !static/icons/ratings/
+!static/icons/drives/
 static/thumbnails/
 movie.db
 backups/
@@ -24,6 +25,7 @@ backups/
 output/
 .pytest_cache/
 .flask_session/
+presentation/
 flask_session/
 imdb/
 imdb.db

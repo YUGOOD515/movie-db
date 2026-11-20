@@ -252,31 +252,27 @@
 
     // ------------------------------------------------------------ AI 平台预设
 
-    let presetsReady = false;
+    // 平台、接口地址与模型的联动见 static/ai-presets.js：选平台后自动拉取模型列表并填好默认模型
+    let aiPresets = null;
     function setupPresets(presets) {
-        const select = root.querySelector("[data-preset]"), keyLink = root.querySelector("[data-key-link]");
-        const base = form.elements.namedItem("LLM_BASE_URL"), model = form.elements.namedItem("LLM_MODEL");
-        const rpmRow = root.querySelector('[data-row="LLM_RPM"]');
-        if (!presetsReady) select.replaceChildren(...presets.map(preset => new Option(preset.name, preset.id)), new Option("其他（自定义）", ""));
-        const match = presets.find(preset => preset.base_url === base.value || (preset.id === "deepseek" && /\/\/api\.deepseek\.com(\/v1)?\/?$/.test(base.value)));
-        select.value = match ? match.id : base.value ? "" : presets[0].id;
-        window.syncSelect?.(select);
-        let previous = match || null;
-        const apply = fill => {
-            const preset = presets.find(item => item.id === select.value);
-            keyLink.hidden = !preset;
-            if (preset) keyLink.href = preset.key_url;
-            rpmRow.hidden = preset?.rpm === false;
-            model.placeholder = preset ? preset.model : "";
-            if (!fill || !preset) return;
-            base.value = preset.base_url;
-            if (!model.value || (previous && model.value === previous.model)) model.value = preset.model;
-            previous = preset;
-            refreshPending();
-        };
-        if (!presetsReady) select.addEventListener("change", () => apply(true));
-        presetsReady = true;
-        apply(!base.value && aiSwitch.checked);
+        const model = form.elements.namedItem("LLM_MODEL");
+        const modelLabel = root.querySelector('[data-row="LLM_MODEL"] .ui-row-label');
+        if (!aiPresets) aiPresets = window.AiPresets.attach({
+            presets, model,
+            select: root.querySelector("[data-preset]"), keyLink: root.querySelector("[data-key-link]"),
+            base: form.elements.namedItem("LLM_BASE_URL"), key: form.elements.namedItem("LLM_API_KEY"),
+            url: "/settings/test/llm-models",
+            hasSavedKey: () => Boolean(state?.saved.LLM_API_KEY) && !cleared.has("LLM_API_KEY"),
+            onChange: refreshPending,
+            onPreset: preset => { root.querySelector('[data-row="LLM_RPM"]').hidden = preset?.rpm === false; },
+            onStatus: text => {
+                let hint = modelLabel.querySelector("[data-model-status]");
+                if (!hint) { hint = el("p", "ui-row-hint"); hint.dataset.modelStatus = ""; modelLabel.append(hint); }
+                hint.textContent = text;
+                hint.hidden = !text;
+            },
+        });
+        if (aiSwitch.checked) aiPresets.activate(); else aiPresets.sync();
     }
 
     // ------------------------------------------------------------ 读取与保存

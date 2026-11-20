@@ -14,45 +14,24 @@
     <div data-discovery-panel>
         {% if missing_mounts %}<div class="settings-banner mt-0 mb-3">{{ ui_icon('triangle-alert', '') }}<span>尚未添加网盘的挂载名：{{ missing_mounts|join('、') }}。添加时使用相同名称即可继续播放。</span></div>{% endif %}
         {% if empty_library %}
-        {# 首次使用：媒体库还没有作品时，顶部给出四步指引，当前步骤和下一步怎么做由 media-association.js 按扫描与关联状态更新 #}
-        <section class="association-guide squircle-card mb-4" data-association-guide aria-labelledby="association-guide-heading">
-            <h2 class="visually-hidden" id="association-guide-heading">开始使用</h2>
-            <ol class="association-guide-steps list-unstyled mb-0">
-                <li data-guide-step="root"><span class="association-guide-dot" aria-hidden="true">1</span><span>选择影视目录</span></li>
-                <li data-guide-step="scan"><span class="association-guide-dot" aria-hidden="true">2</span><span>扫描并识别</span></li>
-                <li data-guide-step="confirm"><span class="association-guide-dot" aria-hidden="true">3</span><span>勾选并确认关联</span></li>
-                <li data-guide-step="watch"><span class="association-guide-dot" aria-hidden="true">4</span><span>去首页观看</span></li>
-            </ol>
-            <div class="association-guide-next" role="status" aria-live="polite">
-                <p class="mb-0" data-guide-text></p>
-                <div class="association-guide-action" data-guide-action></div>
+        {# 首次使用：媒体库还没有作品时，四步指引做成浮在要点的按钮旁的提示（Bootstrap Popover），
+           当前步骤、指向哪里、下一步怎么做由 media-association.js 按扫描与关联状态更新 #}
+        <div class="guide-body d-none" data-association-guide>
+            <div class="guide-head">
+                <ol class="guide-steps list-unstyled mb-0" aria-label="开始使用">
+                    <li data-guide-step="root" title="选择影视目录"></li>
+                    <li data-guide-step="scan" title="扫描并识别"></li>
+                    <li data-guide-step="confirm" title="勾选并确认关联"></li>
+                    <li data-guide-step="watch" title="去首页观看"></li>
+                </ol>
+                <span class="guide-step-label" data-guide-label></span>
+                <button type="button" class="btn-close guide-close" data-guide-close aria-label="关闭引导"></button>
             </div>
-        </section>
-        {% endif %}
-        <div class="association-toolbar d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
-            <div class="d-flex align-items-center gap-3 min-w-0">
-                <div class="min-w-0"><h2 class="h5 mb-1 text-break" data-source-heading>全部来源</h2><p class="small text-body-secondary mb-0">文件与作品关联<span class="discovery-count ms-2" data-discovery-count></span></p></div>
-            </div>
-            <div class="d-flex align-items-center gap-2">
-                <label class="discovery-search">
-                    {{ ui_icon('search', '') }}
-                    <input class="form-control form-control-sm" type="search" placeholder="筛选名称或路径" aria-label="筛选关联内容" data-discovery-filter>
-                </label>
-                <button type="button" class="btn btn-sm chip-btn" data-discovery-refresh aria-label="重新扫描全部目录" title="重新扫描全部已配置目录，来源选择只筛选显示">{{ ui_icon('rotate-cw', '') }}<span>扫描全部目录</span></button>
-                <div class="dropdown">
-                    <button type="button" class="btn icon-btn discovery-icon-btn" data-bs-toggle="dropdown" aria-expanded="false" aria-label="更多" title="更多">{{ ui_icon('ellipsis', '') }}</button>
-                    <ul class="dropdown-menu dropdown-menu-end media-menu">
-                        <li><button class="dropdown-item" type="button" data-bs-toggle="collapse" data-bs-target="#association-scan-roots" aria-expanded="false" aria-controls="association-scan-roots">管理扫描目录</button></li>
-                        <li><button type="button" class="dropdown-item d-flex align-items-center gap-2" data-manual-open>{{ ui_icon('square-pen', '') }}手动录入</button></li>
-                        <li><button type="button" class="dropdown-item d-flex align-items-center gap-2" data-manual-upload>{{ ui_icon('upload', '') }}上传 JSON</button></li>
-                        <li><a class="dropdown-item d-flex align-items-center gap-2" href="{{ url_for('static', filename='templates/media_import_template.json') }}" download>{{ ui_icon('download', '') }}JSON 模板</a></li>
-                    </ul>
-                </div>
-            </div>
+            <p class="guide-text" role="status" aria-live="polite" data-guide-text></p>
+            <div class="guide-actions" data-guide-action></div>
         </div>
-        <section class="collapse mb-3" id="association-scan-roots" aria-label="扫描目录管理"><div class="ui-card p-3"><h3 class="h6 mb-3">扫描目录</h3><div class="vstack gap-1" data-discovery-roots></div><button class="btn btn-sm chip-btn mt-3" type="button" data-root-add>{{ ui_icon('plus', '') }}<span>添加扫描目录</span></button></div></section>
-        <a class="discovery-missing d-none mb-3" href="{{ url_for('media', tab='overview', health='missing') }}" data-discovery-missing>{{ ui_icon('triangle-alert', '') }}<span></span>{{ ui_icon('chevron-right', '') }}</a>
-        <div class="discovery-missing discovery-slow d-none mb-3" data-discovery-slow>{{ ui_icon('hourglass', '') }}<span class="text-truncate"></span><button class="btn btn-sm chip-btn flex-shrink-0" type="button" data-discovery-slow-skip>以后跳过</button></div>
+        {% endif %}
+        <a class="discovery-missing d-none mb-3" href="{{ url_for('media', health='missing') }}" data-discovery-missing>{{ ui_icon('triangle-alert', '') }}<span></span>{{ ui_icon('chevron-right', '') }}</a>
         {# 扫描 / 识别进度：阶段、计数、用时与粗略剩余时间；网盘或接口限速时写明在等待哪个服务，并可随时停止 #}
         <section class="scan-progress squircle-card mb-3 d-none" data-scan-progress aria-label="扫描进度">
             <div class="scan-progress-head">
@@ -73,7 +52,6 @@
             <span class="association-next-text" data-next-text></span>
             <div class="association-next-actions" data-next-actions></div>
         </div>
-        <div class="discovery-tabs d-flex flex-wrap gap-2 mb-3" role="tablist" aria-label="关联状态" data-discovery-tabs></div>
         {# 可确认列表的就近操作：与底部状态栏同一份选择，勾选后要点“确认关联”才会加入媒体库 #}
         <div class="discovery-confirm d-none" data-discovery-confirm>
             <label class="discovery-confirm-all mb-0"><input type="checkbox" class="form-check-input mt-0" data-confirm-all aria-label="全选可确认项"><span data-confirm-text></span></label>

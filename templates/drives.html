@@ -4,35 +4,39 @@
 {# 关联工作区的来源导航；登录、凭据和导入复用原有弹窗。 #}
 <div data-drive-page data-hue="blue">
     <div class="drive-list">
-        <div class="drive-toolbar">
-            <h2 class="h6 mb-0">网盘与关联文件夹</h2>
-            {# 添加连接的两种方式放在同一个“＋”菜单里；单个网盘的管理操作在右侧详情标题的“⋯”里 #}
-            <div class="dropdown">
-                <button class="btn btn-sm icon-btn" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="添加网盘" title="添加网盘">{{ ui_icon('plus', '') }}</button>
-                <ul class="dropdown-menu dropdown-menu-end media-menu">
-                    <li><button class="dropdown-item d-flex align-items-center gap-2" type="button" data-drive-add>{{ ui_icon('plus', '') }}<span>添加网盘</span></button></li>
-                    <li><button class="dropdown-item d-flex align-items-center gap-2" type="button" data-drive-import>{{ ui_icon('download', '') }}<span>从 AList 导入</span></button></li>
-                </ul>
-            </div>
+        {# 顶部整行按钮：添加网盘和从 AList 导入放在同一个菜单里；单个网盘的管理操作在右侧详情标题的“⋯”里 #}
+        <div class="dropdown source-add">
+            <button class="btn source-add-btn w-100" type="button" data-bs-toggle="dropdown" aria-expanded="false">{{ ui_icon('plus', '') }}<span>添加网盘</span></button>
+            <ul class="dropdown-menu media-menu w-100">
+                <li><button class="dropdown-item d-flex align-items-center gap-2" type="button" data-drive-add>{{ ui_icon('plus', '') }}<span>添加网盘</span></button></li>
+                <li><button class="dropdown-item d-flex align-items-center gap-2" type="button" data-drive-import>{{ ui_icon('download', '') }}<span>从 AList 导入</span></button></li>
+            </ul>
         </div>
-        <button class="btn source-choice w-100 text-start mb-2" type="button" data-source-path="/" aria-pressed="true">{{ ui_icon('network', '') }}<span>全部来源</span></button>
+        <div class="source-all">
+            <button class="btn source-choice flex-grow-1 text-start min-w-0" type="button" data-source-path="/" aria-pressed="true"><span class="source-logo" aria-hidden="true">{{ ui_icon('network', '') }}</span><span class="ui-row-title text-truncate">全部来源</span></button>
+            <button type="button" class="btn icon-btn source-scan" data-discovery-refresh aria-label="扫描全部目录" title="重新扫描全部已配置目录，来源选择只筛选显示">{{ ui_icon('rotate-cw', '') }}</button>
+        </div>
         <nav aria-label="网盘来源" data-drive-list>
             {% for drive in drives %}
                 <div class="drive-item{% if not drive.enabled %} is-disabled{% endif %}{% if drive.has_problem %} has-problem{% endif %}" data-drive-card="{{ drive.mount }}" data-drive-summary data-route="{{ drive.route_state }}" data-source-provider="{{ drive.provider or '' }}">
                     <div class="drive-item-main">
-                        <button class="btn source-choice flex-grow-1 text-start min-w-0" type="button" data-drive-details-open="{{ drive.mount }}" aria-expanded="false" aria-controls="drive-connection-details" aria-label="查看 {{ drive.display_name }} 的连接详情">
-                            {{ ui_icon(drive.icon, '') }}<span class="min-w-0 source-identity"><span class="d-flex align-items-baseline gap-2 min-w-0"><span class="ui-row-title text-truncate">{{ drive.display_name }}</span>{% if drive.category != drive.display_name %}<small class="source-kind text-truncate">{{ drive.category }}</small>{% endif %}</span>{% if drive.account %}<span class="source-account text-truncate">{{ drive.account }}</span>{% endif %}</span>
-                            {% if drive.has_problem %}{{ ui_icon('circle-alert', 'flex-shrink-0') }}<span class="visually-hidden">连接异常</span>{% endif %}
+                        {# 标题显示网盘账号；还没有账号（本机、WebDAV、未检测）时用挂载名 #}
+                        <button class="btn source-choice flex-grow-1 text-start min-w-0" type="button" data-drive-details-open="{{ drive.mount }}" aria-expanded="false" aria-controls="drive-connection-details" aria-label="查看 {{ drive.account or drive.display_name }}（{{ drive.category }}）的连接详情" title="{{ drive.display_name }} · {{ drive.category }}">
+                            <span class="source-logo" aria-hidden="true" data-source-logo>{% if drive.logo %}<img src="{{ url_for('static', filename=drive.logo) }}" alt="">{% else %}{{ ui_icon(drive.icon, '') }}{% endif %}</span>
+                            <span class="ui-row-title text-truncate">{{ drive.account or drive.display_name }}</span>
+                            {% if drive.has_problem %}{{ ui_icon('circle-alert', 'flex-shrink-0 ms-auto') }}<span class="visually-hidden">连接异常</span>{% endif %}
                         </button>
                     </div>
-                    <div class="vstack gap-1" data-source-folders="{{ drive.source_path }}"></div>
+                    <div class="source-folders" data-source-folders="{{ drive.source_path }}"></div>
                     <template data-drive-details="{{ drive.mount }}">{% include "_drive_details.html" %}</template>
                 </div>
             {% else %}
-                <p class="small text-body-secondary my-3">尚未添加网盘。点击上方“＋”添加后，即可选择扫描目录。</p>
+                <p class="small text-body-secondary my-3 px-2">尚未添加网盘。点击上方“添加网盘”后，即可选择扫描目录。</p>
             {% endfor %}
         </nav>
-        <div class="vstack gap-1" data-source-folders="/" aria-label="其他已选择目录"></div>
+        <div class="source-folders" data-source-folders="/" aria-label="其他已选择目录"></div>
+        {# 已忽略的目录单独一项：点开后在右侧列出网盘图标、目录名和路径，可逐个恢复 #}
+        <button class="btn source-choice source-ignored w-100 text-start" type="button" id="association-tab-ignored" aria-pressed="false" data-source-ignored hidden><span class="source-logo" aria-hidden="true">{{ ui_icon('eye-off', '') }}</span><span class="ui-row-title text-truncate">已忽略</span><span class="source-count" data-ignored-count></span></button>
     </div>
 
     <div class="modal fade drive-modal" id="drive-editor" tabindex="-1" aria-labelledby="drive-editor-heading" data-hue="blue" data-drive-modal>

@@ -103,7 +103,7 @@
 {% block main %}
     {% if page.empty_library %}
     <section class="library-section library-section--first" aria-label="开始使用">
-        <div class="container-xl">{{ empty_card('媒体库还是空的', icon='clapperboard', hint='添加网盘并选择存放影视文件的目录，扫描后确认关联，影片就会出现在这里。', href=url_for('media', tab='associate'), label='去添加网盘和关联', primary=true) }}</div>
+        <div class="container-xl">{{ empty_card('媒体库还是空的', icon='clapperboard', hint='添加网盘并选择存放影视文件的目录，扫描后确认关联，影片就会出现在这里。', href=url_for('media_sources'), label='去添加网盘和关联', primary=true) }}</div>
     </section>
     {% else %}
     {% if page.featured %}{{ featured_hero(page.featured) }}{% endif %}

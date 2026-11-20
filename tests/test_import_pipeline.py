@@ -654,3 +654,16 @@ def test_tmdb_network_errors_are_counted_for_the_scan_warning(monkeypatch):
     saved = []
     stats = recognition.recognize_many(None, [{"path": "a"}, {"path": "b"}], on_result=lambda *args: saved.append(args))
     assert stats["offline"] == 2 and not saved
+
+
+def test_failure_summary_includes_file_reasons():
+    """关联失败的说明带上原因，待核对列表与后台任务不再只写数量。"""
+    from services.import_jobs import _failure_summary
+
+    rows = [{"written": True, "error": ""},
+            {"written": False, "error": "无法读取视频信息。"},
+            {"written": False, "error": "无法读取视频信息。"}]
+    assert _failure_summary(rows, 1) == "已关联 1 个视频，失败 2 个：无法读取视频信息。"
+    rows.append({"written": False, "error": "季集信息不完整"})
+    assert _failure_summary(rows, 1) == "已关联 1 个视频，失败 3 个：无法读取视频信息等 2 种原因。"
+    assert _failure_summary([{"written": False, "error": ""}], 0) == "已关联 0 个视频，失败 1 个。"

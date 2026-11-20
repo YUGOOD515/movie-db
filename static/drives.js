@@ -132,7 +132,7 @@
     }
 
     async function refreshDrives() {
-        const response = await fetch("/media?tab=associate", { headers: { Accept: "text/html" } });
+        const response = await fetch("/media/sources", { headers: { Accept: "text/html" } });
         if (!response.ok) throw new Error("refresh");
         const nextDocument = new DOMParser().parseFromString(await response.text(), "text/html");
         const next = nextDocument.querySelector("[data-drive-list]");
@@ -271,7 +271,8 @@
         image.classList.remove("is-expired");
         hint.textContent = started.hint || "";
         hint.hidden = !started.hint;
-        status.textContent = "请扫码并在手机上确认登录…";
+        // 引导页二维码旁已写明怎么做，这里不再重复
+        status.textContent = setup ? "" : "请扫码并在手机上确认登录…";
         box.hidden = false;
         button.querySelector("span").textContent = "重新获取";
         const deadline = Date.now() + (started.expires_in || 300) * 1000;

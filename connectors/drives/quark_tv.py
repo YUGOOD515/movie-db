@@ -7,6 +7,7 @@ x-pan-token = sha256(方法&路径&毫秒时间戳&签名密钥)，req_id = md5(
 from __future__ import annotations
 
 import hashlib
+import logging
 import threading
 import time
 from datetime import datetime, timezone
@@ -21,6 +22,7 @@ DEVICE = {
     "build_device": "M2004J7AC", "build_product": "M2004J7AC", "device_gpu": "Adreno (TM) 550", "activity_rect": "{}",
 }
 TOKEN_ERRNO = {10001, 11001}
+logger = logging.getLogger(__name__)
 
 
 def _md5(text):
@@ -36,7 +38,7 @@ class QuarkTVDrive(Drive):
     label = "夸克网盘"
     qr_app = "夸克 App"
     api = "https://open-api-drive.quark.cn"
-    code_api = "http://api.extscreen.com/quarkdrive"
+    code_api = "https://api.extscreen.com/quarkdrive"
     client_id = "d3194e61504e493eb6222857bccfed94"
     sign_key = "kw2dvtd7p4t3pjl2d9ed9yc8yej8kw2d"
     app_ver = "1.8.2.2"
@@ -95,6 +97,8 @@ class QuarkTVDrive(Drive):
                 if attempt == 0:
                     self._refresh(force=True)
                     continue
+                logger.warning("%s token invalid after refresh: %s status=%r errno=%r error_info=%r", self.label,
+                               pathname, payload.get("status"), payload.get("errno"), str(payload.get("error_info") or "")[:80])
                 raise AuthError(f"{self.label}登录已失效，请重新扫码")
             if (payload.get("status") or 0) >= 400 or payload.get("errno"):
                 raise DriveError(str(payload.get("error_info") or f"{self.label}请求失败"))
@@ -105,15 +109,20 @@ class QuarkTVDrive(Drive):
         """用 refresh_token 或扫码得到的 code 换 access_token；新的 refresh_token 立即写回。"""
         _, _, req_id = self._sign("POST", "/token")
         body = {**self._common(req_id), **({"refresh_token": refresh_token} if refresh_token else {"code": code})}
+        # 换令牌服务会用 403 拦下 python-requests 的默认 User-Agent，必须带上电视客户端的 UA
         response = throttle.call("quark", lambda: self.session.post(
-            self.code_api + "/token", json=body, timeout=20))
+            self.code_api + "/token", json=body, headers={"Accept": "application/json", "User-Agent": UA}, timeout=20))
         try:
             payload = response.json()
         except ValueError:
             payload = {}
         data = payload.get("data") or {}
         if payload.get("code") != 200 or not data.get("refresh_token"):
-            raise AuthError(f"{self.label}登录已失效，请重新扫码")
+            # 记下服务端的说明（不含令牌），下次失效时能看出是哪一步、什么原因
+            reason = str(payload.get("message") or payload.get("msg") or "").strip()[:80]
+            logger.warning("%s token exchange failed (%s): HTTP %s, code=%r, message=%r", self.label,
+                           "refresh" if refresh_token else "code", response.status_code, payload.get("code"), reason)
+            raise AuthError(f"{self.label}登录已失效{f'（{reason}）' if reason else ''}，请重新扫码")
         self.access_token = data.get("access_token") or ""
         self.config["refresh_token"] = data["refresh_token"]
         self.save(self.config)
@@ -192,7 +201,7 @@ class UCTVDrive(QuarkTVDrive):
     label = "UC 网盘"
     qr_app = "UC 浏览器 App"
     api = "https://open-api-drive.uc.cn"
-    code_api = "http://api.extscreen.com/ucdrive"
+    code_api = "https://api.extscreen.com/ucdrive"
     client_id = "5acf882d27b74502b7040b0c65519aa7"
     sign_key = "l3srvtd7p42l0d0x1u8d7yc8ye9kki4d"
     app_ver = "1.7.2.2"

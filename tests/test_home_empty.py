@@ -16,7 +16,7 @@ class EmptyHomeTest(unittest.TestCase):
         with module.app.test_request_context("/"):
             html = module.render_template("index.html", page=build_home_viewmodel(EMPTY))
         self.assertIn("媒体库还是空的", html)
-        self.assertIn("tab=associate", html)
+        self.assertIn("/media/sources", html)
         self.assertNotIn("尚无播放记录", html)
 
 

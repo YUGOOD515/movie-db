@@ -4,14 +4,87 @@
     {
       "name": "moviedb",
       "runtimeExecutable": "uv",
-      "runtimeArgs": ["run", "flask", "--app", "app", "run", "--host", "127.0.0.1", "--port", "5055"],
+      "runtimeArgs": [
+        "run",
+        "flask",
+        "--app",
+        "app",
+        "run",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "5055"
+      ],
       "port": 5055
     },
     {
       "name": "task-demo",
       "runtimeExecutable": "uv",
-      "runtimeArgs": ["run", "python", "scripts/task_center_demo.py"],
+      "runtimeArgs": [
+        "run",
+        "python",
+        "scripts/task_center_demo.py"
+      ],
       "port": 5070,
+      "autoPort": false
+    },
+    {
+      "name": "moviedb-fresh",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": [
+        "run",
+        "--env-file",
+        "presentation/tools/fresh.env",
+        "flask",
+        "--app",
+        "app",
+        "run",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "5056"
+      ],
+      "port": 5056
+    },
+    {
+      "name": "presentation",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": [
+        "run",
+        "python",
+        "-m",
+        "http.server",
+        "5080",
+        "--bind",
+        "127.0.0.1"
+      ],
+      "port": 5080
+    },
+    {
+      "name": "moviedb-oneshot-keys",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": [
+        "run",
+        "python",
+        "scripts/run_fresh.py",
+        "--keys",
+        "--port",
+        "5059"
+      ],
+      "port": 5059,
+      "autoPort": false
+    },
+    {
+      "name": "moviedb-oneshot",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": [
+        "run",
+        "python",
+        "scripts/run_fresh.py",
+        "--port",
+        "5058"
+      ],
+      "port": 5058,
       "autoPort": false
     }
   ]

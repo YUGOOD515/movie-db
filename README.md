@@ -70,11 +70,11 @@ MovieDB serves `http://127.0.0.1:5000` locally (if another program already uses 
 3. **Posters & details · TMDB** (only when TMDB can't be reached) — set a proxy used for TMDB only, turn on the public image relay (wsrv.nl) if posters don't load, or enter your own TMDB key.
 4. **Done** — an empty library is created and **Add a folder to scan** opens right away. The page also points to optional extras in Settings: **AI recognition** (Zhipu GLM-4.7-Flash is free; DeepSeek, SiliconFlow, Gemini, OpenRouter, OpenAI and others work too) and **MDBList** ratings.
 
-Then open **Media management → Link** (媒体资源管理 → 关联) in the sidebar, add your drive folders and confirm what MovieDB found. See [Adding media](docs/en/adding-media.md) for the details.
+Then open **Manage → Source data** (管理 → 源数据) in the sidebar, add your drive folders and confirm what MovieDB found. See [Adding media](docs/en/adding-media.md) for the details.
 
 ## Configuration
 
-Everything can be changed later in **Manage → Settings** (管理 → 设置), grouped into **Connection** (player, ffprobe, cloud snapshot, port), **Metadata** (TMDB, MDBList, IMDb data, plus wiping local data at the bottom) and **AI**. Drive rates, scanning and a few other rarely changed options are set in `.env` only. Each group shows its status next to its title and has a **Check** button; less common options are under **Advanced**. Saved passwords and keys are never shown again — leave a field empty to keep it. Mounts and drive credentials are managed under **Manage → Drives**.
+Everything can be changed later in **Manage → Settings** (管理 → 设置), grouped into **Connection** (player, ffprobe, cloud snapshot, port), **Data providers** (TMDB, MDBList, IMDb data), **AI** and **Wipe data**. Drive rates, scanning and a few other rarely changed options are set in `.env` only. Each group shows its status next to its title and has a **Check** button; less common options are under **Advanced**. Saved passwords and keys are never shown again — leave a field empty to keep it. Mounts and drive credentials are managed under **Manage → Source data**.
 
 Settings are stored in a `.env` file in the data folder and take effect immediately, except the port (`MOVIEDB_PORT`), which needs a restart (use **Restart MovieDB** in the settings page or tray menu). The full list of variables is in [Configuration](docs/en/configuration.md).
 
@@ -89,7 +89,7 @@ The library (`library.db`), local state (`local.db` — discovery, jobs, drive c
 | Windows portable zip | the `app\` folder inside the unzipped directory |
 | From source | the repository root |
 
-Set the `MOVIEDB_DATA_DIR` environment variable to use another location. **Wipe data** at the bottom of **Settings → Metadata** can wipe local data and return to the first-run walkthrough.
+Set the `MOVIEDB_DATA_DIR` environment variable to use another location. **Settings → Wipe data** can wipe local data and return to the first-run walkthrough.
 
 ### Players
 
@@ -117,7 +117,7 @@ On macOS, install the tools with `brew install uv ffmpeg` and a player such as `
 
 ## Documentation
 
-- [Adding media](docs/en/adding-media.md) — smart discovery, AI recognition, the link editor, manual entry, deleting titles
+- [Adding media](docs/en/adding-media.md) — smart discovery, AI recognition, the link editor, deleting titles
 - [Configuration](docs/en/configuration.md) — settings, environment variables, players, rate limits
 - [Remote access](docs/en/remote-access.md) — Cloudflare Tunnel and the read-only cloud snapshot
 - [Development](docs/en/development.md) — running from source, tests, offline test API, building installers

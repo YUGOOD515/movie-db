@@ -1,22 +1,14 @@
+// 核对时“更换作品”的 TMDB 搜索：选中后发出 title:selected，由 media-association.js 接收。
 (() => {
     const picker = document.getElementById("title-picker");
-    const batch = document.querySelector("[data-batch-import-form]");
-    if (!picker || !batch) return;
+    if (!picker) return;
 
     const modal = bootstrap.Modal.getOrCreateInstance(picker);
-    const form = document.querySelector("[data-title-search-form]");
+    const form = picker.querySelector("[data-title-search-form]");
     const query = form.querySelector("[data-title-search-query]");
-    const searchStep = picker.querySelector("[data-title-search-step]");
-    const recordForm = picker.querySelector("[data-title-record-form]");
-    const episodeRows = picker.querySelector("[data-title-episode-rows]");
-    const episodeTemplate = picker.querySelector("[data-title-episode-template]");
-    const addEpisode = picker.querySelector("[data-title-episode-add]");
-    const movieURL = picker.querySelector("[data-title-movie-url]");
-    const add = picker.querySelector("[data-title-record-add]");
     const results = picker.querySelector("[data-title-search-results]");
     const status = picker.querySelector("[data-title-search-status]");
     const more = picker.querySelector("[data-title-search-more]");
-    let selectedTitle = null;
     let search = null;
     let controller = null;
     let revision = 0;
@@ -43,7 +35,7 @@
         try {
             data = await response.json();
         } catch {
-            throw new Error("服务暂时不可用，请稍后重试或手动填写 IMDb ID。");
+            throw new Error("服务暂时不可用，请稍后重试。");
         }
         if (!response.ok) throw new Error(data.error || "请求失败，请稍后重试。");
         return data;
@@ -114,7 +106,7 @@
             search.page = data.page;
             more.classList.toggle("d-none", !data.has_more);
             message("");
-            window.showAppToast?.(results.children.length ? `已显示 ${results.children.length} 部作品，请核对名称、年份和简介。` : "没有找到结果，请尝试原名、其他译名或手动填写 IMDb ID。", results.children.length ? "info" : "warning");
+            window.showAppToast?.(results.children.length ? `已显示 ${results.children.length} 部作品，请核对名称、年份和简介。` : "没有找到结果，请尝试原名或其他译名。", results.children.length ? "info" : "warning");
         } catch (error) {
             if (current === revision && error.name !== "AbortError") message(error.message, true);
         } finally {
@@ -137,25 +129,8 @@
         try {
             const selected = await getJSON(picker.dataset.selectUrl, { type: mediaType, tmdb_id: item.tmdb_id }, controller.signal);
             if (current !== revision) return;
-            selectedTitle = selected;
-            if (!picker.dispatchEvent(new CustomEvent("title:selected", { detail: selected, cancelable: true }))) {
-                modal.hide();
-                return;
-            }
-            recordForm.reset();
-            picker.querySelector("[data-title-record-name]").textContent = [selected.name, selected.year].filter(Boolean).join(" · ");
-            picker.querySelector("[data-title-record-id]").textContent = selected.title_id;
-            const isSeries = selected.media_type === "tv";
-            picker.querySelector("[data-title-episode-fields]").classList.toggle("d-none", !isSeries);
-            picker.querySelector("[data-title-movie-fields]").classList.toggle("d-none", isSeries);
-            movieURL.disabled = isSeries;
-            episodeRows.replaceChildren();
-            if (isSeries) addEpisodeRow();
-            add.textContent = isSeries ? "全部添加到待导入列表" : "添加到待导入列表";
-            add.disabled = false;
-            searchStep.classList.add("d-none");
-            recordForm.classList.remove("d-none");
-            (isSeries ? episodeRows.querySelector("[data-title-season]") : movieURL).focus();
+            picker.dispatchEvent(new CustomEvent("title:selected", { detail: selected, cancelable: true }));
+            modal.hide();
         } catch (error) {
             if (current === revision && error.name !== "AbortError") message(error.message, true);
         } finally {
@@ -166,61 +141,6 @@
         }
     }
 
-    function updateEpisodeRows() {
-        const rows = Array.from(episodeRows.children);
-        rows.forEach((row, index) => {
-            row.querySelector("[data-title-episode-index]").textContent = index + 1;
-            row.querySelector("[data-title-episode-remove]").disabled = rows.length === 1;
-        });
-        addEpisode.disabled = rows.length >= 100;
-        picker.querySelector("[data-title-episode-count]").textContent = `共 ${rows.length} 条`;
-    }
-
-    function addEpisodeRow() {
-        if (episodeRows.children.length >= 100) return;
-        const previousSeason = episodeRows.lastElementChild?.querySelector("[data-title-season]").value;
-        const fragment = episodeTemplate.content.cloneNode(true);
-        const row = fragment.querySelector("[data-title-episode-row]");
-        const season = row.querySelector("[data-title-season]");
-        if (previousSeason) season.value = previousSeason;
-        episodeRows.append(fragment);
-        updateEpisodeRows();
-    }
-
-    addEpisode.addEventListener("click", addEpisodeRow);
-    episodeRows.addEventListener("click", (event) => {
-        const remove = event.target.closest("[data-title-episode-remove]");
-        if (!remove || remove.disabled) return;
-        remove.closest("[data-title-episode-row]").remove();
-        updateEpisodeRows();
-    });
-    picker.querySelector("[data-title-back]").addEventListener("click", () => {
-        selectedTitle = null;
-        recordForm.classList.add("d-none");
-        searchStep.classList.remove("d-none");
-        query.focus();
-    });
-    recordForm.addEventListener("submit", (event) => {
-        event.preventDefault();
-        if (!selectedTitle || !recordForm.reportValidity()) return;
-        const isSeries = selectedTitle.media_type === "tv";
-        const common = {
-            title_id: selectedTitle.title_id,
-        };
-        const items = isSeries ? Array.from(episodeRows.children).map((row) => ({
-            ...common,
-            season_number: row.querySelector("[data-title-season]").value,
-            episode_number: row.querySelector("[data-title-episode]").value,
-            alist_url: row.querySelector("[data-title-alist-url]").value.trim(),
-        })) : [{ ...common, season_number: "", episode_number: "", alist_url: movieURL.value.trim() }];
-        const accepted = !batch.dispatchEvent(new CustomEvent("batch:add-records", { detail: items, cancelable: true }));
-        if (!accepted) {
-            window.showAppToast?.("待导入列表合计最多 100 条，本次记录均未添加，请减少单集数量或先完成当前批次。", "warning");
-            return;
-        }
-        add.disabled = true;
-        modal.hide();
-    });
     form.addEventListener("submit", (event) => {
         event.preventDefault();
         runSearch();
@@ -235,12 +155,8 @@
         });
     }
     more.addEventListener("click", () => runSearch(true));
-    picker.addEventListener("show.bs.modal", event => {
-        if (event.relatedTarget) document.getElementById("title-picker-heading").textContent = "通过 TMDB 搜索添加";
-        selectedTitle = null;
-        recordForm.classList.add("d-none");
-        searchStep.classList.remove("d-none");
-        message(results.children.length ? (event.relatedTarget ? "选择作品后填写季集和视频链接。" : "选择作品后匹配待关联的视频。") : "输入名称后按回车搜索。");
+    picker.addEventListener("show.bs.modal", () => {
+        message(results.children.length ? "选择作品后匹配待关联的视频。" : "输入名称后按回车搜索。");
     });
     picker.addEventListener("shown.bs.modal", () => {
         query.focus();
@@ -248,5 +164,4 @@
         if (query.value.trim() && !search && !results.children.length) runSearch();
     });
     picker.addEventListener("hide.bs.modal", cancelPending);
-
 })();

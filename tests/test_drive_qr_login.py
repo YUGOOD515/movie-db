@@ -74,7 +74,7 @@ def test_qr_login_route_and_form_markup(fake_login, tmp_path):
         assert started["ok"] and started["qr"].startswith("data:image/")
         bad = client.post("/manager/drives/qr-login", json={"kind": "local", "mount": "x"}, headers=ORIGIN)
         assert bad.status_code == 400
-        page = client.get("/media?tab=drives", headers={"Accept": "text/html"}).get_data(as_text=True)
+        page = client.get("/media/sources", headers={"Accept": "text/html"}).get_data(as_text=True)
         assert 'data-drive-fields="quark_tv"' in page and "data-drive-qr-start" in page and "用夸克 App扫码" in page
         for kind in ("webdav", "onedrive", "gdrive", "pan115", "uc_tv"):
             assert f'<option value="{kind}">' in page

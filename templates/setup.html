@@ -43,6 +43,8 @@
             <ol class="onboard-progress" aria-label="设置进度" data-progress hidden>
                 <li data-progress-step="drive">片源</li>
                 <li data-progress-step="tmdb">海报与资料</li>
+                <li data-progress-step="ai">AI 识别</li>
+                <li data-progress-step="mdblist">多平台评分</li>
             </ol>
         </header>
 
@@ -56,44 +58,48 @@
                 <p class="onboard-eyebrow">欢迎使用 MovieDB</p>
                 <h1 class="onboard-title" id="ob-welcome">你的网盘电影库，<br>从这里开始。</h1>
                 <p class="onboard-lead">添加网盘，一分钟后就能浏览带海报、简介和演员的片库。所有设置之后都能在“设置”里修改。</p>
-                <ul class="onboard-checks" data-checks>
-                    <li data-check="drive"><span class="onboard-dot"></span><span data-check-text>正在检查网盘…</span></li>
-                    <li data-check="tmdb"><span class="onboard-dot"></span><span data-check-text>正在检查 TMDB…</span></li>
-                    <li data-check="ffprobe"><span class="onboard-dot"></span><span data-check-text>正在检查 ffprobe…</span></li>
-                    <li data-check="library"><span class="onboard-dot"></span><span data-check-text>正在检查媒体库…</span></li>
-                </ul>
                 <div class="onboard-actions">
                     <button class="btn media-primary-action" type="button" data-go="drive"><span>开始</span>{{ ui_icon('arrow-right', '') }}</button>
                 </div>
             </section>
 
             <section class="onboard-scene" data-scene="drive" aria-labelledby="ob-drive" hidden>
-                <p class="onboard-eyebrow">片源 · 添加网盘</p>
+                <p class="onboard-eyebrow">片源</p>
                 <h2 class="onboard-title" id="ob-drive">你的影片在哪里？</h2>
-                <p class="onboard-lead">添加一个本机目录或网盘。MovieDB 只读取目录和播放文件，不会修改其中的内容。</p>
+                <p class="onboard-lead onboard-lead-tight">选择网盘并登录。MovieDB 只读取，不会改动你的文件。</p>
+                {# 网盘横排：常用的在前，左右按钮或滑动翻看；点选后下方换成对应的登录方式 #}
+                <div class="drive-picker" data-drive-picker>
+                    <div class="drive-picker-track" role="radiogroup" aria-label="网盘类型" data-picker-track>
+                        {% for brand in drive_brands %}
+                            <button class="drive-picker-item" type="button" role="radio" aria-checked="false" aria-label="{{ brand.name }}" title="{{ brand.name }}" data-brand="{{ brand.id }}" data-kinds="{{ brand.kinds|join(' ') }}" data-alt-label="{{ brand.alt }}">
+                                <span class="drive-picker-logo{% if not brand.logo and not brand.icon %} is-mark{% endif %}" aria-hidden="true">
+                                    {%- if brand.logo %}<img src="{{ url_for('static', filename=brand.logo) }}" alt="">
+                                    {%- elif brand.icon %}{{ ui_icon(brand.icon, '') }}
+                                    {%- else %}{{ brand.mark }}{% endif -%}
+                                </span>
+                                <span class="drive-picker-name" aria-hidden="true">{{ brand.short }}</span>
+                            </button>
+                        {% endfor %}
+                    </div>
+                    <button class="icon-btn rail-nav-btn drive-picker-nav is-prev" type="button" data-picker-step="-1" aria-label="上一组" title="上一组">{{ ui_icon('chevron-left', '') }}</button>
+                    <button class="icon-btn rail-nav-btn drive-picker-nav is-next" type="button" data-picker-step="1" aria-label="下一组" title="下一组">{{ ui_icon('chevron-right', '') }}</button>
+                </div>
                 <div class="onboard-fields">
                     {{ drive_form('setup-drive', setup=true, action=action) }}
                 </div>
-                {# 已经在用 AList / OpenList：直接导入其中的网盘，与网盘页“从 AList 导入”共用 drives.js #}
-                <details class="onboard-more mt-3" data-drive-import-inline>
-                    <summary>已有 AList / OpenList？从它导入网盘</summary>
-                    <div class="vstack gap-3">
-                        <div class="onboard-field">
-                            <label for="setup-import-path">配置文件</label>
-                            <input class="form-control" id="setup-import-path" type="text" value="{{ alist_path }}" placeholder="例如：C:/alist/data/data.db" autocomplete="off" spellcheck="false" data-drive-import-path>
-                            <small>AList 数据目录下的 data.db，或后台“备份”导出的 JSON，原文件不会改动。</small>
-                        </div>
-                        <div class="drive-import-list" data-drive-import-list hidden></div>
-                        <div class="onboard-result" data-drive-import-result role="status" aria-live="polite"></div>
-                        <div class="d-flex gap-2">
-                            <button class="btn onboard-link onboard-btn" type="button" data-drive-import-read>读取</button>
-                            <button class="btn media-primary-action" type="button" data-drive-import-apply hidden><span>导入</span></button>
-                        </div>
+                {# 已经在用 AList / OpenList：在 AList 一项里改为导入其中的网盘，与网盘页“从 AList 导入”共用 drives.js #}
+                <div class="vstack gap-3" data-drive-import-inline hidden>
+                    <div class="onboard-field">
+                        <label for="setup-import-path">AList 配置文件</label>
+                        <input class="form-control" id="setup-import-path" type="text" value="{{ alist_path }}" placeholder="例如：C:/alist/data/data.db" autocomplete="off" spellcheck="false" data-drive-import-path>
+                        <small>AList 数据目录下的 data.db，或后台“备份”导出的 JSON，原文件不会改动。</small>
                     </div>
-                </details>
-                <div class="onboard-result" data-result="save" role="status" aria-live="polite"></div>
-                <div class="onboard-actions">
-                    <button class="btn onboard-link" type="button" data-go="welcome">返回</button>
+                    <div class="drive-import-list" data-drive-import-list hidden></div>
+                    <div class="onboard-result" data-drive-import-result role="status" aria-live="polite"></div>
+                    <div class="onboard-actions">
+                        <button class="btn onboard-link onboard-btn" type="button" data-drive-import-read>读取</button>
+                        <button class="btn media-primary-action" type="button" data-drive-import-apply hidden><span>导入</span></button>
+                    </div>
                 </div>
             </section>
 
@@ -111,8 +117,24 @@
                         <input class="form-check-input" id="ob-image_proxy" name="image_proxy" type="checkbox">
                         <label class="form-check-label" for="ob-image_proxy">使用公共图片加速（wsrv.nl）加载海报</label>
                     </div>
-                    <details class="onboard-more" data-more="token">
-                        <summary>使用自己的 TMDB 密钥</summary>
+                    {# 自己的密钥：点按钮打开居中弹窗填写并连接；内置密钥不可用、必须填写时由 setup.js 把这块直接放进表单 #}
+                    <button class="btn onboard-link onboard-token-open" type="button" data-tmdb-token-open>{{ ui_icon('key', '') }}<span>使用自己的 TMDB 密钥</span></button>
+                    <div class="vstack gap-3" data-tmdb-token-slot></div>
+                </div>
+                <div class="onboard-result" data-result="tmdb" role="status" aria-live="polite"></div>
+                <div class="onboard-result" data-result="save" role="status" aria-live="polite"></div>
+                <div class="onboard-actions">
+                    {{ action('data-connect="tmdb"', "连接", "正在连接…") }}
+                    <button class="btn onboard-link" type="button" data-go="drive">返回</button>
+                </div>
+                {# 自己的 TMDB 密钥：居中弹窗里填写并连接，连通后关闭弹窗进入下一步 #}
+                <dialog class="onboard-dialog" aria-labelledby="ob-tmdb-dialog-title" data-tmdb-dialog>
+                    <div class="onboard-dialog-head">
+                        <h2 class="onboard-dialog-title" id="ob-tmdb-dialog-title">使用自己的 TMDB 密钥</h2>
+                        <button type="button" class="btn-close" aria-label="关闭" data-tmdb-dialog-close></button>
+                    </div>
+                    <div class="onboard-dialog-body" data-tmdb-dialog-body>
+                    <div class="vstack gap-3" data-tmdb-token>
                         <div class="onboard-field">
                             <label for="ob-TMDB_TOKEN">API 读访问令牌或 API Key</label>
                             {{ secret("TMDB_TOKEN", "API 读访问令牌或 API Key") }}
@@ -122,35 +144,74 @@
                             <li>打开 <a href="https://www.themoviedb.org/settings/api" target="_blank" rel="noopener">设置 → API</a>，申请个人用途的 API。</li>
                             <li>复制“API 读访问令牌”（API Read Access Token）或 32 位的 API Key。</li>
                         </ol>
-                    </details>
+                    </div>
+                    <div class="onboard-result" data-result="tmdb" role="status" aria-live="polite"></div>
+                    </div>
+                    <div class="onboard-dialog-foot">
+                        <button class="btn onboard-link" type="button" data-tmdb-dialog-close>取消</button>
+                        {{ action('data-connect="tmdb"', "连接", "正在连接…") }}
+                    </div>
+                </dialog>
+            </section>
+
+            <section class="onboard-scene" data-scene="ai" aria-labelledby="ob-ai" hidden>
+                <p class="onboard-eyebrow">AI 识别</p>
+                <h2 class="onboard-title" id="ob-ai">让 AI 帮你<br>认出片名。</h2>
+                <p class="onboard-lead onboard-lead-tight">同音字、形近字的文件名交给大模型来认，智谱 GLM 免费可用。</p>
+                <div class="onboard-fields">
+                    <div class="onboard-field">
+                        <label for="ob-ai-preset">平台</label>
+                        <select class="form-select" id="ob-ai-preset" data-ai-preset></select>
+                    </div>
+                    <label class="onboard-field" data-ai-base hidden>
+                        <span>接口地址</span>
+                        <input class="form-control" id="ob-LLM_BASE_URL" name="LLM_BASE_URL" type="url" inputmode="url" placeholder="https://…/v1" spellcheck="false">
+                    </label>
+                    <div class="onboard-field">
+                        <div class="d-flex justify-content-between gap-3"><label for="ob-LLM_API_KEY">API Key</label><a class="small" href="#" target="_blank" rel="noopener" data-ai-key-link hidden>免费获取</a></div>
+                        {{ secret("LLM_API_KEY", "API Key") }}
+                    </div>
+                    <div class="onboard-field">
+                        <label for="ob-LLM_MODEL">模型</label>
+                        <input class="form-control" id="ob-LLM_MODEL" name="LLM_MODEL" type="text" spellcheck="false">
+                        <small data-ai-model-status>填好 API Key 后自动获取平台的最新模型。</small>
+                    </div>
                 </div>
-                <div class="onboard-result" data-result="tmdb" role="status" aria-live="polite"></div>
-                <div class="onboard-result" data-result="save" role="status" aria-live="polite"></div>
+                <div class="onboard-result" data-result="llm" role="status" aria-live="polite"></div>
                 <div class="onboard-actions">
-                    {{ action('data-connect="tmdb"', "连接", "正在连接…") }}
-                    <button class="btn onboard-link" type="button" data-go="drive">返回</button>
+                    {{ action('data-connect="llm"', "连接并继续", "正在连接…") }}
+                    <button class="btn onboard-link" type="button" data-skip="ai">跳过</button>
                 </div>
             </section>
 
-            <section class="onboard-scene" data-scene="finale" aria-labelledby="ob-finale" hidden>
-                <p class="onboard-eyebrow">一切就绪</p>
-                <h2 class="onboard-title" id="ob-finale">片库已就绪。</h2>
-                <p class="onboard-lead" data-finale-text>接下来选择网盘里的影片目录，MovieDB 会识别并补全资料。</p>
-                <div class="onboard-extras">
-                    <p class="onboard-extras-title">可选增强 · 随时在设置里开启</p>
-                    <a class="onboard-extra" href="{{ url_for('settings_page') }}#ai">
-                        {{ ui_icon('sparkles', '') }}
-                        <span><strong>AI 识别</strong><small>规则拿不准的文件名交给大模型判断，智谱 GLM-4.7-Flash 免费可用。</small></span>
-                        {{ ui_icon('chevron-right', '') }}
-                    </a>
-                    <a class="onboard-extra" href="{{ url_for('settings_page') }}#metadata">
-                        {{ ui_icon('chart-column', '') }}
-                        <span><strong>多平台评分</strong><small>通过 MDBList 补充烂番茄、Metacritic 等评分，免费账号每天 1000 次。</small></span>
-                        {{ ui_icon('chevron-right', '') }}
-                    </a>
+            <section class="onboard-scene" data-scene="mdblist" aria-labelledby="ob-mdblist" hidden>
+                <p class="onboard-eyebrow">多平台评分 · 可跳过</p>
+                <h2 class="onboard-title" id="ob-mdblist">补上烂番茄和<br>Metacritic 评分。</h2>
+                <p class="onboard-lead onboard-lead-tight">用 MDBList 补充烂番茄、Metacritic 等评分，免费账号每天 1000 次。</p>
+                <div class="onboard-fields">
+                    <div class="onboard-field">
+                        <label for="ob-MDBLIST_APIKEY">MDBList API Key</label>
+                        {{ secret("MDBLIST_APIKEY", "MDBList API Key") }}
+                        <small>在 <a href="https://mdblist.com/preferences/" target="_blank" rel="noopener">mdblist.com</a> 登录后，到 Preferences → API Access 生成。</small>
+                    </div>
                 </div>
+                <div class="onboard-result" data-result="mdblist" role="status" aria-live="polite"></div>
+                <div class="onboard-result" data-result="save" role="status" aria-live="polite"></div>
                 <div class="onboard-actions">
-                    <a class="btn media-primary-action" href="{{ url_for('media') }}" data-next-link><span>去关联第一批影片</span>{{ ui_icon('arrow-right', '') }}</a>
+                    {{ action('data-connect="mdblist"', "连接并完成", "正在连接…") }}
+                    <button class="btn onboard-link" type="button" data-skip="mdblist">跳过，完成设置</button>
+                </div>
+            </section>
+
+            {# 完成页：标题、说明和按钮在可用高度里居中，TMDB 署名沉到底部 #}
+            <section class="onboard-scene onboard-finale" data-scene="finale" aria-labelledby="ob-finale" hidden>
+                <div class="onboard-finale-body">
+                    <p class="onboard-eyebrow">一切就绪</p>
+                    <h2 class="onboard-title" id="ob-finale">片库已就绪。</h2>
+                    <p class="onboard-lead" data-finale-text>接下来选择网盘里的影片目录，MovieDB 会识别并补全资料。</p>
+                    <div class="onboard-actions">
+                        <a class="btn media-primary-action" href="{{ url_for('media_sources') }}" data-next-link><span>去关联第一批影片</span>{{ ui_icon('arrow-right', '') }}</a>
+                    </div>
                 </div>
                 {% include "_tmdb_credit.html" %}
             </section>
@@ -161,5 +222,6 @@
 
 {% block scripts %}
     <script src="{{ url_for('static', filename='drives.js') }}"></script>
+    <script src="{{ url_for('static', filename='ai-presets.js') }}"></script>
     <script src="{{ url_for('static', filename='setup.js') }}"></script>
 {% endblock %}

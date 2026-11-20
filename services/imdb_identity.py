@@ -124,12 +124,14 @@ def _refresh(path, database):
 def _apply(database):
     """新库发布后：库内评分立即同步，单集编号变化通过重新扫描生效（不自动关联入库）。"""
     from services import rating_sync
-    from services.media_discovery import start_scan
+    from services.media_discovery import has_scan_scope, start_scan
     try:
         rating_sync.refresh_imdb_ratings(database)
     except Exception:
         logger.exception("IMDb 评分写入媒体库失败")
-    start_scan(database)
+    # 首次使用时 IMDb 本地库常在引导期间建好，这时还没选扫描目录：不扫，免得留下“还没有选择扫描目录”的错误
+    if has_scan_scope(database):
+        start_scan(database)
 
 
 def start_update(database=None):

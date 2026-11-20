@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 106 106" width="106" height="106" fill="none">
+  <defs>
+    <linearGradient id="qk-under" x1="16" y1="84" x2="48" y2="52" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0D53FF"/>
+      <stop offset="0.52" stop-color="#0A8FFA"/>
+      <stop offset="1" stop-color="#07EBF2"/>
+    </linearGradient>
+    <linearGradient id="qk-base" x1="48" y1="54" x2="62" y2="58" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#07EBF2"/>
+      <stop offset="0.82" stop-color="#0C62FE"/>
+      <stop offset="1" stop-color="#0D53FF"/>
+    </linearGradient>
+    <radialGradient id="qk-lime" cx="25" cy="54" r="23" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#B8FB1B"/>
+      <stop offset="0.52" stop-color="#2DF58E"/>
+      <stop offset="1" stop-color="#07EBF2" stop-opacity="0"/>
+    </radialGradient>
+    <mask id="qk-top-mask">
+      <rect width="106" height="106" fill="#000"/>
+      <path d="M 50.44 58.07 A 12.2 12.2 0 0 1 26.78 62.24 C 26.78 54.0 25.2 49.5 25.2 43.5 A 27.5 27.5 0 0 1 80.2 43.2 A 22.6 22.6 0 0 1 76.8 88.4 H 69.8" stroke="#fff" stroke-width="11.5" stroke-linecap="round" stroke-linejoin="miter"/>
+    </mask>
+  </defs>
+  <path d="M 51.5 88.4 H 29.2 A 22.6 22.6 0 1 1 50.44 58.07" stroke="url(#qk-under)" stroke-width="11.5" stroke-linecap="round"/>
+  <g mask="url(#qk-top-mask)">
+    <rect width="106" height="106" fill="url(#qk-base)"/>
+    <rect width="106" height="106" fill="url(#qk-lime)"/>
+  </g>
+</svg>

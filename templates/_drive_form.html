@@ -48,31 +48,22 @@
     {% endif %}
 {% endmacro %}
 
-{# 扫码登录：二维码与状态由 drives.js 填充；确认后服务端直接保存挂载，令牌不经过页面 #}
-{% macro qr_login(type, prefix, setup) %}
-    {% set body %}
-        <button class="btn btn-sm chip-btn" type="button" data-drive-qr-start>{{ ui_icon('radar', '') }}<span>获取二维码</span></button>
-        <div class="drive-qr" data-drive-qr hidden>
-            <img class="drive-qr-image" alt="{{ type.qr_app }}扫码登录二维码" referrerpolicy="no-referrer" data-drive-qr-image>
-            <p class="ui-row-hint m-0" data-drive-qr-status role="status" aria-live="polite"></p>
-            <p class="ui-row-hint m-0" data-drive-qr-hint hidden></p>
-        </div>
-    {% endset %}
-    {% if setup %}
-        <div class="onboard-field">
+{# 扫码登录（网盘页）：二维码与状态由 drives.js 填充；确认后服务端直接保存挂载，令牌不经过页面。引导页用下面的 setup_qr #}
+{% macro qr_login(type) %}
+    <div class="ui-row">
+        <div class="ui-row-label">
             <label>扫码登录</label>
-            <small>用{{ type.qr_app }}扫码并确认，登录后自动保存挂载。</small>
-            {{ body }}
+            <p class="ui-row-hint">用{{ type.qr_app }}扫码并确认，登录后自动保存挂载。</p>
         </div>
-    {% else %}
-        <div class="ui-row">
-            <div class="ui-row-label">
-                <label>扫码登录</label>
-                <p class="ui-row-hint">用{{ type.qr_app }}扫码并确认，登录后自动保存挂载。</p>
+        <div class="ui-row-control">
+            <button class="btn btn-sm chip-btn" type="button" data-drive-qr-start>{{ ui_icon('radar', '') }}<span>获取二维码</span></button>
+            <div class="drive-qr" data-drive-qr hidden>
+                <img class="drive-qr-image" alt="{{ type.qr_app }}扫码登录二维码" referrerpolicy="no-referrer" data-drive-qr-image>
+                <p class="ui-row-hint m-0" data-drive-qr-status role="status" aria-live="polite"></p>
+                <p class="ui-row-hint m-0" data-drive-qr-hint hidden></p>
             </div>
-            <div class="ui-row-control">{{ body }}</div>
         </div>
-    {% endif %}
+    </div>
 {% endmacro %}
 
 {# 网页授权（OneDrive、Google Drive）：在 OpenList 授权页登录后，令牌在跳转后网址的 # 片段里。
@@ -87,8 +78,7 @@
     {% endset %}
     {% if setup %}
         <div class="onboard-field">
-            <label>授权登录</label>
-            <small>在打开的页面登录 {{ type.label }} 并同意授权，完成后自动保存挂载；在浏览器中授权时，把页面上的 Refresh Token 粘贴回来。</small>
+            <p class="onboard-qr-title mb-0">在打开的页面登录 {{ type.label }} 并同意授权</p>
             {{ body }}
         </div>
     {% else %}
@@ -102,15 +92,63 @@
     {% endif %}
 {% endmacro %}
 
+{# 首次引导的扫码：点选网盘后自动获取二维码。从上到下：重新获取、二维码、一句怎么做和扫码状态 #}
+{% macro setup_qr(type) %}
+    <div class="onboard-qr" data-setup-primary>
+        <button class="btn btn-sm chip-btn" type="button" data-drive-qr-start>{{ ui_icon('rotate-cw', '') }}<span>获取二维码</span></button>
+        <div class="onboard-qr-code">
+            <div class="drive-qr" data-drive-qr hidden>
+                <img class="drive-qr-image" alt="{{ type.qr_app }}扫码登录二维码" referrerpolicy="no-referrer" data-drive-qr-image>
+            </div>
+        </div>
+        <div class="onboard-qr-text">
+            <p class="onboard-qr-title">使用{{ type.qr_app }} 扫码确认</p>
+            <p class="onboard-qr-status" data-drive-qr-status role="status" aria-live="polite"></p>
+            <p class="onboard-qr-status" data-drive-qr-hint hidden></p>
+        </div>
+    </div>
+{% endmacro %}
+
+{# 首次引导的高级项：只在居中弹窗里显示（setup.js 把整个网盘的字段搬进弹窗），主页面不展开 #}
+{% macro setup_advanced(fields, kind, prefix) %}
+    <div class="onboard-advanced" data-setup-advanced hidden>
+        <p class="onboard-advanced-title">高级设置</p>
+        {% for field in fields %}{{ field_input(field, kind, prefix, true) }}{% endfor %}
+        {% if kind in ('aliyun', 'pan123', 'onedrive', 'gdrive') %}<p class="small text-body-secondary mb-0">默认令牌续期服务由 OpenList 团队提供，也可以在 <a href="https://api.oplist.org/" target="_blank" rel="noopener">OpenList Token 获取工具</a> 获取令牌后手动填写。</p>{% endif %}
+    </div>
+{% endmacro %}
+
+{# 首次引导的字段：主页面只放默认登录方式（扫码 / 授权，或表单的基本字段）；
+   手动填写凭据、同品牌的另一种登录方式和高级项都在“其他登录方式”“高级设置”打开的居中弹窗里，直接配置、检测并保存 #}
+{% macro setup_fields(type, prefix) %}
+    {% set login = 'qr' if type.qr_app else 'oauth' if type.oauth else 'form' %}
+    {% set main = type.fields|rejectattr('advanced')|rejectattr('manual')|list %}
+    {% set manual = type.fields|selectattr('manual')|list %}
+    {% set advanced = type.fields|selectattr('advanced')|rejectattr('manual')|list %}
+    <div class="vstack gap-3" data-drive-fields="{{ type.kind }}" data-login="{{ login }}" hidden>
+        {% if login == 'qr' %}
+            {{ setup_qr(type) }}
+        {% elif login == 'oauth' %}
+            <div data-setup-primary>{{ oauth_login(type, prefix, true) }}</div>
+        {% endif %}
+        {% if login == 'form' %}
+            {% for field in main + manual %}{{ field_input(field, type.kind, prefix, true) }}{% endfor %}
+        {% elif main or manual %}
+            <div class="vstack gap-3" data-setup-more hidden>
+                {% for field in manual + main %}{{ field_input(field, type.kind, prefix, true) }}{% endfor %}
+            </div>
+        {% endif %}
+        {% if advanced %}{{ setup_advanced(advanced, type.kind, prefix) }}{% endif %}
+    </div>
+{% endmacro %}
+
 {% macro drive_form(prefix, setup=false, action=none) %}
 <div{% if setup %} class="vstack gap-3"{% endif %} data-drive-form{% if setup %} data-drive-setup{% endif %}>
     {% if setup %}
-        <div class="onboard-field">
-            <label for="{{ prefix }}-kind">网盘类型</label>
-            <select class="form-select" id="{{ prefix }}-kind" data-drive-kind>
-                {% for type in drive_types if type.creatable %}<option value="{{ type.kind }}">{{ type.label }}</option>{% endfor %}
-            </select>
-        </div>
+        {# 网盘类型由上方的 logo 选择驱动，下拉只保存当前类型，不显示 #}
+        <select id="{{ prefix }}-kind" data-drive-kind hidden aria-hidden="true" tabindex="-1">
+            {% for type in drive_types if type.creatable %}<option value="{{ type.kind }}">{{ type.label }}</option>{% endfor %}
+        </select>
         <div class="onboard-field" data-drive-mount hidden>
             <label for="{{ prefix }}-mount">挂载名</label>
             <input class="form-control" id="{{ prefix }}-mount" type="text" required data-drive-mount-input>
@@ -134,57 +172,57 @@
         </div>
     {% endif %}
     {% for type in drive_types %}
-        <div{% if setup %} class="vstack gap-3"{% endif %} data-drive-fields="{{ type.kind }}" hidden>
-            {% if type.qr_app %}{{ qr_login(type, prefix, setup) }}{% elif type.oauth %}{{ oauth_login(type, prefix, setup) }}{% endif %}
+        {% if setup %}{{ setup_fields(type, prefix) }}{% else %}
+        <div data-drive-fields="{{ type.kind }}" hidden>
+            {% if type.qr_app %}{{ qr_login(type) }}{% elif type.oauth %}{{ oauth_login(type, prefix, false) }}{% endif %}
             {% for field in type.fields if not field.advanced and not field.manual %}
-                {{ field_input(field, type.kind, prefix, setup) }}
+                {{ field_input(field, type.kind, prefix) }}
             {% endfor %}
             {% if type.kind in ('aliyun', 'pan123', 'onedrive', 'gdrive') %}
-                <p class="{{ 'small text-body-secondary mb-0' if setup else 'drive-note' }}">默认令牌续期服务由 OpenList 团队提供。手动填写时，可在 <a href="https://api.oplist.org/" target="_blank" rel="noopener">OpenList Token 获取工具</a> 获取令牌，或在高级选项中使用自己的凭据。</p>
+                <p class="drive-note">默认令牌续期服务由 OpenList 团队提供。手动填写时，可在 <a href="https://api.oplist.org/" target="_blank" rel="noopener">OpenList Token 获取工具</a> 获取令牌，或在高级选项中使用自己的凭据。</p>
             {% endif %}
             {# 已有扫码 / 授权登录时，令牌类凭据一般不用手填，收进这里 #}
             {% set manual = type.fields|selectattr('manual')|list %}
             {% if manual %}
-                {% if setup %}
-                    <details class="onboard-more">
-                        <summary>手动填写凭据</summary>
-                        <div class="vstack gap-3 mt-3">
-                            {% for field in manual %}{{ field_input(field, type.kind, prefix, setup) }}{% endfor %}
-                        </div>
-                    </details>
-                {% else %}
-                    <details class="ui-disclosure">
-                        <summary>{{ ui_icon('key', '') }}<span>手动填写凭据</span><span class="ui-disclosure-count">{{ manual|length }} 项</span>{{ ui_icon('chevron-right', 'ui-disclosure-chevron') }}</summary>
-                        {% for field in manual %}{{ field_input(field, type.kind, prefix, setup) }}{% endfor %}
-                    </details>
-                {% endif %}
+                <details class="ui-disclosure">
+                    <summary>{{ ui_icon('key', '') }}<span>手动填写凭据</span><span class="ui-disclosure-count">{{ manual|length }} 项</span>{{ ui_icon('chevron-right', 'ui-disclosure-chevron') }}</summary>
+                    {% for field in manual %}{{ field_input(field, type.kind, prefix) }}{% endfor %}
+                </details>
             {% endif %}
             {% set advanced = type.fields|selectattr('advanced')|rejectattr('manual')|list %}
             {% if advanced %}
-                {% if setup %}
-                    <details class="onboard-more">
-                        <summary>高级</summary>
-                        <div class="vstack gap-3 mt-3">
-                            {% for field in advanced %}{{ field_input(field, type.kind, prefix, setup) }}{% endfor %}
-                        </div>
-                    </details>
-                {% else %}
-                    <details class="ui-disclosure">
-                        <summary>{{ ui_icon('sliders-horizontal', '') }}<span>高级选项</span><span class="ui-disclosure-count">{{ advanced|length }} 项</span>{{ ui_icon('chevron-right', 'ui-disclosure-chevron') }}</summary>
-                        {% for field in advanced %}{{ field_input(field, type.kind, prefix, setup) }}{% endfor %}
-                    </details>
-                {% endif %}
+                <details class="ui-disclosure">
+                    <summary>{{ ui_icon('sliders-horizontal', '') }}<span>高级选项</span><span class="ui-disclosure-count">{{ advanced|length }} 项</span>{{ ui_icon('chevron-right', 'ui-disclosure-chevron') }}</summary>
+                    {% for field in advanced %}{{ field_input(field, type.kind, prefix) }}{% endfor %}
+                </details>
             {% endif %}
         </div>
+        {% endif %}
     {% endfor %}
     {% if not setup %}</div>{% endif %}
     <div class="{{ 'onboard-result' if setup else 'settings-result' }}" data-drive-result role="status" aria-live="polite"></div>
     {% if setup %}
-        <div class="onboard-actions">
+        {# 扫码 / 授权登录成功后自动保存，这时不显示“检测并保存”。另外两种入口都打开下面的居中弹窗 #}
+        <div class="onboard-actions" data-setup-actions>
             {{ action('data-drive-save', '检测并保存', '正在检测…') }}
+            <button class="btn onboard-link" type="button" data-setup-other hidden>其他登录方式</button>
+            <button class="btn onboard-link" type="button" data-setup-advanced-open hidden>{{ ui_icon('sliders-horizontal', '') }}<span>高级设置</span></button>
             {# 已经有启用的网盘时（例如迁移的旧数据），由 setup.js 显示，直接进入下一步 #}
             {{ action('data-drive-use-existing hidden', '使用已添加的网盘继续', '正在保存…', cls="btn onboard-link onboard-btn") }}
         </div>
+        {# 居中弹窗（原生 dialog，显示在最上层）：打开时 setup.js 把这个网盘的字段、检测结果和“检测并保存”搬进来，
+           关闭时放回原处；弹窗仍在网盘表单里，drives.js 照常读取字段。检测通过后自动关闭并进入下一步 #}
+        <dialog class="onboard-dialog" aria-labelledby="{{ prefix }}-dialog-title" data-setup-dialog>
+            <div class="onboard-dialog-head">
+                <h2 class="onboard-dialog-title" id="{{ prefix }}-dialog-title" data-setup-dialog-title>其他登录方式</h2>
+                <button type="button" class="btn-close" aria-label="关闭" data-setup-dialog-close></button>
+            </div>
+            <div class="segmented-control onboard-dialog-switch" role="group" aria-label="登录方式" data-setup-dialog-switch hidden></div>
+            <div class="onboard-dialog-body" data-setup-dialog-body></div>
+            <div class="onboard-dialog-foot" data-setup-dialog-foot>
+                <button class="btn onboard-link" type="button" data-setup-dialog-close>取消</button>
+            </div>
+        </dialog>
     {% else %}
         <div class="drive-form-actions">
             <button class="btn btn-sm chip-btn" type="button" data-drive-cancel-edit data-bs-dismiss="modal"><span>取消</span></button>

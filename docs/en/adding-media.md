@@ -2,7 +2,7 @@
 
 **English** | [简体中文](../zh-CN/adding-media.md)
 
-There are three ways to add media: **smart discovery** scans your drive folders and proposes matches, the **link editor** lets you check every file against TMDB episodes, and **manual entry** takes an IMDb ID or a JSON file. All of them live under **Media management → Link** (媒体资源管理 → 关联) in the sidebar.
+There are two ways to add media: **smart discovery** scans your drive folders and proposes matches, and the **link editor** lets you check every file against TMDB episodes. Both live under **Manage → Source data** (管理 → 源数据) in the sidebar; artwork, ratings and missing files of titles already in the library are under **Manage → Personalize** (管理 → 个性化).
 
 > The UI is in Chinese; labels are given in English with the original in parentheses where it helps.
 
@@ -10,14 +10,13 @@ There are three ways to add media: **smart discovery** scans your drive folders 
 - [Smart discovery](#smart-discovery)
 - [AI recognition](#ai-recognition)
 - [Link editor](#link-editor)
-- [Manual entry](#manual-entry)
 - [Where metadata comes from](#where-metadata-comes-from)
 - [How importing works](#how-importing-works)
 - [Deleting a title](#deleting-a-title)
 
 ## Drives and credentials
 
-Under **Media management → Link** (媒体资源管理 → 关联), use **+** in the left **Drives and linked folders** navigation to add a mount; the former Drives tab is now part of this workspace. Each connection shows its name and type on the first line and an optional account on the second. Healthy connections need no extra status; failures are highlighted in red. Click its name (right-click is also supported) to open connection details on the right, with configuration, status, checks and editing; enabling/disabling, passthrough switching and removal are in the **⋯** menu next to the details title. Saved credentials show only whether they are configured. The **+** menu at the top of the sidebar adds a drive or imports from AList. MovieDB only lists folders and reads playback files; it never uploads, renames or deletes drive content. Keep the mount name equal to the first segment of existing media paths.
+Under **Manage → Source data** (管理 → 源数据), use **Add drive** (添加网盘) at the top of the left column to add a mount; the same menu imports from AList. Each connection is one row: the drive's logo and its account name (the mount name when there is no account, as for local folders or WebDAV; hover to see the mount name and type). Healthy connections need no extra status; failures are highlighted in red. Click its name (right-click is also supported) to open connection details on the right, with configuration, status, checks and editing; enabling/disabling, passthrough switching and removal are in the **⋯** menu next to the details title. Saved credentials show only whether they are configured. MovieDB only lists folders and reads playback files; it never uploads, renames or deletes drive content. Keep the mount name equal to the first segment of existing media paths.
 
 - **Local folder** — enter an absolute path. Hidden files are skipped, and symlinks cannot escape the mount root.
 - **QR login** (Quark, UC, Aliyun Drive, Baidu Netdisk, 115) — enter a mount name, click *Get QR code*, scan it with the drive's mobile app and confirm; the mount is saved once you are signed in, with no parameters to copy.
@@ -39,22 +38,24 @@ Aliyun, Baidu, 123, OneDrive and Google Drive renew through `api.oplist.org` by 
 
 ![Discovered files ready to link](../images/discovery.webp)
 
-Use **Add folder** (添加目录) in connection details, or **⋯ → Manage scan folders** (管理扫描目录) in the association workspace to browse and add folders. If none is picked, MovieDB uses the shared folder it finds automatically. Below each connection, the sidebar lists only root folders explicitly chosen and saved by the user; it does not expand their descendants. Selecting a folder filters the right workspace. Clicking a connection opens its details: the line below the title shows status, type, account, mount path and renewal information, and the form below can be edited directly. Once something changes, **Discard / Check and save** (放弃 / 检测并保存) appear; discarding restores the original values and saving still checks the connection first. **View links** (查看关联) next to the scan folders filters the whole drive. Scope changes only filter the display, and batch confirmation includes only files in that scope. **Scan all folders** (扫描全部目录) rescans every configured folder, cleans up disguised file names, searches TMDB and works out seasons and episodes. Result tabs show counts and keep the selected tab:
+Use **Add folder** (添加目录) in connection details to browse and add folders; folders are removed from the same **Scan folders** list. If none is picked, MovieDB uses the shared folder it finds automatically. Below each connection, the sidebar lists only root folders explicitly chosen and saved by the user, without icons and aligned with the account name; it does not expand their descendants. Selecting a folder filters the right workspace. Clicking a connection opens its details: the line below the title shows status, type, account, mount path and renewal information, and the form below can be edited directly. Once something changes, **Discard / Check and save** (放弃 / 检测并保存) appear; discarding restores the original values and saving still checks the connection first. **View links** (查看关联) next to the scan folders filters the whole drive. Scope changes only filter the display, and batch confirmation includes only files in that scope. The scan button to the right of **All sources** (全部来源) rescans every configured folder, cleans up disguised file names, searches TMDB and works out seasons and episodes. The filter box and the state switch sit at the top right of the page (styled like the type filter on Personalize); the switch shows counts and keeps the selected state:
 
 - **Ready** (可确认) — confidence ≥ 0.8, and for series every file maps to exactly one TMDB episode. Several sources of the same title are merged into one expandable row. Rows are selected by default; the bottom bar shows how many items and videos are selected, and **Link N items** imports them in one go. Nothing is imported without your click.
 - **Review** (待核对) — an inline tag explains why (for example “6/12 episodes matched”, “duplicate of a ready item”, “same-name titles exist”, “low confidence”). **Review** opens the [link editor](#link-editor) prefilled with the match.
 - **Unrecognized** (未识别) — neither rules nor AI found a reliable match. Things that look like courses or software are tagged “probably not a video” and can be ignored one by one or all at once.
 - **Linked** (已关联) — actual file mappings stored in the library, grouped by movie or series. **View mappings** (查看映射) shows files, seasons/episodes and targets in the selected scope, with a link to the title details. An offline drive or failed scan does not turn these records into pending items.
 
-The source navigation stays available while reviewing or viewing mappings; returning preserves the scope, filter and list position. On phones, **Choose source** (选择来源) opens a drawer and file mappings stack vertically. Manual entry and JSON import remain in the right workspace's **⋯** menu.
+The source navigation stays available while reviewing or viewing mappings; returning preserves the scope, filter and list position. On phones, **Choose source** (选择来源) opens a drawer and file mappings stack vertically.
 
-Each row's **⋯** menu offers *Change title*, *Recognize again* and *Ignore*. Ignored items move to the **Ignored** tab and can be restored at any time; ignored folders are no longer expanded on later scans, so they cost no drive requests.
+Each row's **⋯** menu offers *Change title*, *Recognize again* and *Ignore*. Ignored items move to **Ignored** (已忽略) at the bottom of the left column, which lists each folder with its drive logo, name and full path; they can be restored at any time; ignored folders are no longer expanded on later scans, so they cost no drive requests.
 
-When a top-level folder contains no videos yet takes 10 seconds or more to scan (an e-book or software collection, for example), a note above the list names those folders and their total scan time after the scan finishes. **Skip from now on** (以后跳过) moves them to **Ignored**.
+When a top-level folder contains no videos yet takes 10 seconds or more to scan (an e-book or software collection, for example), the background-task orb in the top-left corner names those folders and their total scan time after the scan finishes. Open it and choose **Skip from now on** (以后跳过) to move them to **Ignored**; the result appears in the orb as well.
+
+On first use, while the library is still empty, the four steps — choose folders → scan and recognize → tick and confirm links → watch on the home page — appear as a floating hint next to the control you need next (a drive in the sidebar, **Confirm links**, the top-left orb and so on). You can close it at any time.
 
 Nested category folders are first partitioned into works, retaining season and quality-folder context. Country-specific remakes, movie editions and series are checked separately. Recognition order: existing links in the library → folder names you confirmed before → same-name titles in the library → TMDB rule-based search → AI. Confirmed folder names are remembered. Cache signatures include folder contents, model configuration and recognition version; changing them triggers recognition again.
 
-Each scan also checks files that are already linked. A file is marked **missing** only when the drive explicitly says it no longer exists (network errors don't count). The **Overview** tab can filter by missing files; nothing is deleted from your drive.
+Each scan also checks files that are already linked. A file is marked **missing** only when the drive explicitly says it no longer exists (network errors don't count). **Personalize** can filter by missing files; nothing is deleted from your drive.
 
 All of this is stored in `local.db` in the data folder (override with `MOVIEDB_LOCAL_DATABASE`) and is never included in the cloud snapshot. Once a drive is configured, MovieDB scans once at startup; turn this off in Settings or with `MOVIEDB_AUTOSCAN=0`.
 
@@ -114,21 +115,11 @@ When a movie or episode has multiple files, its play menu compares duration, res
 
 The **Media versions** section shows every file and all its parameters directly, without an expand control. Desktop columns align the same fields across versions; mobile lists each version separately. Shared values remain visible, missing values say “Unknown,” and resolution includes the actual pixel dimensions. Paths, containers, pixel formats, bit rates, channel layouts and probe times are included in the same view. Borderless, transparent tables blend into the page. Click a filename or its trailing play icon to play that file; “Recently played” and “Default playback” describe how the playback file was chosen. Switching episodes updates all displayed versions.
 
-## Manual entry
-
-The **⋯** menu at the top right of the pending list has *Manual entry*, *Upload JSON* and *JSON template*.
-
-- **By IMDb ID** — add a movie or an episode. A series ID needs a season and episode number; an episode ID resolves its parent series automatically. When TMDB omits an episode IMDb ID, the local official episode index fills it in; episodes still lacking a unique ID require review.
-- **Search TMDB** — search by name → pick a movie or series → for a series, enter season, episode and a mounted path (`/mount/path`) per row (add or remove rows); for a movie, enter one path → add everything to the import list. Season and episode numbers are validated against TMDB on import. Adding only creates rows on the page and never overwrites existing data; the first addition replaces the single empty placeholder row. Finish with **Validate and import**.
-- **Upload JSON** — bulk import following the template; if any entry fails, the whole batch is rolled back.
-
-Searches and IMDb mappings are cached in memory for 10 minutes (up to 2048 entries) and identical concurrent requests are merged; the chosen match is reused on import. Cast and final artwork are fetched only on import, and candidate posters load in the browser on demand. If TMDB is unavailable you can still enter an IMDb ID; when an IMDb mapping or local data is missing, MovieDB tells you why.
-
 ## Where metadata comes from
 
 - **TMDB** — title, year, genres, season/episode structure and episode IMDb IDs, overview, cast and images. Chinese titles fall back zh-CN → zh-TW → zh-HK; genres are converted to IMDb's English genres (e.g. Sci-Fi & Fantasy → Sci-Fi, Fantasy).
 - **IMDb episode IDs** — from the local IMDb database (official `title.episode.tsv.gz`). It only fills missing episode IDs, preserving existing library relationships and TMDB links; TMDB remains the source for metadata and episode structure. Ambiguous positions are excluded. Unknown series IMDb IDs, episodes absent from TMDB and unreadable file episode numbers still require review. See [configuration](configuration.md#settings-page) for updates and [IMDb non-commercial datasets](https://data.imdb.com/non-commercial-datasets/) for the source and usage terms.
-- **IMDb ratings** — from the same local IMDb database (official `title.ratings.tsv.gz`), updated together with episode IDs; every title and episode is updated when a new database is published. Titles added before the database exists get their IMDb rating once it is built. **Refresh ratings** on the Overview tab also re-reads it.
+- **IMDb ratings** — from the same local IMDb database (official `title.ratings.tsv.gz`), updated together with episode IDs; every title and episode is updated when a new database is published. Titles added before the database exists get their IMDb rating once it is built. **Refresh ratings** on Personalize also re-reads it.
 - **MDBList** (optional) — Rotten Tomatoes, Metacritic, Letterboxd, Trakt and more.
 
 When you re-import an existing title, names, genres and season/episode relations already in the library are kept (only placeholder names like “Episode N” are replaced), and existing ratings are kept if new ones can't be fetched.
@@ -143,4 +134,4 @@ Jobs, probe checkpoints, request budgets and cached MDBList scores all live in `
 
 ## Deleting a title
 
-**Delete title** at the bottom of a detail page first shows exactly what will be removed: overview, ratings, every season and episode, local images and watch history. Images and cast photos can be scrolled sideways and are tagged *delete* or *shared, kept*; watch history shows the time, position and file length. The original videos on the drive and the collections themselves are kept. If the scope changes or more than five minutes pass, MovieDB checks again before deleting; afterwards you return to Media management with a confirmation.
+**Delete title** at the bottom of a detail page first shows exactly what will be removed: overview, ratings, every season and episode, local images and watch history. Images and cast photos can be scrolled sideways and are tagged *delete* or *shared, kept*; watch history shows the time, position and file length. The original videos on the drive and the collections themselves are kept. If the scope changes or more than five minutes pass, MovieDB checks again before deleting; afterwards you return to Personalize with a confirmation.

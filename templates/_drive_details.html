@@ -3,7 +3,7 @@
 <section class="ui-stack" data-drive-card="{{ drive.mount }}" data-drive-detail-card data-route="{{ drive.route_state }}" data-source-provider="{{ drive.provider or '' }}" data-hue="blue" data-drive='{{ drive|tojson }}'>
     <section class="ui-group" aria-labelledby="drive-detail-title">
         <header class="ui-group-head">
-            <span class="ui-tile" aria-hidden="true">{{ ui_icon(drive.icon, '') }}</span>
+            <span class="ui-tile{% if drive.logo %} drive-logo-tile{% endif %}" aria-hidden="true">{% if drive.logo %}<img src="{{ url_for('static', filename=drive.logo) }}" alt="">{% else %}{{ ui_icon(drive.icon, '') }}{% endif %}</span>
             <div class="ui-group-text">
                 <h2 class="ui-group-title" id="drive-detail-title">{{ drive.display_name }}</h2>
                 <p class="ui-status text-break" data-drive-status data-state="{{ drive.status_state }}"><span data-drive-status-text>{{ drive.summary }}</span></p>

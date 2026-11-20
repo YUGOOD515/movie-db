@@ -21,6 +21,7 @@ uv run --with pystray python desktop.py --browser          # old style: system b
 uv run python desktop.py                  # without pywebview / pystray: browser + console, Ctrl+C to quit
 uv run flask --app app run                # or the plain Flask development server
 uv run python scripts/run_fresh.py        # ephemeral clean-slate instance (port 5056 by default), wiped on exit
+uv run python scripts/run_fresh.py --keys # same, but reuses the TMDB, AI and MDBList keys from the repo .env to walk the full flow
 ```
 
 `desktop.py` accepts `--port`, `--browser` (use the system browser, same as `MOVIEDB_UI=browser`), `--no-browser` (server only), `--no-tray` and `--self-test` (open the window, check the page and bridge, then quit; used by CI). Without a `library.db` the first-run walkthrough opens; you can also write `.env` by hand following `.env.example`.

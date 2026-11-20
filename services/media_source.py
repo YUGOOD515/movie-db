@@ -9,6 +9,8 @@ import shutil
 import tempfile
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import TimeoutError as FuturesTimeout
 from pathlib import Path, PurePosixPath
 from urllib.parse import quote, unquote, urlparse
 
@@ -23,6 +25,7 @@ VIDEO_EXTENSIONS = frozenset({
 })
 MAX_SUBTITLE_BYTES = 25 * 1024 * 1024
 SUBTITLE_CACHE_TTL = 24 * 3600
+SUBTITLE_WAIT_SECONDS = 3.0
 _SUBTITLE_AUTH_STATUSES = {401, 403, 410}
 CACHE_TTL = 1800
 
@@ -340,13 +343,13 @@ def _stage_subtitle_file(sub_path: str, cache_dir: Path) -> str | None:
         response.close()
 
 
-def prepare_subtitles(video_path: str) -> list[str]:
-    """查找同目录及字幕子目录的外挂字幕并准备本机可读路径（网盘字幕缓存到临时目录）。"""
+def _find_subtitles(video_path: str) -> tuple[list[str], set[str], Path] | None:
+    """列出同目录及字幕子目录，挑出属于这个视频的字幕路径。"""
     from services.playback import SUBTITLE_DIRS, match_subtitles
 
     parent = str(PurePosixPath(video_path).parent)
     if not parent or parent == "/":
-        return []
+        return None
     parent_entries = list_directory(parent)
     subdir_entries: list[tuple[str, list[dict]]] = []
     for item in parent_entries:
@@ -360,7 +363,7 @@ def prepare_subtitles(video_path: str) -> list[str]:
         video_path, parent_entries, subdir_entries, video_extensions=VIDEO_EXTENSIONS
     )
     if not matched:
-        return []
+        return None
     all_names = {
         str(PurePosixPath(folder) / item["name"])
         for folder, entries in [(parent, parent_entries), *subdir_entries]
@@ -368,18 +371,46 @@ def prepare_subtitles(video_path: str) -> list[str]:
     }
     cache_root = Path(tempfile.gettempdir()) / "moviedb-subs"
     _prune_subtitle_cache(cache_root)
-    cache_dir = cache_root / hashlib.sha256(parent.encode("utf-8")).hexdigest()[:16]
-    local_paths: list[str] = []
-    for sub_path in matched:
+    return matched, all_names, cache_root / hashlib.sha256(parent.encode("utf-8")).hexdigest()[:16]
+
+
+def _stage_with_index(sub_path: str, all_names: set[str], cache_dir: Path) -> str | None:
+    staged = _stage_subtitle_file(sub_path, cache_dir)
+    if staged and sub_path.lower().endswith(".sub"):
+        idx_path = sub_path[:-4] + ".idx"
+        if idx_path in all_names:
+            _stage_subtitle_file(idx_path, cache_dir)
+    return staged
+
+
+def prepare_subtitles(video_path: str, *, wait: float = SUBTITLE_WAIT_SECONDS) -> list[str]:
+    """查找同目录及字幕子目录的外挂字幕并准备本机可读路径（网盘字幕缓存到临时目录）。
+
+    播放器不能等字幕：查找和下载合计最多等 wait 秒，各字幕并行下载；没赶上的继续在后台下完，
+    下次播放直接命中缓存。
+    """
+    deadline = time.monotonic() + wait
+    pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="subtitle")
+    try:
         try:
-            staged = _stage_subtitle_file(sub_path, cache_dir)
-            if not staged:
-                continue
-            if sub_path.lower().endswith(".sub"):
-                idx_path = sub_path[:-4] + ".idx"
-                if idx_path in all_names:
-                    _stage_subtitle_file(idx_path, cache_dir)
-            local_paths.append(staged)
+            found = pool.submit(_find_subtitles, video_path).result(timeout=wait)
         except Exception:
-            continue
-    return local_paths
+            return []
+        if not found:
+            return []
+        matched, all_names, cache_dir = found
+        futures = {pool.submit(_stage_with_index, path, all_names, cache_dir): path for path in matched}
+        staged: dict[str, str] = {}
+        try:
+            for future in as_completed(futures, timeout=max(0.0, deadline - time.monotonic())):
+                try:
+                    local = future.result()
+                except Exception:
+                    continue
+                if local:
+                    staged[futures[future]] = local
+        except FuturesTimeout:
+            pass
+        return [staged[path] for path in matched if path in staged]
+    finally:
+        pool.shutdown(wait=False)

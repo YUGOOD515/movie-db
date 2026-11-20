@@ -59,11 +59,16 @@ def test_linked_files_follow_snapshot_permission_boundary(workspace):
 
 def test_old_drive_url_keeps_all_actions_in_association(workspace):
     client, _ = workspace
-    response = client.get("/media?tab=drives")
+    redirect = client.get("/media?tab=drives&source=/A")
+    assert redirect.status_code == 302 and redirect.headers["Location"].endswith("/media/sources?source=/A")
+    response = client.get("/media/sources")
     text = response.get_data(as_text=True)
     assert response.status_code == 200
     assert 'href="/media?tab=drives"' not in text
-    for feature in ("data-drive-add", "data-drive-import", "data-drive-modal", "data-root-add",
-                    "data-manual-open", "data-manual-upload", "data-linked-editor", "data-discovery-refresh"):
+    for feature in ("data-drive-add", "data-drive-import", "data-drive-modal", "data-source-ignored",
+                    "data-linked-editor", "data-discovery-refresh", 'id="title-picker"'):
         assert feature in text
+    # 手动录入和“管理扫描目录”已去掉：目录在左栏和连接详情里管理
+    for removed in ("data-manual-open", "data-batch-import-form", "data-discovery-roots", "data-source-heading"):
+        assert removed not in text
     assert 'media-association.js' in text and 'drives.js' in text

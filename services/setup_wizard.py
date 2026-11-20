@@ -33,19 +33,62 @@ PLAIN_FIELDS = ("TMDB_PROXY", "LLM_BASE_URL", "LLM_MODEL", "LLM_RPM")
 LLM_PRESETS = [
     # DeepSeek 官方地址不带 /v1；默认走 Responses API、关闭思考；只限并发不限每分钟次数（rpm=False 隐藏该项）。
     # 智谱 GLM-4.7-Flash 完全免费（只限并发），作为默认推荐；关闭思考见 connectors/llm.py。
+    # model 是拉不到模型列表时的默认值；prefer 从平台的模型列表里挑出同一档的最新版本（第 1 组是版本号），
+    # 可以是几条规则，按顺序取第一条有匹配的。
+    # DeepSeek 固定用 deepseek-flash，不按列表挑选。
     {"id": "zhipu", "name": "智谱 GLM（免费）", "base_url": "https://open.bigmodel.cn/api/paas/v4", "model": "glm-4.7-flash",
-     "key_url": "https://open.bigmodel.cn/usercenter/apikeys"},
+     "prefer": r"glm-(\d+(?:\.\d+)*)-flash", "key_url": "https://open.bigmodel.cn/usercenter/apikeys"},
     {"id": "deepseek", "name": "DeepSeek", "base_url": "https://api.deepseek.com", "model": "deepseek-flash",
      "key_url": "https://platform.deepseek.com/api_keys", "rpm": False},
     {"id": "siliconflow", "name": "硅基流动", "base_url": "https://api.siliconflow.cn/v1", "model": "Qwen/Qwen3-8B",
-     "key_url": "https://cloud.siliconflow.cn/account/ak"},
+     "prefer": r"Qwen/Qwen(\d+(?:\.\d+)*)-8B", "key_url": "https://cloud.siliconflow.cn/account/ak"},
     {"id": "gemini", "name": "Google Gemini", "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
-     "model": "gemini-2.5-flash", "key_url": "https://aistudio.google.com/apikey"},
+     "model": "gemini-2.5-flash", "prefer": r"gemini-(\d+(?:\.\d+)*)-flash", "key_url": "https://aistudio.google.com/apikey"},
     {"id": "openrouter", "name": "OpenRouter", "base_url": "https://openrouter.ai/api/v1",
-     "model": "deepseek/deepseek-chat-v3-0324:free", "key_url": "https://openrouter.ai/settings/keys"},
-    {"id": "openai", "name": "OpenAI", "base_url": "https://api.openai.com/v1", "model": "gpt-4o-mini",
-     "key_url": "https://platform.openai.com/api-keys"},
+     # 免费模型经常变：先找免费的 DeepSeek，没有时用最新的免费 Gemma
+     "model": "google/gemma-4-31b-it:free",
+     "prefer": (r"deepseek/deepseek-chat-v(\d+(?:\.\d+)*)(?:-\d+)?:free", r"google/gemma-(\d+)-\d+b-it:free"),
+     "key_url": "https://openrouter.ai/settings/keys"},
+    {"id": "openai", "name": "OpenAI", "base_url": "https://api.openai.com/v1", "model": "gpt-5-mini",
+     "prefer": r"gpt-(\d+(?:\.\d+)*)-mini", "key_url": "https://platform.openai.com/api-keys"},
 ]
+
+
+def _preset_for(base: str) -> dict | None:
+    base = base.rstrip("/")
+    if llm.provider(base) == "deepseek":
+        return next(preset for preset in LLM_PRESETS if preset["id"] == "deepseek")
+    return next((preset for preset in LLM_PRESETS if preset["base_url"] == base), None)
+
+
+def pick_model(preset: dict | None, names: list[str]) -> str:
+    """平台默认模型：按 prefer 挑版本号最大的一个；列表里没有匹配项时用预设的默认值。"""
+    if not preset:
+        return ""
+    patterns = preset.get("prefer") or ()
+    for pattern in (patterns,) if isinstance(patterns, str) else patterns:
+        versions = [(tuple(int(part) for part in match.group(1).split(".")), name)
+                    for name in names if (match := re.fullmatch(pattern, name))]
+        if versions:
+            return max(versions)[1]
+    return preset["model"]
+
+
+def llm_models(form: dict) -> dict:
+    """选好平台后拉取模型列表，给出默认模型；拉不到时退回预设的默认模型，不算失败。"""
+    base = _field(form, "LLM_BASE_URL")
+    if not base:
+        raise SetupError("请选择平台或填写接口地址。")
+    base = _url(base, "接口地址")
+    preset = _preset_for(base)
+    fallback = pick_model(preset, [])
+    try:
+        names = llm.list_models(base, _field(form, "LLM_API_KEY"))
+    except llm.LlmError as error:
+        return {"ok": False, "message": str(error), "models": [], "default": fallback}
+    except requests.RequestException as error:
+        return {"ok": False, "message": _network_message(error, "接口"), "models": [], "default": fallback}
+    return {"ok": True, "models": names, "default": pick_model(preset, names)}
 
 
 class SetupError(ValueError):
@@ -373,7 +416,7 @@ def test_player(form: dict) -> dict:
     return {"ok": True, "message": "可以播放", "details": details, "warnings": warnings}
 
 
-TESTS = {"tmdb": test_tmdb, "llm": test_llm, "mdblist": test_mdblist,
+TESTS = {"tmdb": test_tmdb, "llm": test_llm, "llm-models": llm_models, "mdblist": test_mdblist,
          "ffprobe": test_ffprobe, "player": test_player}
 
 

@@ -289,3 +289,23 @@ def probe(base_url: str, api_key: str, model: str, *, api: str | None = None,
     return {"api": settings["api"], "provider": settings["provider"], "thinking": settings["thinking"],
             "ok": answer.get("ok") is True,
             "elapsed": round(time.monotonic() - started, 1), "usage": usage}
+
+
+def list_models(base_url: str, api_key: str, *, timeout: float = 12) -> list[str]:
+    """OpenAI 兼容的 ``GET /models``：返回平台当前提供的模型名（Gemini 去掉 ``models/`` 前缀）。
+
+    设置页选平台时调用一次，不经限速队列；Key 无效时抛 LlmError（fatal），网络错误抛 requests.RequestException。
+    """
+    base = _settings({"LLM_BASE_URL": base_url})["base_url"]
+    headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+    response = requests.get(base + "/models", headers=headers, timeout=timeout)
+    if response.status_code in (401, 403):
+        raise LlmError("API Key 无效或没有权限。", status=response.status_code, fatal=True)
+    if response.status_code != 200:
+        raise LlmError(f"平台没有返回模型列表（HTTP {response.status_code}）。", status=response.status_code)
+    try:
+        items = response.json().get("data") or []
+    except (ValueError, AttributeError):
+        raise LlmError("平台返回的模型列表格式无法识别。") from None
+    names = (str(item.get("id", "")).removeprefix("models/") for item in items if isinstance(item, dict))
+    return sorted({name for name in names if name})

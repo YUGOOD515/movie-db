@@ -370,7 +370,7 @@ class LibraryIntegrationTest(unittest.TestCase):
             "/title/tt11555014",
             "/media",
             "/media?q=星际&type=movie",
-            "/media?tab=associate",
+            "/media/sources",
         ):
             with self.subTest(path=path):
                 self.assertEqual(self.client.get(path).status_code, 200)
@@ -530,13 +530,13 @@ class LibraryIntegrationTest(unittest.TestCase):
             self.assertIn("ranked-feature-meta", card)
             self.assertNotIn('class="fw-semibold text-truncate"', card)
 
-        association = self.client.get("/media?tab=associate").get_data(
+        association = self.client.get("/media/sources").get_data(
             as_text=True
         )
-        self.assertIn('action="/manager/import/batch"', association)
-        self.assertIn("data-batch-add", association)
-        self.assertIn('name="json_file"', association)
-        self.assertIn("media_import_template.json", association)
+        # 源数据页不再有手动录入；TMDB 搜索只留给核对时“更换作品”
+        self.assertNotIn('action="/manager/import/batch"', association)
+        self.assertNotIn("data-batch-add", association)
+        self.assertIn('id="title-picker"', association)
         self.assertNotIn("<fieldset disabled>", association)
 
     def test_missing_resources_return_404(self):

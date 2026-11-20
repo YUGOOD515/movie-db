@@ -119,7 +119,9 @@
                     </section>
                 {% endfor %}
                 {% if section.id == "metadata" %}
-                    {# 清除数据放在元数据页最底部：存储条 + 每项一行（名称、大小），由 settings.js 填入；警告和确认都在下方的确认弹窗里 #}
+                    {% include "_tmdb_credit.html" %}
+                {% elif section.id == "reset" %}
+                    {# 清除数据单独一个分区：存储条 + 每项一行（名称、大小），由 settings.js 填入；警告和确认都在下方的确认弹窗里 #}
                     <section class="ui-group" data-reset data-hue="red" aria-labelledby="group-reset">
                         <header class="ui-group-head">
                             <span class="ui-tile" aria-hidden="true">{{ ui_icon('trash-2', '') }}</span>
@@ -136,7 +138,6 @@
                             <div class="settings-reset-parts" data-reset-parts></div>
                         </div>
                     </section>
-                    {% include "_tmdb_credit.html" %}
                 {% endif %}
             </section>
         {% endfor %}
@@ -171,5 +172,6 @@
 {% endblock %}
 
 {% block scripts %}
+    <script src="{{ url_for('static', filename='ai-presets.js') }}"></script>
     <script src="{{ url_for('static', filename='settings.js') }}"></script>
 {% endblock %}

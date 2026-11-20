@@ -236,7 +236,7 @@ def test_forms_hide_manual_credentials_and_show_login_buttons(tmp_path):
     previous = {key: movie_app.app.config.get(key) for key in ("DATABASE", "TESTING", "READ_ONLY")}
     movie_app.app.config.update(DATABASE=database, TESTING=True, READ_ONLY=False)
     try:
-        page = movie_app.app.test_client().get("/media?tab=drives", headers={"Accept": "text/html"}).get_data(as_text=True)
+        page = movie_app.app.test_client().get("/media/sources", headers={"Accept": "text/html"}).get_data(as_text=True)
     finally:
         movie_app.app.config.update(previous)
     for kind in ("quark_tv", "uc_tv", "aliyun", "baidu", "pan115"):
@@ -248,3 +248,56 @@ def test_forms_hide_manual_credentials_and_show_login_buttons(tmp_path):
         assert 'data-oauth-page="https://api.oplist.org/#' in section
     section = page.split('data-drive-fields="pan123_web"', 1)[1].split("data-drive-fields=", 1)[0]
     assert "账号" in section and "密码" in section and "data-drive-qr-start" not in section
+
+
+def test_quark_tv_qr_save_reuses_logged_in_token(monkeypatch):
+    """扫码成功后直接用登录得到的 access_token 检测并保存，不马上拿新 refresh_token 再换一次令牌。"""
+    from connectors.drives.quark_tv import QuarkTVDrive
+
+    exchanges, calls = [], []
+
+    def fake_call(self, method, pathname, params):
+        self._device_id()  # 真实请求签名时生成设备 ID
+        calls.append((pathname, self.access_token))
+        if pathname == "/oauth/authorize":
+            return {"qr_data": "iVBORqr", "query_token": "q"}
+        if pathname == "/oauth/code":
+            return {"code": "c"}
+        return {"status": 200, "errno": 0, "data": {}}
+
+    def fake_exchange(self, *, refresh_token="", code=""):
+        exchanges.append("refresh" if refresh_token else "code")
+        self.access_token, self.config["refresh_token"] = "a1", "r1"
+        self.save(self.config)
+
+    monkeypatch.setattr(QuarkTVDrive, "_call", fake_call)
+    monkeypatch.setattr(QuarkTVDrive, "_exchange", fake_exchange)
+    login_id = drives.qr_start("quark_tv", "夸克", create=True)["login_id"]
+    assert drives.qr_poll(login_id)["ok"]
+    assert exchanges == ["code"] and calls[-1] == ("/user", "a1")
+    saved = drive_store.get_drive("夸克")["config"]
+    assert saved["refresh_token"] == "r1" and saved["device_id"]
+
+
+def test_quark_tv_exchange_failure_reports_server_reason():
+    from connectors.drives.quark_tv import QuarkTVDrive
+
+    session = Mock()
+    session.post.return_value = response({"code": 400, "message": "refresh_token expired"})
+    driver = QuarkTVDrive({"refresh_token": "old", "device_id": "d"}, Mock(), session)
+    with pytest.raises(AuthError, match=r"登录已失效（refresh_token expired）"):
+        driver.check()
+
+
+def test_quark_tv_exchange_sends_client_user_agent_over_https():
+    """换令牌服务会用 403 拦下 python-requests 的默认 UA：必须带电视客户端 UA，并走 HTTPS。"""
+    from connectors.drives.quark_tv import UA, QuarkTVDrive, UCTVDrive
+
+    for driver_class in (QuarkTVDrive, UCTVDrive):
+        session = Mock()
+        session.post.return_value = response({"code": 200, "data": {"access_token": "a", "refresh_token": "r"}})
+        driver = driver_class({"device_id": "d"}, Mock(), session)
+        driver._exchange(code="c")
+        call = session.post.call_args
+        assert call.args[0].startswith("https://api.extscreen.com/") and call.kwargs["headers"]["User-Agent"] == UA
+        assert driver.access_token == "a" and driver.config["refresh_token"] == "r"

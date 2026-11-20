@@ -13,28 +13,29 @@
 
 ![Settings page](../images/settings.webp)
 
-Once the library exists, **Manage → Settings** (管理 → 设置, `/settings`) has three tabs:
+Once the library exists, **Manage → Settings** (管理 → 设置, `/settings`) has four tabs:
 
 | Tab | Contents |
 |---|---|
 | Connection (连接) | Player, ffprobe, cloud read-only snapshot, local port |
-| Metadata (元数据) | TMDB, MDBList, IMDb data; **Wipe data** (清除数据) is at the bottom of the page |
+| Data providers (数据提供商) | TMDB, MDBList, IMDb data |
 | AI | Provider, model, endpoint, concurrency and more |
+| Wipe data (清除数据) | Delete local data item by item and return to the first-run walkthrough |
 
 Each group shows its status on the line below its title: always “正常” (OK) when working, with extra detail after it (for example “正常 · 内置密钥”, built-in key); grey when not configured or turned off, followed by what the group is for, and the reason when something is wrong. Each group has its own **Check** (检测) button, and the result appears on the same line; less common options are under **Advanced** (高级). Save or discard changes in the bar at the bottom.
 
-Drive request rates, pending-file scanning, the TMDB proxy, the Douban ratings switch and the location of `local.db` are not shown on the settings page; set them directly in `.env` if needed (see [Environment variables](#environment-variables)). Mounts and drive credentials are managed under **Manage → Drives**.
+Drive request rates, pending-file scanning, the TMDB proxy, the Douban ratings switch and the location of `local.db` are not shown on the settings page; set them directly in `.env` if needed (see [Environment variables](#environment-variables)). Mounts and drive credentials are managed under **Manage → Source data** (管理 → 源数据).
 
 - Saved passwords and keys are never shown again — leave a field empty to keep it. Optional keys can be cleared individually. Turning AI recognition off also clears its endpoint, model and API key.
 - Settings are written to `.env` in the data folder (existing comments and other variables are preserved) and take effect immediately, except the port (`MOVIEDB_PORT`) and the interface mode (`MOVIEDB_UI`). After changing either, the desktop app can restart itself from the settings page or the tray menu (**Restart MovieDB**); other ways of running need a manual restart.
 - Settings can only be changed on the computer running MovieDB: they are read-only over a Cloudflare Tunnel and not available in the cloud snapshot.
 - Before a library exists (no `library.db`), `/setup` shows the first-run walkthrough; afterwards it redirects to the settings page.
 
-**Metadata → IMDb data** (元数据 → IMDb 数据) offers **Check for updates** and manual / daily / weekly (default) modes. The official ratings and episode tables are downloaded together and built into one local database, `imdb/index.sqlite3` (about 200 MiB); the status line shows when the data was updated, and the compressed sources are temporary. Progress appears in the status line and background tasks, errors on the status line too, and failed updates keep the old index. ETag checks avoid downloading and rebuilding when neither file changed. Once a new index is published, IMDb ratings for every title and episode in the library are updated right away. Scheduled checks run while MovieDB is open and catch up after the next launch. A new index triggers recognition again, without automatically linking files; uncertain identities or episode numbers still require review. This local index is excluded from cloud snapshots.
+**Data providers → IMDb data** (数据提供商 → IMDb 数据) offers **Check for updates** and manual / daily / weekly (default) modes. The official ratings and episode tables are downloaded together and built into one local database, `imdb/index.sqlite3` (about 200 MiB); the status line shows when the data was updated, and the compressed sources are temporary. Progress appears in the status line and background tasks, errors on the status line too, and failed updates keep the old index. ETag checks avoid downloading and rebuilding when neither file changed. Once a new index is published, IMDb ratings for every title and episode in the library are updated right away. Scheduled checks run while MovieDB is open and catch up after the next launch. A new index triggers recognition again, without automatically linking files; uncertain identities or episode numbers still require review. This local index is excluded from cloud snapshots.
 
 ## Wiping data
 
-**Wipe data** (清除数据) at the bottom of **Settings → Metadata** deletes local data and returns to the first-run walkthrough. You can choose:
+**Settings → Wipe data** (设置 → 清除数据) deletes local data and returns to the first-run walkthrough. You can choose:
 
 - the library (`library.db` — links, watch progress and collections)
 - the recognition cache and scan records (`local.db`)
@@ -76,7 +77,7 @@ The settings page covers almost everything. You can also edit `.env` in the data
 
 **Drives**
 
-Mounts and credentials are managed under **Manage → Drives** and stored in `local.db`; `ALIST_*` variables are no longer used. Legacy AList values are only read once to create the passthrough mount, without changing `.env`.
+Mounts and credentials are managed under **Manage → Source data** and stored in `local.db`; `ALIST_*` variables are no longer used. Legacy AList values are only read once to create the passthrough mount, without changing `.env`.
 
 | Variable | Description |
 |---|---|
@@ -149,7 +150,7 @@ If no player is found, the page points you to the settings instead of failing.
 
 AList / OpenList, Quark and UC use MovieDB read-ahead by default: 4 MiB parts, up to three download connections and 128 MiB of cached video per file. Completed downloads immediately refill the window independently of the player's reading pace. Successive Range requests share cached parts; seeking moves the window and retains a small amount of nearby history. At most two files are cached (256 MiB of cached video in total, plus in-flight transfers and response overhead). Buffers expire 60 seconds after the last request ends and never touch disk. The first read waits for its first part to finish downloading. Network activity may still pause when the cache is full and resume as playback consumes it.
 
-To restore player-managed buffering, choose **Direct** under **Manage → Drives → Edit AList / OpenList → Advanced → Playback reading**, then reopen the video. Metadata probes skip read-ahead so bulk scans do not fill the cache, but still request the drive in parts (512 KiB each, up to 4 connections): Quark and similar drives throttle open-ended reads almost to a halt and limit speed per connection, so a few parallel connections read the index at the end of the file faster. Upstreams that ignore Range requests fall back to single-connection forwarding.
+To restore player-managed buffering, choose **Direct** under **Manage → Source data → AList / OpenList details / OpenList → Advanced → Playback reading**, then reopen the video. Metadata probes skip read-ahead so bulk scans do not fill the cache, but still request the drive in parts (512 KiB each, up to 4 connections): Quark and similar drives throttle open-ended reads almost to a halt and limit speed per connection, so a few parallel connections read the index at the end of the file faster. Upstreams that ignore Range requests fall back to single-connection forwarding.
 
 Run `uv run python scripts/benchmark_stream_buffer.py` for a reproducible local HTTP comparison. Defaults: 24 MiB payload, 4 MiB/s per upstream connection and an 8 MiB/s consumer, with full-file SHA-256 verification. The script uses no library or drive credentials. This simulation measures a per-connection bottleneck; real drive and player performance still needs playback verification.
 

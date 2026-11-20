@@ -282,3 +282,28 @@ def test_prepare_subtitles_stages_remote_file_and_play_route_passes_it(monkeypat
     assert response.status_code == 204
     assert play_video.call_args.kwargs["subtitles"] == first
 
+
+
+def test_prepare_subtitles_does_not_wait_for_slow_download(monkeypatch, tmp_path):
+    """字幕下载超过等待时间时先不带它启动播放器，已下好的照常传入。"""
+    import threading
+
+    monkeypatch.setattr(media_source.tempfile, "gettempdir", lambda: str(tmp_path))
+    monkeypatch.setattr(media_source, "list_directory", lambda path, refresh=False: [
+        {"name": "Avatar.mkv", "is_dir": False, "size": 1000},
+        {"name": "Avatar.chs.srt", "is_dir": False, "size": 12},
+        {"name": "Avatar.eng.srt", "is_dir": False, "size": 12},
+    ])
+    release = threading.Event()
+
+    def stage(sub_path, cache_dir):
+        if sub_path.endswith("eng.srt"):
+            release.wait(5)
+            return None
+        return str(tmp_path / "Avatar.chs.srt")
+
+    monkeypatch.setattr(media_source, "_stage_subtitle_file", stage)
+    try:
+        assert media_source.prepare_subtitles("/baidu/Movies/Avatar.mkv", wait=0.3) == [str(tmp_path / "Avatar.chs.srt")]
+    finally:
+        release.set()

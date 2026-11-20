@@ -1752,71 +1752,7 @@ a.detail-rating-item:focus-visible .detail-rating-score {
    Manager: import rows & media association
    ========================================================================== */
 
-.association-section .btn-sm,
-.batch-import-row .form-control {
-    height: 2rem;
-    font-size: 0.8125rem;
-}
-
-.batch-row-index {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 1.5rem;
-    min-width: 1.5rem;
-    height: 2rem;
-    font-size: 0.8125rem;
-    font-variant-numeric: tabular-nums;
-    text-align: center;
-    user-select: none;
-}
-
-.batch-add-btn {
-    width: 1.5rem;
-    min-width: 1.5rem;
-    height: 1.5rem;
-    font-size: 0.8125rem;
-    line-height: 1;
-    border-radius: 6px;
-}
-
-.batch-remove-btn {
-    width: 2rem;
-    height: 2rem;
-    border-radius: var(--radius-menu-item);
-}
-
-.batch-remove-btn:hover:not(:disabled) {
-    color: var(--bs-danger);
-    background-color: rgba(var(--bs-danger-rgb), 0.12);
-}
-
-/* 待关联工具栏：内嵌图标的筛选框、内联扫描状态、失效提醒 */
-.discovery-search {
-    position: relative;
-    display: block;
-    width: 12rem;
-    margin: 0;
-}
-
-.discovery-search > .app-icon {
-    position: absolute;
-    top: 50%;
-    left: 0.7rem;
-    color: var(--bs-secondary-color);
-    font-size: 0.8125rem;
-    pointer-events: none;
-    transform: translateY(-50%);
-}
-
-.discovery-search .form-control {
-    height: 2rem;
-    padding-left: 2rem;
-    border-radius: var(--radius-pill);
-    corner-shape: round;
-    font-size: 0.8125rem;
-}
-
+/* 待关联：扫描状态、失效提醒 */
 .discovery-missing {
     display: inline-flex;
     align-items: center;
@@ -1835,32 +1771,9 @@ a.detail-rating-item:focus-visible .detail-rating-score {
     color: var(--bs-warning);
 }
 
-.discovery-slow {
-    display: flex;
-    max-width: 100%;
-}
-
 .discovery-missing > [data-icon="chevron-right"] {
     font-size: 0.65rem;
     opacity: 0.6;
-}
-
-.discovery-count {
-    display: inline-flex;
-    align-items: center;
-    min-width: 1.5rem;
-    padding: 0.05rem 0.5rem;
-    border-radius: var(--radius-pill);
-    background-color: var(--bs-tertiary-bg);
-    color: var(--bs-secondary-color);
-    font-size: 0.75rem;
-    font-weight: 500;
-    font-variant-numeric: tabular-nums;
-    justify-content: center;
-}
-
-.discovery-count:empty {
-    display: none;
 }
 
 .discovery-icon-btn {
@@ -1952,27 +1865,42 @@ a.detail-rating-item:focus-visible .detail-rating-score {
     width: 2rem;
 }
 
-/* 待关联：分组标签页 */
+/* 待关联：页头的状态切换，与个性化页的类型筛选同一个分段控件；数量用次要色跟在文字后面，为 0 时不显示 */
 .discovery-tab {
-    gap: 0.45rem;
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.35rem;
 }
 
 .discovery-tab-count {
-    min-width: 1.25rem;
-    padding: 0 0.35rem;
-    border-radius: var(--radius-pill);
-    background-color: var(--bs-tertiary-bg);
     color: var(--bs-secondary-color);
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     font-weight: 500;
     font-variant-numeric: tabular-nums;
-    line-height: 1.125rem;
-    text-align: center;
 }
 
-.discovery-tab.active .discovery-tab-count {
-    background-color: rgba(var(--media-accent-rgb), 0.16);
-    color: inherit;
+.discovery-tab-count:empty {
+    display: none;
+}
+
+/* 已忽略的目录：所属网盘的 logo 放在方形图块里，与海报同宽 */
+.discovery-logo {
+    display: grid;
+    flex-shrink: 0;
+    place-items: center;
+    width: 2.5rem;
+    height: 2.5rem;
+    padding: 0.5rem;
+    border-radius: var(--radius-item);
+    corner-shape: squircle;
+    background-color: var(--bs-tertiary-bg);
+    color: var(--bs-secondary-color);
+}
+
+.discovery-logo > img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
 }
 
 /* 待关联列表（不裁切内容，行菜单可以溢出列表外） */
@@ -2169,95 +2097,96 @@ a.detail-rating-item:focus-visible .detail-rating-score {
     font-size:1rem;
 }
 
-/* 首次使用指引（关联页顶部）：四步横排，当前一步是实心强调色圆点，下面一行写下一步做什么 */
-.association-guide {
+/* 首次使用指引：浮在当前要点的按钮旁的提示（Bootstrap Popover）。
+   头部是四个步骤点和“第 N 步 · 名称”，下面一句下一步做什么和操作按钮 */
+.guide-popover {
+    --bs-popover-max-width: 19rem;
+    --bs-popover-bg: var(--bs-body-bg);
+    --bs-popover-border-color: var(--media-card-border);
+    --bs-popover-border-radius: var(--radius-control);
+    --bs-popover-inner-border-radius: calc(var(--radius-control) - 1px);
+    --bs-popover-box-shadow: var(--menu-shadow);
+    --bs-popover-body-padding-x: 1rem;
+    --bs-popover-body-padding-y: 0.875rem;
+    --bs-popover-body-color: var(--bs-body-color);
+    corner-shape: squircle;
+    box-shadow: var(--bs-popover-box-shadow);
+    animation: guide-enter 0.28s var(--ease-out) both;
+}
+
+@keyframes guide-enter {
+    from { opacity: 0; translate: 0 4px; }
+    to { opacity: 1; translate: none; }
+}
+
+.guide-body {
     display: grid;
-    gap: 0.875rem;
-    padding: 1rem 1.25rem;
-    background: var(--bs-tertiary-bg);
+    gap: 0.625rem;
 }
 
-.association-guide-steps {
+.guide-head {
     display: flex;
-    flex-wrap: wrap;
     align-items: center;
-    gap: 0.5rem 0.75rem;
-    font-size: 0.875rem;
+    gap: 0.625rem;
+}
+
+/* 步骤点是正圆（几何例外）：已完成与当前为强调色，当前一步拉长成短条 */
+.guide-steps {
+    display: flex;
+    gap: 0.25rem;
+}
+
+.guide-steps > li {
+    width: 0.375rem;
+    height: 0.375rem;
+    border-radius: var(--radius-pill);
+    corner-shape: round;
+    background: rgba(var(--bs-emphasis-color-rgb), 0.2);
+    transition: width 0.2s var(--ease-out), background-color 0.2s ease;
+}
+
+.guide-steps > li[data-state="done"] {
+    background: rgba(var(--media-accent-rgb), 0.55);
+}
+
+.guide-steps > li[data-state="current"] {
+    width: 1rem;
+    background: var(--media-accent);
+}
+
+.guide-step-label {
+    flex: 1 1 auto;
+    min-width: 0;
     color: var(--bs-secondary-color);
-}
-
-.association-guide-steps > li {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-}
-
-.association-guide-steps > li + li::before {
-    content: "";
-    width: 1.5rem;
-    height: 1px;
-    background: var(--bs-border-color);
-}
-
-.association-guide-steps > li[data-state="current"],
-.association-guide-steps > li[data-state="done"] {
-    color: var(--bs-body-color);
-}
-
-.association-guide-steps > li[data-state="current"] {
+    font-size: 0.75rem;
     font-weight: 600;
 }
 
-/* 步骤圆点是正圆（几何例外） */
-.association-guide-dot {
-    display: inline-flex;
+.guide-close {
     flex-shrink: 0;
-    align-items: center;
-    justify-content: center;
-    width: 1.5rem;
-    height: 1.5rem;
-    border: 1px solid var(--bs-border-color);
-    border-radius: 50%;
-    corner-shape: round;
-    font-size: 0.75rem;
-    font-variant-numeric: tabular-nums;
+    width: 0.5rem;
+    height: 0.5rem;
+    background-size: 0.5rem;
 }
 
-[data-state="current"] > .association-guide-dot {
-    border-color: var(--media-accent);
-    background: var(--media-accent);
-    color: var(--media-accent-contrast);
+.guide-text {
+    margin: 0;
+    font-size: 0.875rem;
+    line-height: 1.6;
 }
 
-[data-state="done"] > .association-guide-dot {
-    border-color: transparent;
-    background: rgba(var(--media-accent-rgb), 0.12);
-}
-
-.association-guide-dot .app-icon {
-    font-size: 0.75rem;
-}
-
-.association-guide-next {
+.guide-actions {
     display: flex;
     flex-wrap: wrap;
-    align-items: center;
-    gap: 0.5rem 1rem;
-    font-size: 0.875rem;
-}
-
-.association-guide-next > p {
-    flex: 1 1 18rem;
-    min-width: 0;
-}
-
-.association-guide-action {
-    display: flex;
     gap: 0.5rem;
 }
 
-.association-guide-action:empty {
+.guide-actions:empty {
     display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .guide-popover { animation: none; }
 }
 
 /* 扫描 / 识别进度：阶段 · 计数 · 剩余时间 · 停止，下面是进度条、明细和限速说明 */
@@ -3270,10 +3199,6 @@ body.has-status-dock {
 @media (max-width: 575.98px) {
     .discovery-source {
         display: none;
-    }
-
-    .discovery-search {
-        width: 9rem;
     }
 
     .discovery-item {
@@ -5198,39 +5123,6 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
     color: var(--bs-secondary-color);
 }
 
-.onboard-checks {
-    display: grid;
-    gap: 12px;
-    margin: 0 0 32px;
-    padding: 0;
-    list-style: none;
-    font-size: 0.875rem;
-}
-
-.onboard-checks li {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    color: var(--bs-secondary-color);
-}
-
-.onboard-checks li[data-state] {
-    color: var(--bs-body-color);
-}
-
-.onboard-dot {
-    flex: 0 0 auto;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    corner-shape: round;
-    background: var(--bs-secondary-color);
-    opacity: 0.5;
-}
-
-[data-state="ok"] > .onboard-dot { background: var(--bs-success); opacity: 1; }
-[data-state="warn"] > .onboard-dot { background: var(--bs-warning); opacity: 1; }
-
 .onboard-fields {
     display: grid;
     gap: 16px;
@@ -5286,21 +5178,6 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
 
 .onboard-reveal:hover {
     color: var(--bs-body-color);
-}
-
-.onboard-more summary {
-    width: fit-content;
-    font-size: 0.875rem;
-    color: var(--bs-secondary-color);
-    cursor: pointer;
-}
-
-.onboard-more summary:hover {
-    color: var(--bs-body-color);
-}
-
-.onboard-more > :not(summary) {
-    margin-top: 12px;
 }
 
 .onboard-howto {
@@ -5681,6 +5558,18 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
     height: 18px;
 }
 
+/* 连接详情的网盘 logo：自带品牌色，图块换成中性底 */
+.ui-tile.drive-logo-tile {
+    padding: 5px;
+    background: var(--bs-tertiary-bg);
+}
+
+.ui-tile.drive-logo-tile > img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
 /* ---------- 状态标签 ---------- */
 
 .ui-pill {
@@ -5940,29 +5829,98 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
 
 .association-sources > .offcanvas-body { padding: 0; }
 
-.association-sources .drive-toolbar { padding: 0; gap: 0.5rem; }
-.association-sources .drive-item { margin: 0; padding-block: 0.625rem; border: 0; }
+/* 源数据左栏：顶部整行“添加网盘”，下面每行是 logo + 账号；目录不带图标，文字落在账号这条线上。
+   --source-* 三个值一起决定这条线：行内边距 + logo 宽 + 间距。 */
+[data-association-workspace] {
+    --source-pad: 0.625rem;
+    --source-logo: 1.25rem;
+    --source-gap: 0.625rem;
+}
+
+.source-add { margin-bottom: 1rem; }
+
+.source-add-btn {
+    --bs-btn-padding-y: 0;
+    --bs-btn-font-size: 0.875rem;
+    --bs-btn-font-weight: 500;
+    --bs-btn-color: var(--bs-body-color);
+    --bs-btn-bg: var(--bs-tertiary-bg);
+    --bs-btn-border-color: transparent;
+    --bs-btn-hover-color: var(--bs-emphasis-color);
+    --bs-btn-hover-bg: var(--media-selected-bg);
+    --bs-btn-hover-border-color: transparent;
+    --bs-btn-active-color: var(--bs-emphasis-color);
+    --bs-btn-active-bg: var(--media-selected-bg);
+    --bs-btn-active-border-color: transparent;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    height: 2.5rem;
+    border-radius: var(--radius-control);
+    corner-shape: squircle;
+    transition: background-color 0.15s var(--ease-out), color 0.15s var(--ease-out);
+}
+
+.source-add-btn.show { color: var(--bs-emphasis-color); background: var(--media-selected-bg); }
+.source-add .dropdown-menu { margin-top: 0.25rem !important; }
+
+.source-all { display: flex; align-items: center; gap: 0.25rem; margin-bottom: 0.5rem; }
+
+.source-scan {
+    flex-shrink: 0;
+    width: 2.25rem;
+    height: 2.25rem;
+    color: var(--bs-secondary-color);
+    border-radius: var(--radius-item);
+    corner-shape: squircle;
+}
+
+.source-scan:hover:not(:disabled) { color: var(--bs-emphasis-color); background: var(--bs-tertiary-bg); }
+
+.source-logo {
+    display: inline-grid;
+    flex: 0 0 var(--source-logo, 1.25rem);
+    place-items: center;
+    width: var(--source-logo, 1.25rem);
+    height: var(--source-logo, 1.25rem);
+    color: var(--bs-secondary-color);
+}
+
+.source-logo > img { width: 100%; height: 100%; object-fit: contain; }
+.source-choice[aria-pressed="true"] .source-logo { color: inherit; }
+
+.association-sources .drive-item { margin: 0; padding: 0; border: 0; }
+.association-sources .drive-item + .drive-item { margin-top: 0.25rem; }
 .association-sources .drive-item-main { gap: 0.25rem; flex-wrap: nowrap; }
-.association-sources .drive-item-main > .drive-item-actions { width: auto; padding: 0; }
-.source-identity { display: flex; flex-direction: column; flex: 1 1 auto; gap: 0.125rem; }
-.source-kind, .source-account { color: var(--bs-secondary-color); font-size: 0.75rem; font-weight: 400; }
-.source-kind { flex: 0 0 auto; max-width: 45%; }
-.source-identity .ui-row-title { min-width: 0; }
-.source-account { text-align: left; }
-.association-sources .has-problem .drive-item-main > .source-choice,
-.association-sources .has-problem .source-kind { color: var(--bs-danger-text-emphasis); }
+.association-sources .drive-item.is-disabled .source-logo { opacity: 0.5; }
+.association-sources .has-problem .drive-item-main > .source-choice { color: var(--bs-danger-text-emphasis); }
 .source-choice[aria-expanded="true"] { background: var(--media-selected-bg); }
-.source-linked-folder { padding-left: 1rem; font-size: 0.8125rem; }
+
+.source-folders:not(:empty) { padding-bottom: 0.25rem; }
+
+.source-choice.source-linked-folder {
+    padding-block: 0.375rem;
+    padding-left: calc(var(--source-pad) + var(--source-logo) + var(--source-gap));
+    color: var(--bs-secondary-color);
+    font-size: 0.8125rem;
+}
+
 .source-linked-folder > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 已忽略：和来源隔开一段留白，数量靠右 */
+.source-ignored { margin-top: 1.25rem; }
+.source-count { flex-shrink: 0; margin-left: auto; color: var(--bs-secondary-color); font-size: 0.75rem; font-variant-numeric: tabular-nums; }
 
 .source-choice {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    padding: 0.5rem;
+    gap: var(--source-gap, 0.5rem);
+    padding: 0.5rem var(--source-pad, 0.5rem);
     border: 0;
     color: var(--bs-body-color);
     border-radius: var(--radius-item);
+    corner-shape: squircle;
 }
 
 .source-choice[aria-pressed="true"] { background: var(--media-selected-bg); color: var(--bs-emphasis-color); }
@@ -6019,15 +5977,12 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
     .association-sources { --bs-offcanvas-width: min(22rem, 100vw); }
     .association-sources.management-sidebar { position: fixed; top: 0; }
     .association-sources > .offcanvas-body { padding: 0 1rem 1rem; }
-    .association-sources .drive-toolbar > h2 { display: none; }
     .settings-nav { flex-direction: row; flex-wrap: wrap; }
     .settings-nav .nav-link { flex: 1 1 auto; justify-content: center; }
     .management-content { padding-bottom: 5rem; }
 }
 
 @media (max-width: 575.98px) {
-    .management-content .discovery-search { width: 100%; }
-    .management-content .association-toolbar > :last-child { flex-wrap: wrap; width: 100%; }
     .management-content .discovery-item { flex-wrap: wrap; }
     .management-content .discovery-side { margin-left: auto; }
     .linked-file { grid-template-columns: minmax(0, 1fr); gap: 0.5rem; }
@@ -6398,6 +6353,7 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
     height: 180px;
     padding: 8px;
     border-radius: var(--radius-item);
+    corner-shape: squircle;
     background: #fff;
 }
 
@@ -6511,59 +6467,475 @@ html[data-vt-from="ranked"]::view-transition-image-pair(media-hero) {
     }
 }
 
-/* ---------- 首次引导完成页：可选增强 ---------- */
+/* ---------- 首次引导：网盘横排与扫码 ---------- */
 
-.onboard-extras {
-    display: grid;
-    gap: 8px;
-    margin-bottom: 8px;
+/* 说明只占一行左右的步骤：缩小与下方内容的间距，一屏内放下选择、二维码和按钮 */
+.onboard-lead-tight {
+    margin-bottom: 24px;
 }
 
-.onboard-extras-title {
-    margin: 0 0 4px;
-    font-size: 0.8125rem;
-    color: var(--bs-secondary-color);
+/* 横排：格子与图标同宽，第一个图标的左边缘落在标题、说明的对齐线上；可以直接滑动，滚动条隐藏。
+   翻页按钮叠在两端、不占位置，只在那一侧还有内容时出现，内容在按钮下方渐隐。
+   轨道左右各留 4px 内边距给选中描边和焦点环（再用负外边距抵消），描边不会被滚动区域裁掉。 */
+.drive-picker {
+    --picker-logo: 60px;
+    position: relative;
+    margin-bottom: 20px;
 }
 
-.onboard-extra {
+.drive-picker-track {
     display: flex;
-    align-items: center;
-    gap: 16px;
-    padding: 12px 16px;
+    gap: 12px;
+    margin: -4px;
+    padding: 4px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    scroll-padding-inline: 4px;
+    scrollbar-width: none;
+}
+
+.drive-picker-track::-webkit-scrollbar {
+    display: none;
+}
+
+.drive-picker[data-overflow~="start"] .drive-picker-track {
+    -webkit-mask-image: linear-gradient(90deg, transparent 32px, #000 80px);
+    mask-image: linear-gradient(90deg, transparent 32px, #000 80px);
+}
+
+.drive-picker[data-overflow~="end"] .drive-picker-track {
+    -webkit-mask-image: linear-gradient(270deg, transparent 32px, #000 80px);
+    mask-image: linear-gradient(270deg, transparent 32px, #000 80px);
+}
+
+.drive-picker[data-overflow~="start"][data-overflow~="end"] .drive-picker-track {
+    -webkit-mask-image: linear-gradient(90deg, transparent 32px, #000 80px, #000 calc(100% - 80px), transparent calc(100% - 32px));
+    mask-image: linear-gradient(90deg, transparent 32px, #000 80px, #000 calc(100% - 80px), transparent calc(100% - 32px));
+}
+
+/* 翻页按钮沿用首页轨道的正圆按钮（G2 的几何例外），竖直居中在图标上 */
+.drive-picker-nav {
+    position: absolute;
+    top: calc(var(--picker-logo) / 2);
+    z-index: 1;
     border: 1px solid var(--media-card-border);
-    border-radius: 12px;
-    color: var(--bs-body-color);
-    text-decoration: none;
-    transition: border-color 0.15s ease, background-color 0.15s ease;
+    transform: translateY(-50%);
 }
 
-.onboard-extra:hover,
-.onboard-extra:focus-visible {
-    border-color: var(--bs-primary);
-    background: var(--bs-tertiary-bg);
-    color: var(--bs-body-color);
+.drive-picker-nav.is-prev {
+    left: 0;
 }
 
-.onboard-extra > span {
+.drive-picker-nav.is-next {
+    right: 0;
+}
+
+.drive-picker-nav:disabled {
+    visibility: hidden;
+}
+
+.drive-picker-item {
     display: grid;
-    flex: 1 1 auto;
-    gap: 2px;
+    flex: 0 0 var(--picker-logo);
+    justify-items: center;
+    gap: 6px;
+    width: var(--picker-logo);
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--bs-secondary-color);
+    scroll-snap-align: start;
+}
+
+/* 网盘图标：无边框的圆角矩形底，选中时底色提亮、名称加粗 */
+.drive-picker-logo {
+    display: grid;
+    place-items: center;
+    width: var(--picker-logo);
+    height: var(--picker-logo);
+    overflow: hidden;
+    border-radius: var(--radius-item);
+    corner-shape: squircle;
+    background: var(--bs-tertiary-bg);
+    font-size: 1.375rem;
+    color: var(--bs-emphasis-color);
+    transition: background-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.drive-picker-logo img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    padding: 10px;
+}
+
+/* 没有 logo 文件时的文字标记 */
+.drive-picker-logo.is-mark {
+    font-size: 0.9375rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+}
+
+.drive-picker-name {
+    max-width: 100%;
+    overflow: hidden;
+    font-size: 0.75rem;
+    line-height: 1.3;
+    text-align: center;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.drive-picker-item:hover .drive-picker-logo {
+    background: rgba(var(--bs-emphasis-color-rgb), 0.1);
+}
+
+.drive-picker-item[aria-checked="true"] {
+    color: var(--bs-emphasis-color);
+    font-weight: 600;
+}
+
+.drive-picker-item[aria-checked="true"] .drive-picker-logo {
+    background: rgba(var(--bs-emphasis-color-rgb), 0.16);
+}
+
+.drive-picker-item:focus-visible {
+    outline: none;
+}
+
+.drive-picker-item:focus-visible .drive-picker-logo {
+    box-shadow: 0 0 0 3px rgba(var(--media-accent-rgb), 0.35);
+}
+
+/* 左文右墙版式里，按钮行只剩文字按钮（扫码视图的“其他登录方式”）时，文字对齐左侧对齐线 */
+.onboard[data-posters] .onboard-actions > .onboard-btn[hidden] + .onboard-link {
+    margin-left: -0.75rem;
+}
+
+/* 扫码：从上到下是重新获取、二维码（获取前是同尺寸占位）、一句操作说明与状态 */
+.onboard-qr {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+}
+
+.onboard-qr-code {
+    flex-shrink: 0;
+    width: 164px;
+    height: 164px;
+    border-radius: var(--radius-item);
+    corner-shape: squircle;
+    background: var(--bs-tertiary-bg);
+}
+
+.onboard-qr .drive-qr {
+    margin: 0;
+}
+
+.onboard-qr .drive-qr-image {
+    width: 164px;
+    height: 164px;
+}
+
+/* 片源一步的按钮行离上方近一些，一屏内放下 */
+[data-drive-setup] .onboard-actions {
+    margin-top: 20px;
+}
+
+.onboard-qr-text {
+    display: grid;
+    justify-items: start;
+    gap: 8px;
     min-width: 0;
 }
 
-.onboard-extra small {
+.onboard-qr-title {
+    margin: 0;
+    font-weight: 600;
+    color: var(--bs-emphasis-color);
+}
+
+.onboard-qr-status {
+    margin: 0;
     font-size: 0.8125rem;
-    line-height: 1.5;
     color: var(--bs-secondary-color);
 }
 
-.onboard-extra > .app-icon:first-child {
-    font-size: 1.25rem;
-    color: var(--bs-primary);
+.onboard-qr-status:empty {
+    display: none;
 }
 
-.onboard-extra > .app-icon:last-child {
-    color: var(--bs-tertiary-color);
+/* ---------- 首次引导：居中弹窗（其他登录方式、高级设置、自己的 TMDB 密钥） ----------
+   原生 dialog 显示在最上层，不受页面层叠影响；外观与站内确认弹窗一致：超椭圆卡片、标题 + 关闭、底部按钮靠右 */
+
+.onboard-dialog {
+    width: min(32rem, calc(100vw - 32px));
+    max-height: min(86dvh, 46rem);
+    padding: 0;
+    border: 1px solid var(--media-card-border);
+    border-radius: var(--radius-card);
+    corner-shape: squircle;
+    background: var(--bs-body-bg);
+    color: var(--bs-body-color);
+    box-shadow: 0 24px 64px rgba(0, 0, 0, 0.45);
+    text-align: left;
+    overflow: hidden;
+}
+
+.onboard-dialog[open] {
+    display: flex;
+    flex-direction: column;
+    animation: onboard-dialog-in 0.32s var(--ease-out) both;
+}
+
+.onboard-dialog::backdrop {
+    background: rgba(0, 0, 0, 0.5);
+    backdrop-filter: blur(6px);
+    animation: onboard-fade-in 0.32s ease both;
+}
+
+@keyframes onboard-dialog-in {
+    from { opacity: 0; transform: translateY(10px) scale(0.97); }
+    to { opacity: 1; transform: none; }
+}
+
+@keyframes onboard-fade-in {
+    from { opacity: 0; }
+}
+
+.onboard-dialog-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 22px 24px 14px;
+}
+
+.onboard-dialog-title {
+    margin: 0;
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: var(--bs-emphasis-color);
+}
+
+.onboard-dialog-switch {
+    align-self: flex-start;
+    margin: 0 24px 6px;
+}
+
+.onboard-dialog-body {
+    display: grid;
+    gap: 16px;
+    min-height: 0;
+    padding: 10px 24px 6px;
+    overflow-y: auto;
+}
+
+.onboard-dialog-body > .onboard-result:empty {
+    display: none;
+}
+
+.onboard-dialog-foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 12px;
+    padding: 18px 24px 22px;
+}
+
+.onboard-dialog-foot .media-primary-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 44px;
+    padding-inline: 24px;
+}
+
+.onboard-dialog .onboard-actions {
+    justify-content: flex-start;
+    margin-top: 4px;
+}
+
+/* 弹窗里的高级项：与上面的字段隔开一段留白，小标题用次要色 */
+.onboard-advanced {
+    display: grid;
+    gap: 16px;
+    padding-top: 12px;
+}
+
+.onboard-advanced[hidden] {
+    display: none;
+}
+
+.onboard-advanced-title {
+    margin: 0;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: var(--bs-secondary-color);
+}
+
+/* 打开弹窗的文字按钮：在字段里时宽度跟内容走，左缘对齐字段 */
+.onboard-token-open,
+[data-setup-advanced-open] {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.onboard-fields > .onboard-token-open {
+    justify-self: start;
+    margin-left: -0.75rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .onboard-dialog[open],
+    .onboard-dialog::backdrop {
+        animation: none;
+    }
+}
+
+/* ---------- 首次引导：还没有真实海报时整体居中 ----------
+   不放灰色占位墙；TMDB 连通、第一张海报加载出来后（setup.js 加上 data-posters）换成左文右墙 */
+
+/* 标题、说明是“内容宽”的块：居中和靠左两种版式里大小一样，换版式时只平移不缩放 */
+.onboard-eyebrow,
+.onboard-title,
+.onboard-lead,
+.onboard-scene > .onboard-actions {
+    width: fit-content;
+    max-width: 100%;
+}
+
+.onboard:not([data-posters]) :is(.onboard-eyebrow, .onboard-title, .onboard-lead, .onboard-scene > .onboard-actions) {
+    margin-inline: auto;
+}
+
+/* 居中 → 左文右墙的过渡（setup.js 用 View Transition 切换 data-posters）：
+   当前一步的每块内容各自从中间滑到左边、逐块错开一点，海报墙从右侧淡入滑进来 */
+.onboard-scene:not([hidden]) > :nth-child(1) { view-transition-name: ob-1; }
+.onboard-scene:not([hidden]) > :nth-child(2) { view-transition-name: ob-2; }
+.onboard-scene:not([hidden]) > :nth-child(3) { view-transition-name: ob-3; }
+.onboard-scene:not([hidden]) > :nth-child(4) { view-transition-name: ob-4; }
+.onboard-scene:not([hidden]) > :nth-child(5) { view-transition-name: ob-5; }
+.onboard-scene:not([hidden]) > :nth-child(6) { view-transition-name: ob-6; }
+.onboard-scene:not([hidden]) > :nth-child(7) { view-transition-name: ob-7; }
+.onboard-scene:not([hidden]) > :nth-child(8) { view-transition-name: ob-8; }
+.onboard-scene:not([hidden]) > * { view-transition-class: ob-move; }
+.onboard-wall { view-transition-name: onboard-wall; }
+
+::view-transition-group(*.ob-move) {
+    animation-duration: 0.8s;
+    animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+::view-transition-group(ob-2) { animation-delay: 30ms; }
+::view-transition-group(ob-3) { animation-delay: 60ms; }
+::view-transition-group(ob-4) { animation-delay: 90ms; }
+::view-transition-group(ob-5) { animation-delay: 110ms; }
+::view-transition-group(ob-6) { animation-delay: 130ms; }
+::view-transition-group(ob-7) { animation-delay: 150ms; }
+::view-transition-group(ob-8) { animation-delay: 170ms; }
+
+/* 新旧画面不拉伸，只在移动中交叉淡化（居中的行和靠左的行略有不同） */
+::view-transition-old(*.ob-move),
+::view-transition-new(*.ob-move) {
+    width: auto;
+    height: 100%;
+    object-fit: none;
+    object-position: left top;
+    animation-duration: 0.5s;
+    animation-timing-function: ease;
+}
+
+::view-transition-new(onboard-wall) {
+    animation: onboard-wall-in 1s cubic-bezier(0.22, 1, 0.36, 1) 0.12s both;
+}
+
+@keyframes onboard-wall-in {
+    from { opacity: 0; transform: translateX(8%); }
+    to { opacity: 1; transform: none; }
+}
+
+.onboard:not([data-posters]) {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.onboard:not([data-posters]) .onboard-wall {
+    display: none;
+}
+
+.onboard:not([data-posters]) .onboard-stage {
+    padding-inline: 32px;
+}
+
+.onboard:not([data-posters]) .onboard-form {
+    width: 100%;
+    margin-inline: auto;
+    text-align: center;
+}
+
+.onboard:not([data-posters]) :is(.onboard-actions, .onboard-result-head, .tmdb-credit) {
+    justify-content: center;
+}
+
+.onboard:not([data-posters]) :is(.onboard-field, .onboard-howto, .form-check, .drive-import-list) {
+    text-align: left;
+}
+
+.onboard:not([data-posters]) .onboard-qr {
+    align-items: center;
+}
+
+.onboard:not([data-posters]) .onboard-qr-text {
+    justify-items: center;
+}
+
+.onboard:not([data-posters]) .onboard-fields > .onboard-token-open {
+    justify-self: center;
+    margin-left: 0;
+}
+
+.onboard:not([data-posters]) .onboard-result-note {
+    padding-left: 0;
+}
+
+.onboard:not([data-posters]) .onboard-skip {
+    margin-left: 0;
+}
+
+/* 横排在放得下时居中，放不下时仍从第一项开始滚动 */
+.onboard:not([data-posters]) .drive-picker-item:first-child { margin-left: auto; }
+.onboard:not([data-posters]) .drive-picker-item:last-child { margin-right: auto; }
+
+@media (max-width: 991.98px) {
+    .onboard:not([data-posters]) .onboard-stage {
+        padding-inline: 24px;
+    }
+
+    .onboard:not([data-posters]) .onboard-form {
+        padding-top: 48px;
+    }
+}
+
+/* ---------- 首次引导：完成页 ----------
+   标题、说明和按钮在可用高度里居中，TMDB 署名沉到底部 */
+
+.onboard-finale:not([hidden]) {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+}
+
+.onboard-finale-body {
+    margin-block: auto;
+    padding-bottom: 8vh;
+}
+
+.onboard-finale .tmdb-credit {
+    margin-top: 0;
 }
 
 /* ---------- TMDB 署名（使用条款要求） ---------- */

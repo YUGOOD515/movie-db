@@ -2,6 +2,7 @@
 
     uv run python scripts/run_fresh.py
     uv run python scripts/run_fresh.py --port 5056 --open
+    uv run python scripts/run_fresh.py --keys   # 沿用仓库 .env 里的 TMDB / AI / MDBList 密钥，测试完整流程
 """
 
 from __future__ import annotations
@@ -23,6 +24,8 @@ STRIP_PREFIXES = (
     "MOVIEDB_", "FLASK_", "TMDB_", "LLM_", "MDBLIST_", "ALIST_", "CLOUD_", "MPC_",
 )
 STRIP_NAMES = frozenset({"PLAYER", "PLAYER_PATH", "FFPROBE_PATH", "MEDIA_IMPORT_ROOT"})
+# --keys 时从仓库 .env 带进临时环境的密钥：只放进进程环境变量，不写进临时数据目录以外的地方
+KEY_NAMES = ("TMDB_TOKEN", "LLM_BASE_URL", "LLM_API_KEY", "LLM_MODEL", "LLM_API", "MDBLIST_APIKEY")
 
 _WATCHER_CODE = """
 import ctypes, os, shutil, sys, time
@@ -50,6 +53,17 @@ for _ in range(25):
     except OSError:
         time.sleep(0.1)
 """
+
+
+def repo_keys(env_path: Path | None = None) -> dict[str, str]:
+    """仓库 .env 里已填写的密钥（KEY_NAMES），读不到时返回空字典。"""
+    from dotenv import dotenv_values
+
+    path = env_path or ROOT / ".env"
+    if not path.is_file():
+        return {}
+    values = dotenv_values(path)
+    return {name: str(values[name]).strip() for name in KEY_NAMES if str(values.get(name) or "").strip()}
 
 
 def build_clean_env(data_dir: Path, port: int, base_env: dict[str, str] | None = None) -> dict[str, str]:
@@ -131,11 +145,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--host", default="127.0.0.1", help="监听地址（默认 127.0.0.1）")
     parser.add_argument("--port", type=int, default=5056, help="监听端口（默认 5056，避开正式库常用的 5055）")
     parser.add_argument("--open", action="store_true", help="启动后在默认浏览器打开页面")
+    parser.add_argument("--keys", action="store_true", help="沿用仓库 .env 里的 TMDB、AI 和 MDBList 密钥")
     args = parser.parse_args(argv)
 
     sweep_stale()
     data_dir = Path(tempfile.mkdtemp(prefix=TEMP_PREFIX))
     clean_env = build_clean_env(data_dir, args.port)
+    if args.keys:
+        clean_env.update(repo_keys())
     os.environ.clear()
     os.environ.update(clean_env)
 

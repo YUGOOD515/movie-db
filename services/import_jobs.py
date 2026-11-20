@@ -127,6 +127,15 @@ def cancel_title(database, title_id):
         job_store.cancel_title(database, title_id)
 
 
+def _failure_summary(rows, imported):
+    """任务级的失败说明：数量之外带上文件的失败原因，待核对列表和后台任务里直接能看到为什么失败。"""
+    reasons = list(dict.fromkeys(row["error"].rstrip("。") for row in rows if not row["written"] and row.get("error")))
+    text = f"已关联 {imported} 个视频，失败 {len(rows) - imported} 个"
+    if not reasons:
+        return text + "。"
+    return f"{text}：{reasons[0]}" + (f"等 {len(reasons)} 种原因。" if len(reasons) > 1 else "。")
+
+
 def _execute(database, row):
     from services.task_progress import Reporter
     with Reporter(database, row) as reporter:
@@ -188,7 +197,7 @@ def _execute_observed(database, row, reporter):
             rows.append(entry)
         result.update(rows=rows, imported=sum(item["written"] for item in rows))
         result["valid"] = result["imported"] == len(rows)
-        result["error"] = "" if result["valid"] else f"已关联 {result['imported']} 个视频，失败 {len(rows) - result['imported']} 个。"
+        result["error"] = "" if result["valid"] else _failure_summary(rows, result["imported"])
         reporter.progress("enrich", result["imported"], len(rows))
         if result["valid"]:
             result["imported"] = len(payload["items"])

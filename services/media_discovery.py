@@ -63,10 +63,10 @@ def find_share_root(cancel: Event | None = None):
         if len(found) == 1:
             return found[0]
         if len(found) > 1:
-            raise ValueError("找到多个「来自：分享」目录，请点“管理扫描目录”选择要扫描的目录。")
+            raise ValueError("找到多个「来自：分享」目录，请点左栏的网盘，在“扫描目录”里选择要扫描的目录。")
         parents = following[:50]
     # 面向界面的提示：新用户还没选目录时最常见，不提 .env 里的 MEDIA_IMPORT_ROOT
-    raise ValueError("还没有选择扫描目录，请点“管理扫描目录”选择存放影视文件的目录。")
+    raise ValueError("还没有选择扫描目录，请点左栏的网盘，在“扫描目录”里添加存放影视文件的目录。")
 
 
 def _timestamp(item):
@@ -650,7 +650,7 @@ def browse(path):
 _autoscan_started = set()
 
 
-def _has_scan_scope(database) -> bool:
+def has_scan_scope(database) -> bool:
     """新用户还没选扫描目录且库里没有任何作品时，不在后台盲目翻找「来自：分享」。"""
     if (os.environ.get("MEDIA_IMPORT_ROOT") or os.environ.get("ALIST_IMPORT_ROOT", "")).strip():
         return True
@@ -675,7 +675,7 @@ def start_autoscan(database, *, attempts=24, delay=5):
         return False
     if not any(row["enabled"] for row in drive_store.list_drives()):
         return False
-    if not _has_scan_scope(database):
+    if not has_scan_scope(database):
         return False
     _autoscan_started.add(key)
 

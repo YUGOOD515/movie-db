@@ -128,6 +128,7 @@ READ_ONLY_ENDPOINTS = {
     "title_detail",
     "episode_panel",
     "media",
+    "media_sources",
 }
 
 app = Flask(__name__)
@@ -310,8 +311,12 @@ def setup_page():
         return redirect(url_for("settings_page"))
     from connectors.drives.alist_config import guess_path
 
+    from viewmodels.setup import build_drive_picker
+
+    drive_types = _drives.types()
     return render_template("setup.html", first_run=True, remote=bool(request.headers.get("Cf-Connecting-Ip")),
-                           drive_types=_drives.types(), alist_path=guess_path())
+                           drive_types=drive_types, drive_brands=build_drive_picker(drive_types, _drives.logos()),
+                           alist_path=guess_path())
 
 
 @app.get("/setup/poster/<size>/<name>")
@@ -367,7 +372,7 @@ def setup_save():
         from services.media_discovery import start_autoscan
 
         start_autoscan(app.config["DATABASE"])
-    result["next"] = url_for("media", tab="associate") if has_roots else url_for("media", tab="associate", add_root=1)
+    result["next"] = url_for("media_sources") if has_roots else url_for("media_sources", add_root=1)
     return jsonify(result)
 
 
@@ -643,10 +648,12 @@ def resume_title(title_id: str):
 
 
 def _after_reroute(result):
-    """网盘操作让某些路径换了来源：旧的扫描结果与签名不再可信，立即在后台重新扫描。"""
+    """网盘操作让某些路径换了来源：旧的扫描结果与签名不再可信，立即在后台重新扫描。
+    还没有任何扫描目录时（首次引导刚加完网盘）不扫：扫了只会报“还没有选择扫描目录”，这个错误会一直留到源数据页。"""
     if result.get("ok") and result.get("rerouted") and not app.config.get("TESTING"):
-        from services.media_discovery import start_scan
-        start_scan(app.config["DATABASE"], refresh=True)
+        from services.media_discovery import has_scan_scope, start_scan
+        if has_scan_scope(app.config["DATABASE"]):
+            start_scan(app.config["DATABASE"], refresh=True)
     return result
 
 
@@ -655,7 +662,7 @@ def drives_page():
     denied = _setup_guard()
     if denied:
         return denied
-    return redirect(url_for("media", tab="drives"))
+    return redirect(url_for("media_sources"))
 
 
 @app.post("/manager/drives/save")
@@ -762,60 +769,57 @@ def import_alist_drives():
 
 @app.get("/media")
 def media():
+    """个性化：已入库作品的海报、评分与失效文件。"""
+    requested_tab = request.args.get("tab")
+    # 旧的 tab=associate / drives 链接进入“源数据”，来源筛选等参数原样带过去。
+    if requested_tab in ("associate", "drives"):
+        args = {key: value for key, value in request.args.items() if key != "tab"}
+        return redirect(url_for("media_sources", **args))
     title_type = request.args.get("type", "all")
     if title_type == "tv":
         title_type = "series"
     if title_type not in ("all", "movie", "series"):
         title_type = "all"
-    requested_tab = request.args.get("tab", "overview")
-    # 旧网盘链接继续可用，页面入口统一为“关联”。
-    if requested_tab == "drives" and not app.config["READ_ONLY"]:
-        requested_tab = "associate"
-    allowed_tabs = {"overview", "associate"}
-    active_tab = requested_tab if requested_tab in allowed_tabs else "overview"
-    drive_list = _drives.listing() if active_tab in ("associate", "drives") and not app.config["READ_ONLY"] else []
-    drive_types = _drives.types() if active_tab == "associate" and not app.config["READ_ONLY"] else []
-    alist_path = ""
-    if active_tab == "associate" and not app.config["READ_ONLY"]:
-        from connectors.drives.alist_config import guess_path
-
-        alist_path = guess_path()
-    missing_mounts = []
-    empty_library = False
-    if active_tab == "associate" and not app.config["READ_ONLY"]:
-        raw = {"titles": [], "artwork": [], "query": "", "title_type": title_type}
-        missing = {}
-        health = ""
-        media_paths = get_media_paths(get_db()) if _setup.library_ready(app.config["DATABASE"]) else []
-        missing_mounts = _drives.missing_mounts(media_paths) if media_paths else []
-        empty_library = not media_paths
-    else:
-        raw = query_manager(
-            get_db(),
-            query=(request.args.get("q") or "").strip() or None,
-            title_type=title_type,
-        )
-        missing = {} if app.config["READ_ONLY"] else missing_by_title(app.config["DATABASE"])
-        health = "missing" if request.args.get("health") == "missing" and missing else ""
-        if health:
-            raw = {**raw, "titles": [title for title in raw["titles"] if title["title_id"] in missing]}
+    raw = query_manager(
+        get_db(),
+        query=(request.args.get("q") or "").strip() or None,
+        title_type=title_type,
+    )
+    missing = {} if app.config["READ_ONLY"] else missing_by_title(app.config["DATABASE"])
+    health = "missing" if request.args.get("health") == "missing" and missing else ""
+    if health:
+        raw = {**raw, "titles": [title for title in raw["titles"] if title["title_id"] in missing]}
     page = build_manager_viewmodel(
         raw,
-        active_tab=active_tab,
+        active_tab="overview",
         return_to=request.full_path,
         missing=missing,
     )
     return render_template(
         "media.html",
-        active_tab=active_tab,
+        active_tab="overview",
         overview=page,
         missing_total=sum(missing.values()),
         health=health,
-        drive_types=drive_types,
-        drives=drive_list,
-        missing_mounts=missing_mounts,
-        alist_path=alist_path,
-        empty_library=empty_library,
+    )
+
+
+@app.get("/media/sources")
+def media_sources():
+    """源数据：网盘来源、扫描目录与文件关联。"""
+    if app.config["READ_ONLY"]:
+        return render_template("media.html", active_tab="associate")
+    from connectors.drives.alist_config import guess_path
+
+    media_paths = get_media_paths(get_db()) if _setup.library_ready(app.config["DATABASE"]) else []
+    return render_template(
+        "media.html",
+        active_tab="associate",
+        drive_types=_drives.types(),
+        drives=_drives.listing(),
+        missing_mounts=_drives.missing_mounts(media_paths) if media_paths else [],
+        alist_path=guess_path(),
+        empty_library=not media_paths,
     )
 
 
@@ -1033,6 +1037,7 @@ def association_jobs():
 
 @app.post("/manager/import/batch")
 def import_media_batch():
+    """按 IMDb ID 批量录入。页面上已没有入口，只保留给开发测试（造数据、回归测试），不要删除。"""
     try:
         items = _read_batch_import_items()
         result = import_media_batch_service(
@@ -1042,7 +1047,7 @@ def import_media_batch():
         )
     except _media_import.MediaImportError as error:
         flash(str(error), "danger")
-        return redirect(url_for("media", tab="associate"))
+        return redirect(url_for("media_sources"))
 
     failures = result["failures"]
     if failures:
@@ -1059,7 +1064,7 @@ def import_media_batch():
         )
     else:
         flash(f"批量录入完成：成功 {len(result['successes'])} 条。", "success")
-    return redirect(url_for("media", tab="associate"))
+    return redirect(url_for("media_sources"))
 
 
 def _read_batch_import_items() -> list[dict]:
@@ -1208,7 +1213,7 @@ def play_media_file(file_id: int):
         try:
             subtitles = media_source.prepare_subtitles(source["alist_path"])
         except Exception:
-            app.logger.warning("Failed to prepare external subtitles for file_id=%s", file_id)
+            app.logger.warning("Failed to prepare external subtitles for file_id=%s", file_id, exc_info=True)
     try:
         player.play_video(
             video_url,

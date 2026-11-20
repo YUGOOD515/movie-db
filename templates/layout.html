@@ -52,7 +52,8 @@
                 ("favorites_library", "收藏", "bookmark", ["collection_detail"]),
             ]),
             ("管理", [
-                ("media", "媒体资源管理", "database", []),
+                ("media", "个性化", "palette", []),
+                ("media_sources", "源数据", "database", []),
             ] + ([] if read_only else [
                 ("settings_page", "设置", "settings", ["setup_page"]),
             ])),
@@ -103,7 +104,8 @@
                 {% endfor %}
             </div>
         {% endwith %}
-        {% if not read_only %}{% include "_task_island.html" %}{% endif %}
+        {# 首次引导页左上角是品牌名，没有后台任务可看，不放任务圆钮 #}
+        {% if not read_only and not first_run %}{% include "_task_island.html" %}{% endif %}
         <script src="{{ url_for('static', filename='vendor/bootstrap.bundle.min.js') }}"></script>
         <script src="{{ url_for('static', filename='site.js') }}"></script>
         <script src="{{ url_for('static', filename='rails.js') }}" defer></script>

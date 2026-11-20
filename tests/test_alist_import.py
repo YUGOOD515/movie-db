@@ -105,7 +105,7 @@ def test_import_route_previews_and_rejects_bad_path(source, tmp_path):
         remote = client.post("/manager/drives/import-alist", json={"path": str(source)},
                              headers={**ORIGIN, "Cf-Connecting-Ip": "203.0.113.1"})
         assert remote.status_code == 403
-        page = client.get("/media?tab=drives", headers={"Accept": "text/html"}).get_data(as_text=True)
+        page = client.get("/media/sources", headers={"Accept": "text/html"}).get_data(as_text=True)
         assert "data-drive-import-modal" in page and "从 AList 导入" in page
     finally:
         movie_app.app.config.update(previous)

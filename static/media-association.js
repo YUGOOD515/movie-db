@@ -23,7 +23,6 @@
     const rules = window.FilenameRules;
     const picker = document.getElementById("title-picker");
     const browser = document.getElementById("root-browser");
-    const manual = document.querySelector("[data-manual-panel]");
     const panel = $("[data-discovery-panel]"), editor = $("[data-association-editor]");
 
     let records = [], ignored = [], roots = [], scan = {}, confirming = null, pollTimer = null;
@@ -125,7 +124,8 @@
         return { text: "正在提交关联", detail: `${total} 个视频` };
     }
 
-    const TABS = [["ready", "可确认"], ["review", "待核对"], ["unknown", "未识别"], ["linked", "已关联"], ["ignored", "已忽略"]];
+    // 页头的状态切换；“已忽略”不在这里，单独放在左栏底部
+    const TABS = [["ready", "可确认"], ["review", "待核对"], ["unknown", "未识别"], ["linked", "已关联"]];
     const scanning = () => ["running", "recognizing"].includes(scan.status);
     const stateOf = item => item.recognition?.status || "unknown";
     const query = () => $("[data-discovery-filter]").value.trim().toLowerCase();
@@ -153,25 +153,37 @@
     function syncSource() {
         // 右侧在看某个网盘的详情时，左栏只高亮那个网盘，来源筛选的选中态先收起
         const filtering = $("[data-drive-details-panel]").classList.contains("d-none");
+        // 看“已忽略”时只高亮左栏的已忽略，来源的选中态先收起
         workspace.querySelectorAll("[data-source-path]").forEach(node => {
-            const active = filtering && node.dataset.sourcePath === sourcePath;
+            const active = filtering && tab !== "ignored" && node.dataset.sourcePath === sourcePath;
             node.setAttribute("aria-pressed", String(active));
         });
-        const label = sourcePath === "/" ? "全部来源" : sourcePath === "*" ? "默认（透传）" : sourcePath;
-        $("[data-source-heading]").textContent = label;
+        $("[data-source-ignored]").setAttribute("aria-pressed", String(filtering && tab === "ignored"));
+        const label = tab === "ignored" ? "已忽略" : sourcePath === "/" ? "全部来源" : sourcePath === "*" ? "默认（透传）" : sourcePath;
         $("[data-source-mobile-label]").textContent = label;
+    }
+
+    function backToList() {
+        if (currentView() !== "list") { taskVersion++; waitingForTitle = false; showView("list"); }
+        const sidebar = document.getElementById("association-sources");
+        if (matchMedia("(max-width: 991.98px)").matches) bootstrap.Offcanvas.getInstance(sidebar)?.hide();
     }
 
     function selectSource(path) {
         if (busy || confirming) { feedback("当前操作完成后再切换来源。", "info"); return; }
         sourcePath = path;
-        if (currentView() !== "list") { taskVersion++; waitingForTitle = false; showView("list"); }
+        // 从“已忽略”回到来源：状态重新按有内容的第一项选
+        if (tab === "ignored") tab = null;
         const url = new URL(location.href);
         if (path === "/") url.searchParams.delete("source"); else url.searchParams.set("source", path);
         history.replaceState(history.state, "", url);
-        syncSource(); renderList();
-        const sidebar = document.getElementById("association-sources");
-        if (matchMedia("(max-width: 991.98px)").matches) bootstrap.Offcanvas.getInstance(sidebar)?.hide();
+        backToList(); syncSource(); renderList();
+    }
+
+    function openIgnored() {
+        if (busy || confirming) { feedback("当前操作完成后再切换。", "info"); return; }
+        tab = "ignored";
+        backToList(); syncSource(); renderList();
     }
 
     async function loadLinked() {
@@ -199,12 +211,13 @@
             const slot = slots.find(node => node.dataset.sourceFolders === mount)
                 || slots.find(node => node.dataset.sourceFolders === "*") || slots.find(node => node.dataset.sourceFolders === "/");
             if (!slot) continue;
+            // 目录不带图标，文字与上方网盘名称对齐
             const choice = el("button", "btn source-choice source-linked-folder w-100 text-start");
             choice.type = "button"; choice.dataset.sourcePath = path; choice.dataset.sourceFolder = "true";
             choice.title = path;
             choice.setAttribute("aria-label", `选择关联目录：${path}`);
             const label = slot.dataset.sourceFolders === mount ? path.slice(mount.length + 1) || "根目录" : path;
-            choice.append(icon("folder"), el("span", "min-w-0", label.replaceAll("/", " / ")));
+            choice.append(el("span", "min-w-0", label.replaceAll("/", " / ")));
             slot.append(choice);
         }
         syncSource();
@@ -409,11 +422,20 @@
         return rows;
     }
 
+    // 已忽略的目录：所属网盘的图标（取左栏同一个）、目录名和完整路径
+    function sourceLogo(path) {
+        const mount = path.startsWith("/") ? path.split("/")[1] : "";
+        const owner = mount && workspace.querySelector(`[data-drive-card="${CSS.escape(mount)}"] [data-source-logo]`)
+            || (isPassthroughPath(path) && workspace.querySelector('[data-drive-card="*"] [data-source-logo]'));
+        const tile = el("span", "discovery-logo");
+        tile.append(owner ? owner.firstElementChild.cloneNode(true) : icon("folder"));
+        return tile;
+    }
+
     function ignoredRow(entry) {
         const row = el("li", "discovery-item");
         const main = el("span", "discovery-main");
-        const tile = el("span", "discovery-poster"); tile.append(icon("eye-off"));
-        main.append(tile, textBlock(entry.name, "", [], entry.count ? [`${entry.count} 个视频`] : [], ""));
+        main.append(sourceLogo(entry.path), textBlock(entry.name, "", [], entry.count ? [`${entry.count} 个视频`] : [], entry.path));
         const side = el("div", "discovery-side");
         side.append(button("恢复", () => setIgnored(entry, false), "btn btn-sm chip-btn discovery-action"));
         row.append(main, side);
@@ -424,9 +446,8 @@
         const box = $("[data-discovery-tabs]");
         for (const [key, label] of TABS) {
             let node = box.querySelector(`[data-tab="${key}"]`);
-            if (key === "ignored" && !counts.ignored && tab !== "ignored") { node?.remove(); continue; }
             if (!node) {
-                node = button("", () => { tab = key; renderList(); if (key === "linked") loadLinked(); }, "btn btn-sm chip-btn discovery-tab");
+                node = button("", () => { tab = key; renderList(); if (key === "linked") loadLinked(); }, "btn btn-sm discovery-tab");
                 node.dataset.tab = key; node.setAttribute("role", "tab");
                 node.id = `association-tab-${key}`;
                 node.setAttribute("aria-controls", "association-results");
@@ -436,22 +457,26 @@
             node.setAttribute("aria-selected", String(tab === key));
             node.classList.toggle("active", tab === key);
             node.tabIndex = tab === key ? 0 : -1;
-            node.querySelector('.discovery-tab-count').textContent = String(counts[key]);
+            node.querySelector('.discovery-tab-count').textContent = counts[key] ? String(counts[key]) : "";
         }
+        // 左栏的“已忽略”：没有忽略项时收起（正在看的时候保留）
+        const ignoredChoice = $("[data-source-ignored]");
+        ignoredChoice.hidden = !ignored.length && tab !== "ignored";
+        ignoredChoice.querySelector("[data-ignored-count]").textContent = ignored.length ? String(ignored.length) : "";
     }
 
     function renderList() {
         const visible = visibleRecords(), search = query();
         const byState = { ready: [], review: [], unknown: [] };
         for (const item of visible) byState[stateOf(item)]?.push(item);
-        const hidden = ignored.filter(item => matchesSource(item.path) && `${item.name} ${item.path}`.toLowerCase().includes(search));
+        const hidden = ignored.filter(item => `${item.name} ${item.path}`.toLowerCase().includes(search));
         const linked = visibleLinked();
         const counts = {
             ready: grouped(byState.ready).length, review: byState.review.length, unknown: byState.unknown.length, linked: linked.length, ignored: hidden.length,
         };
         // Keep the user's selected group even when it is empty or scanning.
         if (!tab) tab = TABS.map(([key]) => key).find(key => counts[key]) || "ready";
-        renderTabs(counts);
+        renderTabs(counts); syncSource();
         $("[data-discovery-list]").setAttribute("aria-labelledby", `association-tab-${tab}`);
 
         const readyTitles = new Set(byState.ready.map(item => item.recognition.title.title_id));
@@ -467,7 +492,6 @@
         }
         if (list.childElementCount) container.append(list);
 
-        $("[data-discovery-count]").textContent = String(tab === "linked" ? linked.length : visible.length);
         if (tab === "linked" && linkedError) {
             const error = el("div", "alert alert-warning py-2", `无法更新已关联内容：${linkedError}`);
             error.setAttribute("role", "alert"); container.prepend(error);
@@ -496,19 +520,9 @@
         show(empty, !list.childElementCount);
         const missing = $("[data-discovery-missing]");
         missing.querySelector("span").textContent = `${scan.missing || 0} 个源文件失效`;
-        missing.title = "已入库的视频在网盘中找不到，前往概览查看";
+        missing.title = "已入库的视频在网盘中找不到，前往个性化页查看";
         show(missing, scan.missing > 0);
-        // 没有视频、却扫了很久的顶层目录：提示以后跳过（写进“已忽略”，随时可恢复）
-        const slow = slowFolders();
-        const slowNote = $("[data-discovery-slow]");
-        if (slow.length) {
-            const seconds = slow.reduce((sum, item) => sum + item.seconds, 0);
-            const names = slow.slice(0, 2).map(item => `“${item.name}”`).join("、") + (slow.length > 2 ? ` 等 ${slow.length} 个目录` : "");
-            slowNote.querySelector("span").textContent = `${names}没有视频，累计扫描 ${seconds >= 60 ? `${Math.round(seconds / 60)} 分钟` : `${seconds} 秒`}`;
-            slowNote.title = slow.map(item => `${item.path}（${item.seconds} 秒）`).join("\n");
-        }
-        show(slowNote, slow.length > 0 && !scanning());
-        renderProgress(); renderNext(); renderGuide();
+        renderSlow(); renderProgress(); renderNext(); renderGuide();
         renderBar();
     }
 
@@ -548,9 +562,21 @@
         run.disabled = !!confirming || !selection.picked.length;
     }
 
+    // 列表上方的确认条还在视野里时，底部状态栏不再重复一份；滚动到看不见它时才由状态栏接手
+    let confirmInView = false;
+    new IntersectionObserver(([entry]) => {
+        if (confirmInView === entry.isIntersecting) return;
+        confirmInView = entry.isIntersecting;
+        renderBar();
+    }).observe($("[data-discovery-confirm]"));
+
     function renderBar() {
         renderConfirm();
         if (currentView() !== "list") return;
+        if (tab === "ready" && confirmInView && !$("[data-discovery-confirm]").classList.contains("d-none")) {
+            bar.clear("association");
+            return;
+        }
         if (confirming) {
             bar.progress("association", progressSpec(confirming));
             return;
@@ -710,57 +736,115 @@
         show(box, true);
     }
 
+    // 首次指引：四步提示浮在当前要点的按钮或区域旁（Bootstrap Popover），步骤变了就换一个指向。
+    // 指向的元素看不见时（手机上左栏收在抽屉里）改指“选择来源”按钮；进入核对、连接详情等视图时先收起。
     const GUIDE = ["root", "scan", "confirm", "watch"];
+    const guide = $("[data-association-guide]");
+    let guidePop = null, guideTarget = null, guidePlacement = "", guideClosed = false;
+    const visibleNode = node => node && node.isConnected && node.getClientRects().length > 0
+        && (node.checkVisibility ? node.checkVisibility({ visibilityProperty: true }) : node.offsetParent !== null);
+    const firstVisible = (...selectors) => selectors.map(selector => typeof selector === "string" ? document.querySelector(selector) : selector).find(visibleNode) || null;
+
+    function hideGuide() {
+        guidePop?.dispose();
+        guidePop = null; guideTarget = null;
+    }
+
+    // 弹窗打开时提示先收起，免得叠在弹窗上面
+    // 弹窗从 show 事件起到 hidden 事件止都算打开（淡入期间还没有 .show 类）
+    let modalCount = 0;
+    const modalOpen = () => modalCount > 0;
+
+    function placeGuide(target, placement) {
+        if (guideClosed || currentView() !== "list" || modalOpen()) { hideGuide(); return; }
+        target = visibleNode(target) ? target : firstVisible('[data-bs-target="#association-sources"]');
+        if (!target) { hideGuide(); return; }
+        if (target === guideTarget && placement === guidePlacement && guidePop) { guidePop.update(); return; }
+        hideGuide();
+        guideTarget = target; guidePlacement = placement;
+        guide.classList.remove("d-none");
+        guidePop = new bootstrap.Popover(target, {
+            content: guide, html: true, sanitize: false, trigger: "manual", customClass: "guide-popover",
+            template: '<div class="popover" role="dialog" aria-label="开始使用"><div class="popover-arrow"></div><div class="popover-body"></div></div>',
+            offset: [0, 12], popperConfig: config => ({ ...config, placement }),
+        });
+        guidePop.show();
+    }
+
     function renderGuide() {
-        const guide = $("[data-association-guide]");
         if (!guide) return;
         const summary = submittedSummary();
         const counts = { ready: 0, other: 0 };
         for (const item of availableRecords()) counts[stateOf(item) === "ready" ? "ready" : "other"]++;
-        let step, text, actions = [];
-        const chooseRoot = () => button("选择目录", () => $("[data-root-add]").click(), "btn btn-sm media-primary-action is-compact");
+        let step, text, actions = [], target = null, placement = "right-start";
+        const chooseRoot = () => button("选择目录", addRoot, "btn btn-sm media-primary-action is-compact");
+        const firstDrive = () => firstVisible("[data-drive-summary]:not(.is-disabled) [data-drive-details-open]", "[data-drive-details-open]");
         if (summary.total) {
             step = "watch";
-            if (summary.active) { text = "正在后台关联：进度在左上角的圆钮里，可以点开查看或停止。完成后就能在首页看到。"; actions = [progressButton()]; }
-            else if (summary.done.length) { text = "关联完成！去首页看看你的影视库吧。以后添加了新视频，回到这里重新扫描即可。"; actions = [homeLink("去首页观看", true)]; }
-            else { step = "confirm"; text = "关联没有完成，失败原因写在“待核对”里，核对后重新提交。"; }
+            if (summary.active) {
+                text = "正在后台关联：进度在这个圆钮里，可以点开查看或停止。完成后就能在首页看到。"; actions = [progressButton()];
+                target = firstVisible("[data-task-orb]"); placement = "bottom-start";
+            } else if (summary.done.length) {
+                text = "关联完成！去首页看看你的影视库吧。以后添加了新视频，回到这里重新扫描即可。"; actions = [homeLink("去首页观看", true)];
+                target = firstVisible("[data-task-orb]", ".site-menu-toggle"); placement = "bottom-start";
+            } else {
+                step = "confirm"; text = "关联没有完成，失败原因写在“待核对”里，核对后重新提交。";
+                if (tab !== "review") actions = [button("查看待核对", () => { tab = "review"; renderList(); }, "btn btn-sm media-primary-action is-compact")];
+                target = firstVisible('[data-tab="review"]'); placement = "bottom-end";
+            }
         } else if (noDrives()) {
-            step = "root"; text = "先添加网盘：点左栏的“＋”，或点右侧的按钮。";
+            step = "root"; text = "先添加网盘：点这里登录你的网盘，或添加本机文件夹。";
             actions = [button("添加网盘", () => document.querySelector("[data-drive-add]")?.click(), "btn btn-sm media-primary-action is-compact")];
+            target = firstVisible(".source-add-btn");
         } else if (!scan.status) {
             step = "root"; text = "正在读取扫描目录…";
         } else if (!roots.length && !records.length && !scanning()) {
             step = "root"; text = "选择网盘里存放电影、剧集的文件夹，MovieDB 会扫描其中的视频并自动识别。"; actions = [chooseRoot()];
+            target = firstDrive();
         } else if (counts.ready) {
             step = "confirm";
-            text = `识别好了 ${counts.ready} 项：在“可确认”里勾选要加入的作品，再点“确认关联”。只勾选不会加入媒体库。`;
-            if (tab !== "ready") actions = [button("查看可确认", () => { tab = "ready"; renderList(); })];
+            text = `识别好了 ${counts.ready} 项：勾选要加入的作品，再点“确认关联”。只勾选不会加入媒体库。`;
+            if (tab !== "ready") {
+                actions = [button("查看可确认", () => { tab = "ready"; renderList(); })];
+                target = firstVisible('[data-tab="ready"]');
+            } else target = firstVisible("[data-confirm-run]", '[data-tab="ready"]');
+            placement = "bottom-end";
         } else if (scanning()) {
-            step = "scan"; text = "正在扫描和识别，进度见下方。识别好的作品会陆续出现在“可确认”里，不需要等到全部结束。";
+            step = "scan"; text = "正在扫描和识别。识别好的作品会陆续出现在“可确认”里，不需要等到全部结束。";
+            target = firstVisible("[data-scan-progress]"); placement = "bottom-end";
         } else if (counts.other) {
             step = "confirm"; text = "没有能直接确认的作品：到“待核对”“未识别”里点“核对”或“关联”，逐个确认。";
+            target = firstVisible(`[data-tab="${tab === "unknown" ? "unknown" : "review"}"]`); placement = "bottom-end";
         } else if (scan.status === "cancelled") {
-            step = "scan"; text = "扫描已停止。点下方的“重新扫描”继续。";
+            step = "scan"; text = "扫描已停止。点“重新扫描”继续。";
+            target = firstVisible("[data-scan-restart]"); placement = "bottom-end";
         } else if (scan.status === "error") {
-            step = "scan"; text = "扫描没有成功，原因见下方。检查网盘连接后重新扫描。";
+            step = "scan"; text = "扫描没有成功，原因见右侧。检查网盘连接后点这里重新扫描。";
+            target = firstVisible("[data-discovery-refresh]");
         } else {
             step = "root"; text = "所选目录里没有找到视频。换一个存放影视文件的目录试试。"; actions = [chooseRoot()];
+            target = firstVisible("[data-source-folder]") || firstDrive();
         }
         const current = GUIDE.indexOf(step), finished = step === "watch" && !summary.active && summary.done.length > 0;
         guide.querySelectorAll("[data-guide-step]").forEach(node => {
             const index = GUIDE.indexOf(node.dataset.guideStep);
-            const state = index < current || finished ? "done" : index === current ? "current" : "pending";
-            if (node.dataset.state === state) return;
-            node.dataset.state = state;
-            node.querySelector(".association-guide-dot").replaceChildren(state === "done" ? icon("check") : document.createTextNode(String(index + 1)));
-            if (state === "current") node.setAttribute("aria-current", "step"); else node.removeAttribute("aria-current");
+            node.dataset.state = index < current || finished ? "done" : index === current ? "current" : "pending";
+            if (index === current) node.setAttribute("aria-current", "step"); else node.removeAttribute("aria-current");
         });
+        const label = `第 ${current + 1} 步 · ${guide.querySelector(`[data-guide-step="${step}"]`).title}`;
+        const labelNode = guide.querySelector("[data-guide-label]");
+        if (labelNode.textContent !== label) labelNode.textContent = label;
         const textNode = guide.querySelector("[data-guide-text]");
         if (textNode.textContent !== text) textNode.textContent = text;
         const slot = guide.querySelector("[data-guide-action]");
         const signature = actions.map(node => node.textContent).join("|");
         if (slot.dataset.signature !== signature) { slot.dataset.signature = signature; slot.replaceChildren(...actions); }
+        placeGuide(target, placement);
     }
+    guide?.querySelector("[data-guide-close]").addEventListener("click", () => { guideClosed = true; hideGuide(); });
+    document.addEventListener("association:view", () => renderGuide());
+    document.addEventListener("show.bs.modal", () => { modalCount++; hideGuide(); });
+    document.addEventListener("hidden.bs.modal", () => { modalCount = Math.max(0, modalCount - 1); renderGuide(); });
 
     async function stopScan() {
         const stop = $("[data-scan-stop]");
@@ -778,12 +862,11 @@
         const signature = JSON.stringify(roots);
         if (signature === rootsSignature) return;
         rootsSignature = signature;
-        const box = $("[data-discovery-roots]");
         workspace.querySelectorAll(".root-chip").forEach(node => node.remove());
         for (const item of roots) {
             const owners = [...workspace.querySelectorAll("[data-source-roots]")].filter(node => node.dataset.sourceRoots === "*" ? isPassthroughPath(item.path)
                 : item.path === node.dataset.sourceRoots || item.path.startsWith(node.dataset.sourceRoots + "/"));
-            for (const target of [box, ...owners]) {
+            for (const target of owners) {
             const chip = el("div", "root-chip source-root");
             chip.title = item.auto ? `${item.path}（自动）` : item.path;
             const name = button('', () => selectSource(item.path), 'btn source-choice min-w-0 flex-grow-1');
@@ -919,13 +1002,35 @@
 
     const slowFolders = () => (scan.slow_empty || []).filter(item => !ignored.some(entry => entry.path === item.path))
         .sort((a, b) => b.seconds - a.seconds);
-    $("[data-discovery-slow-skip]").addEventListener("click", async () => {
+    // 没有视频、却扫了很久的顶层目录：扫描结束后在左上角圆钮里提示，点“以后跳过”写进“已忽略”（随时可恢复），
+    // 结果也在圆钮里原地显示“完成”。同一批目录只提示一次。
+    const SLOW_KEY = "slow-folders";
+    let slowSignature = "";
+    function renderSlow() {
+        const center = window.TaskCenter;
+        if (!center) return;
+        const slow = scanning() ? [] : slowFolders();
+        const signature = slow.map(item => item.path).join("\n");
+        if (signature === slowSignature) return;
+        slowSignature = signature;
+        if (!slow.length) { center.clear(SLOW_KEY); return; }
+        const seconds = slow.reduce((sum, item) => sum + item.seconds, 0);
+        const names = slow.slice(0, 2).map(item => `“${item.name}”`).join("、") + (slow.length > 2 ? ` 等 ${slow.length} 个目录` : "");
+        center.result(SLOW_KEY, {
+            text: `${names}没有视频`, tone: "warning",
+            detail: `累计扫描 ${seconds >= 60 ? `${Math.round(seconds / 60)} 分钟` : `${seconds} 秒`}。以后扫描可以跳过，跳过的目录放在“已忽略”里，随时可恢复。`,
+            action: { label: "以后跳过", run: skipSlow },
+        });
+    }
+    async function skipSlow() {
         const list = slowFolders();
+        window.TaskCenter?.progress(SLOW_KEY, { text: `正在跳过 ${list.length} 个目录` });
         let count = 0;
         for (const item of list) count += await setIgnored({ path: item.path, name: item.name, files: [] }, true, true) ? 1 : 0;
+        slowSignature = "";
         renderList();
-        feedback(`以后扫描跳过 ${count} 个目录，可在“已忽略”中恢复`, "info");
-    });
+        window.TaskCenter?.result(SLOW_KEY, { text: `以后扫描跳过 ${count} 个目录`, tone: "success" });
+    }
 
     async function updateRoot(path, action) {
         try {
@@ -974,6 +1079,12 @@
         choose.textContent = added ? "已添加" : "添加此目录";
         $("[data-root-target]").textContent = data.path === "/" ? "进入一个目录后添加" : added ? "这个目录已在扫描列表中" : `将扫描 ${parts[parts.length - 1]} 及其子目录`;
     }
+
+    // 添加扫描目录：从当前来源的挂载开始浏览；看“全部来源”且只有一个网盘时直接进入那个网盘，省一次点击
+    const addRoot = () => {
+        const mounts = [...workspace.querySelectorAll("[data-drive-card][data-drive-summary]")].map(node => node.dataset.driveCard).filter(mount => mount !== "*");
+        openBrowser(sourcePath === "*" ? "/" : sourcePath === "/" && mounts.length === 1 ? `/${mounts[0]}` : sourcePath);
+    };
 
     function openBrowser(path) {
         const sidebar = document.getElementById("association-sources");
@@ -1831,7 +1942,8 @@
     function showView(view) {
         show(panel, view === "list");
         show(editor, view === "editor");
-        if (manual) show(manual, view === "manual");
+        // 页头的筛选和状态切换只作用于列表
+        $("[data-discovery-controls]").classList.toggle("invisible", view !== "list");
         show($("[data-linked-editor]"), view === "linked");
         show($("[data-drive-details-panel]"), view === "drive");
         document.dispatchEvent(new CustomEvent("association:view", {detail:{view}}));
@@ -1952,7 +2064,7 @@
     $("[data-confirm-run]").addEventListener("click", confirmPicked);
     // 剩余时间、限速倒计时、“多久没有新进度”每秒更新（轮询遇到 304 时列表不会重画）
     setInterval(() => { if (!document.hidden && scanning() && currentView() === "list") renderProgress(); }, 1000);
-    $("[data-root-add]").addEventListener("click", () => openBrowser(sourcePath === "*" ? "/" : sourcePath));
+    $("[data-source-ignored]").addEventListener("click", openIgnored);
     workspace.addEventListener("click", event => {
         const browseButton = event.target.closest("[data-root-open]");
         if (browseButton) openBrowser(browseButton.dataset.rootOpen);
@@ -1976,9 +2088,6 @@
     });
     $("[data-root-choose]").addEventListener("click", () => updateRoot(browser.dataset.path, "add"));
     $("[data-discovery-filter]").addEventListener("input", renderList);
-    $("[data-manual-open]").addEventListener("click", () => { showView("manual"); window.scrollTo({ top: 0 }); });
-    $("[data-manual-upload]").addEventListener("click", () => { showView("manual"); document.getElementById("batch-json-file")?.click(); });
-    document.querySelector("[data-manual-close]")?.addEventListener("click", () => { showView("list"); renderList(); });
     window.addEventListener("beforeunload", event => { if (busy || confirming) { event.preventDefault(); event.returnValue = ""; } });
     // 引导页完成后带 add_root=1 跳转过来：直接打开“添加目录”，并从地址栏去掉该参数。
     const pageUrl = new URL(location.href), wantsRoot = pageUrl.searchParams.has("add_root");
@@ -1988,7 +2097,7 @@
     discover().then(data => {
         pollJobs(true);
         // 引导页过来的新用户：选定目录后 updateRoot 才开始扫描，不在弹窗选目录的同时抢跑一次空扫
-        if (wantsRoot) { $("[data-root-add]").click(); return; }
+        if (wantsRoot) { addRoot(); return; }
         // 还没有任何网盘时不自动扫描：扫了也只会报“没有目录”，空状态会引导先添加网盘；
         // 首次使用还没选目录时同样不盲扫，顶部指引会让用户先选目录
         if (firstRun && !roots.length) return;

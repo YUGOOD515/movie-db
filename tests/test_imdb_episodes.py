@@ -116,6 +116,7 @@ def run_refresh(monkeypatch):
     from services import media_discovery
     scan = Mock()
     monkeypatch.setattr(media_discovery, "start_scan", scan)
+    monkeypatch.setattr(media_discovery, "has_scan_scope", lambda database: True)
     identity._jobs[str(identity.index_path())] = {"running": True, "started_at": 1}
     identity._refresh(identity.index_path(), "library.db")
     return scan
@@ -251,3 +252,15 @@ def test_tmdb_cache_changes_with_local_index_mappings(monkeypatch):
     assert tmdb.build_media_metadata("tt1", session=Mock(), fallback_episode_ids={(1, 1): "tt2"})["fallback"]
     assert fetch.call_count == 2
     tmdb._cache.clear()
+
+
+def test_new_index_does_not_scan_before_any_folder_is_chosen(tmp_path, monkeypatch):
+    # 首次引导期间 IMDb 本地库建好时还没有扫描目录：不扫，免得源数据页一打开就是“还没有选择扫描目录”的错误
+    from services import media_discovery
+    scan = Mock()
+    monkeypatch.setattr(media_discovery, "start_scan", scan)
+    monkeypatch.setattr(media_discovery, "has_scan_scope", lambda database: False)
+    from services import rating_sync
+    monkeypatch.setattr(rating_sync, "refresh_imdb_ratings", Mock())
+    identity._apply("library.db")
+    scan.assert_not_called()

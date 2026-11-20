@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240" fill="none">
+  <defs>
+    <linearGradient id="bd-blue" x1="10" y1="155" x2="230" y2="140" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3FD5FF"/>
+      <stop offset="1" stop-color="#07A8FF"/>
+    </linearGradient>
+    <linearGradient id="bd-coral" x1="55" y1="87" x2="182" y2="87" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FF7D85"/>
+      <stop offset="1" stop-color="#FF466A"/>
+    </linearGradient>
+    <mask id="bd-mask">
+      <rect width="240" height="240" fill="#000"/>
+      <g transform="translate(0,25)">
+        <circle cx="57" cy="130" r="58.5" fill="#fff"/>
+        <circle cx="118.5" cy="62" r="63" fill="#fff"/>
+        <polygon points="57,130 118.5,62 148.89,98.89 88.11,161.11" fill="#fff"/>
+        <path d="M 88.11 161.11 L 148.89 98.89 A 44 44 0 1 1 150.56 162.70" stroke="#fff" stroke-width="29" stroke-linecap="round"/>
+        <circle cx="57" cy="130" r="29.5" fill="#000"/>
+        <circle cx="118.5" cy="62" r="34" fill="#000"/>
+      </g>
+    </mask>
+  </defs>
+  <rect width="240" height="240" fill="url(#bd-blue)" mask="url(#bd-mask)"/>
+  <path d="M 70 87 A 48.5 48.5 0 0 0 167 87" stroke="url(#bd-coral)" stroke-width="29" stroke-linecap="round"/>
+</svg>

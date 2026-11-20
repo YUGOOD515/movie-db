@@ -438,3 +438,63 @@ def test_uninstall_list_keeps_user_data(tmp_path):
     text = build_windows.write_uninstall_list(app, tmp_path / "list.nsh").read_text(encoding="utf-8")
     assert 'Delete "$INSTDIR\\app\\services\\x.py"' in text and 'RMDir "$INSTDIR\\app\\services"' in text
     assert "/r \"$INSTDIR\\app\\services\"" not in text and "library.db" not in text
+
+
+def test_setup_drive_picker_groups_brands_with_qr_first(setup_env):
+    """网盘横排：夸克、百度在前，同一家的扫码与 Cookie 合成一项；扫码类型默认不显示“检测并保存”的表单字段。"""
+    text = setup_env["client"].get("/setup", headers=HTML).get_data(as_text=True)
+    order = [text.index(f'data-brand="{brand}"') for brand in ("quark", "baidu", "aliyun", "local", "alist")]
+    assert order == sorted(order)
+    assert 'data-kinds="quark_tv quark"' in text and 'data-alt-label="改用 Cookie 登录"' in text
+    assert 'data-drive-fields="quark_tv" data-login="qr"' in text and "使用夸克 App 扫码确认" in text
+    # AI 识别与评分是可跳过的引导步骤
+    assert 'data-scene="ai"' in text and 'data-skip="ai"' in text and 'data-scene="mdblist"' in text
+
+
+def test_build_drive_picker_hides_brands_whose_default_kind_is_unavailable():
+    from viewmodels.setup import build_drive_picker
+
+    types = [{"kind": kind, "creatable": kind != "alist"} for kind in ("quark_tv", "quark", "baidu", "alist")]
+    brands = build_drive_picker(types, {"baidu"})
+    assert [brand["id"] for brand in brands] == ["quark", "baidu"]
+    assert brands[0]["alt"] == "改用 Cookie 登录" and brands[0]["logo"] == ""
+    assert brands[1]["logo"] == "icons/drives/baidu.svg" and brands[1]["alt"] == ""
+
+
+def test_pick_model_prefers_latest_matching_version():
+    presets = {preset["id"]: preset for preset in setup_wizard.LLM_PRESETS}
+    names = ["glm-4.5-flash", "glm-4.7-flash", "glm-5-flash", "glm-5-air", "glm-5.1-flashx"]
+    assert setup_wizard.pick_model(presets["zhipu"], names) == "glm-5-flash"
+    assert setup_wizard.pick_model(presets["zhipu"], []) == "glm-4.7-flash"
+    assert setup_wizard.pick_model(presets["openai"], ["gpt-5-mini", "gpt-5.4-mini", "gpt-5.4-mini-2026-03-01"]) == "gpt-5.4-mini"
+    # DeepSeek 固定 deepseek-flash；OpenRouter 没有免费 DeepSeek 时退到最新的免费 Gemma
+    assert setup_wizard.pick_model(presets["deepseek"], ["deepseek-chat", "deepseek-v4-pro"]) == "deepseek-flash"
+    assert setup_wizard.pick_model(presets["openrouter"], ["google/gemma-3-27b-it:free", "google/gemma-4-31b-it:free", "openai/gpt-5-mini"]) == "google/gemma-4-31b-it:free"
+
+
+def test_llm_models_lists_models_and_falls_back_without_list(setup_env, monkeypatch):
+    from connectors import llm
+
+    client = setup_env["client"]
+    form = {"LLM_BASE_URL": "https://open.bigmodel.cn/api/paas/v4", "LLM_API_KEY": "k"}
+    monkeypatch.setattr(llm, "list_models", lambda base, key: ["glm-4.7-flash", "glm-5-flash"])
+    data = client.post("/setup/test/llm-models", json=form, headers=SAME_ORIGIN).get_json()
+    assert data == {"ok": True, "models": ["glm-4.7-flash", "glm-5-flash"], "default": "glm-5-flash"}
+
+    def denied(base, key):
+        raise llm.LlmError("API Key 无效或没有权限。", status=401, fatal=True)
+
+    monkeypatch.setattr(llm, "list_models", denied)
+    data = client.post("/settings/test/llm-models", json=form, headers=SAME_ORIGIN).get_json()
+    assert data["ok"] is False and data["default"] == "glm-4.7-flash" and "API Key" in data["message"]
+
+
+def test_list_models_strips_gemini_prefix(monkeypatch):
+    from connectors import llm
+
+    response = Mock(status_code=200)
+    response.json.return_value = {"data": [{"id": "models/gemini-3.8-flash"}, {"id": "models/gemini-2.5-flash"}, {"id": ""}]}
+    calls = []
+    monkeypatch.setattr(llm.requests, "get", lambda url, headers, timeout: calls.append((url, headers)) or response)
+    assert llm.list_models("https://generativelanguage.googleapis.com/v1beta/openai", "k") == ["gemini-2.5-flash", "gemini-3.8-flash"]
+    assert calls == [("https://generativelanguage.googleapis.com/v1beta/openai/models", {"Authorization": "Bearer k"})]

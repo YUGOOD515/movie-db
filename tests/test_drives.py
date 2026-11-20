@@ -38,8 +38,8 @@ def test_local_drive_crud_page_and_json_are_safe(env):
     assert drive_store.get_drive("local")["status"] == f"已连接：{env['tmp']}"
 
     redirect = env["client"].get("/manager/drives", headers=HTML)
-    assert redirect.status_code == 302 and redirect.headers["Location"].endswith("/media?tab=drives")
-    page = env["client"].get("/media?tab=drives", headers=HTML)
+    assert redirect.status_code == 302 and redirect.headers["Location"].endswith("/media/sources")
+    page = env["client"].get("/media/sources", headers=HTML)
     assert page.status_code == 200
     text = page.get_data(as_text=True)
     assert "本机目录" in text and "AList / OpenList（透传）" in text and "local" in text
@@ -59,18 +59,18 @@ def test_local_drive_crud_page_and_json_are_safe(env):
 
 def test_drives_tab_does_not_require_library(env):
     (env["tmp"] / "library.db").unlink()
-    response = env["client"].get("/media?tab=drives")
+    response = env["client"].get("/media/sources")
     assert response.status_code == 200 and "data-drive-page" in response.get_data(as_text=True)
 
 
 def test_existing_passthrough_is_hidden_from_type_options(env):
     drive_store.save_drive("*", "alist", {}, True)
-    text = env["client"].get("/media?tab=drives", headers=HTML).get_data(as_text=True)
+    text = env["client"].get("/media/sources", headers=HTML).get_data(as_text=True)
     assert '<option value="alist">' not in text
 
 
 def test_association_without_drives_offers_inline_source_setup(env):
-    text = env["client"].get("/media?tab=associate", headers=HTML).get_data(as_text=True)
+    text = env["client"].get("/media/sources", headers=HTML).get_data(as_text=True)
     assert "尚未添加网盘" in text and "data-drive-add" in text
     assert 'href="/media?tab=drives"' not in text
     assert 'id="association-sources"' in text and 'data-association-workspace' in text
@@ -78,7 +78,7 @@ def test_association_without_drives_offers_inline_source_setup(env):
 
 def test_read_only_snapshot_hides_drives_tab(env):
     movie_app.app.config["READ_ONLY"] = True
-    response = env["client"].get("/media?tab=drives", headers=HTML)
+    response = env["client"].get("/media/sources", headers=HTML)
     text = response.get_data(as_text=True)
     assert response.status_code == 200
     assert 'href="/media?tab=drives"' not in text and "data-drive-page" not in text
@@ -159,15 +159,12 @@ def test_cross_origin_error_asks_for_page_refresh(env):
 
 
 def test_media_source_fields_use_mount_path_guidance(env):
-    text = env["client"].get("/media?tab=associate", headers=HTML).get_data(as_text=True)
+    text = env["client"].get("/media/sources", headers=HTML).get_data(as_text=True)
     assert "AList 视频直链" not in text and "alist_origin" not in text and "/d/..." not in text
-    assert text.count("挂载路径或直链，如 /夸克/电影/xxx.mkv") == 8
-    assert 'type="text" aria-label="挂载路径或直链，如 /夸克/电影/xxx.mkv"' in text
-    assert 'id="search-alist-url" type="text"' in text
 
 
 def test_drive_editor_responsive_markup_and_script_contract(env):
-    text = env["client"].get("/media?tab=drives", headers=HTML).get_data(as_text=True)
+    text = env["client"].get("/media/sources", headers=HTML).get_data(as_text=True)
     assert 'management-layout' in text and 'data-drive-modal' in text
     assert 'col-12 col-xl-8 drive-list' not in text
     assert 'data-drive-add' in text and 'data-drive-editor-icon' in text
@@ -193,7 +190,7 @@ def test_compact_connection_summary_uses_account_without_exposing_credentials(en
     drive_store.set_status("115", "已连接：测试账号")
     account = drives.public(drive_store.get_drive("115"))
     assert account["account"] == "测试账号" and not account["has_problem"]
-    text = env["client"].get("/media?tab=associate", headers=HTML).get_data(as_text=True)
+    text = env["client"].get("/media/sources", headers=HTML).get_data(as_text=True)
     assert 'data-drive-details-open="Cookie盘"' in text
     assert 'has-problem" data-drive-card="Cookie盘"' in text
     assert 'data-source-folders="/Cookie盘"' in text

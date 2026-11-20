@@ -177,7 +177,7 @@ SECTIONS: tuple[Section, ...] = (
               hint="通过 Cloudflare Tunnel 等域名访问时填写，多个用逗号分隔；填写后其他主机名的请求一律拒绝。本机地址始终可用。"),
         ), icon="monitor"),
     ), icon="plug", hue="blue"),
-    Section("metadata", "元数据", "海报、简介、演员与评分", (
+    Section("metadata", "数据提供商", "海报、简介、演员与评分", (
         Group("tmdb", "TMDB", "海报、简介、演员与季集", (
             S("TMDB_TOKEN", "自己的密钥", "secret", hint="留空使用内置密钥。"),
             S("TMDB_API_ORIGIN", "接口地址", "url", advanced=True, placeholder="https://api.themoviedb.org/3",
@@ -216,6 +216,8 @@ SECTIONS: tuple[Section, ...] = (
               hint="留空时 DeepSeek 为 64，其他平台为 2；遇到限流会自动减半再逐步恢复。"),
         ), test="llm", icon="sparkles"),
     ), icon="sparkles", hue="violet"),
+    # 清除数据没有设置项：分组由 settings.html 单独渲染
+    Section("reset", "清除数据", "媒体库、图片与本机配置", icon="trash-2", hue="red"),
 )
 del S
 

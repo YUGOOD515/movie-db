@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import functools
 import json
 import secrets
 import threading
@@ -78,6 +79,9 @@ def public(row, *, passthrough_names=frozenset(), passthrough=None):
     result["display_name"] = media_source.PASSTHROUGH_NAME if is_passthrough else row["mount"]
     result["source_path"] = "*" if is_passthrough else f"/{row['mount']}"
     result["icon"] = "folder" if row["kind"] == "local" else "network"
+    # 来源列表用品牌 logo：quark_tv、pan123_web 等登录方式与品牌同名前缀，缺 logo 时退回上面的通用图标
+    brand = row["kind"].split("_", 1)[0]
+    result["logo"] = f"icons/drives/{brand}.svg" if brand in logos() else ""
     result.update(_route_view(row, passthrough_names, passthrough))
     if result["route_state"] == "delegated":
         # 路径已交给透传：标签说明“谁在提供”，比本网盘的连接状态更重要
@@ -195,7 +199,9 @@ def _driver(kind, config, save):
     return driver(config, save)
 
 
-def save(mount, kind, values, enabled=None, create=False):
+def save(mount, kind, values, enabled=None, create=False, logged_in=None):
+    """检测后保存挂载。logged_in 是扫码 / 授权刚登录好的驱动：直接用它检测，
+    不必马上拿刚拿到的 refresh_token 再换一次令牌（换过之后旧令牌作废，同时有别的请求就会判成登录失效）。"""
     if kind not in DRIVERS:
         raise ValueError("不支持的网盘类型。")
     mount = "*" if kind == "alist" else str(mount or "").strip()
@@ -229,7 +235,11 @@ def save(mount, kind, values, enabled=None, create=False):
     if changed:
         config = {field.name: config[field.name] for field in DRIVERS[kind].fields if field.name in config}
     candidate = dict(config)
-    driver = _driver(kind, candidate, lambda updated: candidate.update(updated))
+    if logged_in is not None:
+        driver = logged_in
+        driver.save = lambda updated: candidate.update(updated)
+    else:
+        driver = _driver(kind, candidate, lambda updated: candidate.update(updated))
     try:
         status = driver.check()
     except Exception as error:
@@ -375,7 +385,7 @@ def qr_poll(login_id):
     config = item["config"]
     # 登录得到的凭据连同驱动生成的设备 ID、应用凭据一起保存：续期时要用同一组
     values = {field.name: config[field.name] for field in DRIVERS[item["kind"]].fields if config.get(field.name)}
-    return save(item["mount"], item["kind"], values, enabled=True, create=item["create"])
+    return save(item["mount"], item["kind"], values, enabled=True, create=item["create"], logged_in=item["driver"])
 
 
 # ---- 网页授权（OneDrive、Google Drive）：OpenList 授权页完成后跳到 https://api.oplist.org/#<base64 JSON> ----
@@ -405,3 +415,11 @@ def oauth_finish(kind, mount, pasted, create=False):
     if not data.get("refresh_token"):
         raise ValueError("授权结果里没有 refresh_token，请重新授权。")
     return save(mount, kind, {"refresh_token": data["refresh_token"]}, enabled=True, create=create)
+
+
+@functools.cache
+def logos() -> frozenset[str]:
+    """引导页和来源列表的网盘图标：static/icons/drives/ 下已有的 SVG 文件名（不含扩展名），缺的用文字标记代替。"""
+    from services import paths
+
+    return frozenset(path.stem for path in (paths.APP_STATIC / "icons" / "drives").glob("*.svg"))

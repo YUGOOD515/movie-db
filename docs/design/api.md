@@ -54,7 +54,8 @@
 | GET | `/favorites` · `/collection/<id>` | HTML | 收藏 |
 | GET | `/title/<title_id>` | HTML | 详情页；`season`、`episode` 选集，`resume=1` 定位到续播集 |
 | GET | `/title/<title_id>/episode-panel` | HTML 片段 | 单集面板 |
-| GET | `/media` | HTML | 资源管理；`tab=overview\|associate`（旧 `drives` 兼容进入关联），`type`、`q`、`health=missing`；关联页 `source` 保存来源筛选 |
+| GET | `/media` | HTML | 个性化；`type`、`q`、`health=missing`；旧 `tab=associate\|drives` 带上其余参数 302 到 `/media/sources` |
+| GET | `/media/sources` | HTML | 源数据（网盘来源与文件关联）；`source` 保存来源筛选，`add_root=1` 打开添加目录 |
 
 ### 播放与收藏
 
@@ -80,7 +81,7 @@
 | GET | `/manager/titles/episodes` | JSON | 作品的季集资料 |
 | GET/POST | `/manager/association/jobs` | JSON（POST 返回 202） | 查询 / 提交 / 取消（`cancel`）/ 重试（`retry`）关联任务 |
 | GET | `/manager/association/linked` | JSON | 实际入库文件按作品聚合的映射，保留多个来源和季集，支持 ETag；本机离线的只读快照不提供 |
-| POST | `/manager/import/batch` | 重定向 | 表单或 JSON 文件批量录入，全部成功才写入 |
+| POST | `/manager/import/batch` | 重定向 | 表单或 JSON 文件批量录入，全部成功才写入。页面上已没有入口，只保留给开发测试（造数据、回归测试），不要删除 |
 | GET | `/manager/tasks` · `/manager/tasks/detail?id=` | JSON | 后台任务列表与详情 |
 | GET/POST | `/manager/ratings/refresh` | JSON | 评分刷新状态 / 开始刷新 |
 | POST | `/manager/<title_id>/artwork` | 重定向 | 设置主海报、背景、Logo |
@@ -109,7 +110,7 @@
 |---|---|---|
 | GET | `/setup` | 首次引导页；媒体库建好后跳转到 `/settings` |
 | GET | `/setup/status` · `/settings/state` | 当前配置与检测状态 |
-| POST | `/setup/test/<service>` · `/settings/test/<service>` | 检测某项服务 |
+| POST | `/setup/test/<service>` · `/settings/test/<service>` | 检测某项服务；`llm-models` 返回 AI 平台的模型列表和默认模型，拉不到时 `ok: false` 并给出预设的默认模型 |
 | POST | `/setup/save` · `/settings/save` | 保存配置，写入 `.env` 并立即生效 |
 | GET/POST | `/settings/imdb-episodes` | 本机单集索引状态 / 后台检查更新；GET 支持 ETag，POST 新任务返回 202，重复任务返回 200；返回 `{ok, started, index}`，更新失败仍可使用旧索引 |
 | POST | `/settings/clear` | 清除本机数据，需输入确认词 |
