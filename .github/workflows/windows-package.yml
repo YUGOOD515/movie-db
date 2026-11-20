@@ -175,7 +175,7 @@ jobs:
           $config = (Resolve-Path dist\MovieDB\runtime\mpv\config).Path
           & $mpv --no-config --version | Select-Object -First 1
           # 用 MovieDB 自带的配置（gpu-next、硬件解码），只把画面和声音输出换成空设备
-          $samples = Get-ChildItem ffslim\samples -File | Where-Object Extension -ne ".json"
+          $samples = Get-ChildItem ffslim\samples -File | Where-Object Extension -notin ".json", ".pem"  # 目录里还有本地 HTTPS 测试用的证书
           $failed = foreach ($sample in $samples) {
             $process = Start-Process $mpv -ArgumentList "--config-dir=`"$config`"", "--vo=null", "--ao=null", "--frames=24", "--really-quiet", "`"$($sample.FullName)`"" -Wait -PassThru -NoNewWindow
             if ($process.ExitCode -ne 0) { "$($sample.Name)（退出码 $($process.ExitCode)）" }
@@ -410,7 +410,7 @@ jobs:
           failed=""
           count=0
           for sample in ffslim/samples/*; do
-            case "$sample" in *.json) continue ;; esac
+            case "$sample" in *.json|*.pem) continue ;; esac  # 目录里还有本地 HTTPS 测试用的证书
             count=$((count + 1))
             "$mpv" --config-dir="$config" --vo=null --ao=null --frames=24 --really-quiet "$sample" < /dev/null || failed="$failed $(basename "$sample")"
           done

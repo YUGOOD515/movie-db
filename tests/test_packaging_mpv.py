@@ -251,6 +251,11 @@ def test_macos_install_mpv_extracts_bundle_and_extras(tmp_path, monkeypatch):
             ("mpv.app/Contents/Info.plist", b"<plist/>", 0o644),
             ("mpv.app/Contents/MacOS/mpv", b"\xcf\xfa\xed\xfe-mpv", 0o755),
             ("mpv.app/Contents/MacOS/lib/libfoo.dylib", b"\xcf\xfa\xed\xfe-foo", 0o644),
+            # 官方包里真实存在的占位文件，codesign 会把它们当成未签名的代码
+            ("mpv.app/Contents/MacOS/.gitkeep", b"", 0o644),
+            ("mpv.app/Contents/MacOS/._.gitkeep", b"apple-double", 0o644),
+            ("mpv.app/Contents/MacOS/lib/.gitkeep", b"", 0o644),
+            ("mpv.app/Contents/MacOS/lib/._.gitkeep", b"apple-double", 0o644),
         ],
     )
     digest = build_windows.sha256_of(fake_zip)
@@ -261,6 +266,7 @@ def test_macos_install_mpv_extracts_bundle_and_extras(tmp_path, monkeypatch):
 
     target = tmp_path / "MovieDB.app" / "Contents" / "Resources" / "runtime" / "mpv"
     version = build_macos.install_mpv(target, tmp_path / "cache", "arm64")
+    assert [path.name for path in (target / "mpv.app").rglob("*") if path.name.startswith(".")] == []
 
     assert version == "0.42.0"
     mpv_bin = target / "mpv.app" / "Contents" / "MacOS" / "mpv"

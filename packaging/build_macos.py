@@ -185,6 +185,10 @@ def install_mpv(target: Path, cache: Path, arch: str, archive: Path | None = Non
             inner.extractall(target, filter="data")
         except tarfile.FilterError as error:
             sys.exit(f"{zip_path.name} 中的 mpv.tar.gz 包含不安全路径：{error}")
+    # 官方包的 Contents/MacOS 里留有 .gitkeep 及其 AppleDouble 文件（._*），codesign 会把它们当成未签名的代码
+    for leftover in [*(target / "mpv.app").rglob(".gitkeep"), *(target / "mpv.app").rglob("._*")]:
+        if leftover.is_file():
+            leftover.unlink()
     binary = target / "mpv.app" / "Contents" / "MacOS" / "mpv"
     if not binary.is_file():
         sys.exit(f"{zip_path.name} 中缺少 mpv.app/Contents/MacOS/mpv")
