@@ -80,3 +80,15 @@
 | macOS intel：mpv.app | 129.5 MB | 36.6 MB |
 
 据此预估：Windows 安装包约 35 MB（原来 14.8 MB）；免安装 zip 用的是 deflate，约 47 MB；dmg arm 版约 54 MB、intel 版约 59 MB。安装后占用：Windows 多出约 64 MB，macOS 多出约 110–130 MB。
+
+## 验收结果（2026-11-20，Windows 11 本机）
+
+- W1 / W2 由 Gemini 4 Neon xhigh 并行完成（token 约 20.4 万 / 15.9 万），一次通过审查，没有打回。沙箱里有 23 个测试失败，原因是读不到 `C:\alist`，和改动无关；在沙箱外全部通过。
+- 合并后全部测试：568 个通过，1 个跳过（只在 Unix 上跑的套接字测试）。
+- 真实 mpv 端到端：`play_video` 从第 3 秒续播，进度经命名管道每秒回传，mpv 退出后监控线程结束；`--config-dir` 只加在内置 mpv 上。
+- 三个官方包都用 `install_mpv` 实际装过：Windows 6 个文件 63.5 MB，macOS arm 110 MB、intel 129 MB。
+- 本机组装的免安装 zip（不含 ffprobe）是 **43.0 MB**，安装后占用 100.5 MB，其中 mpv 63.5 MB。组装好的应用里，`/setup/test/player` 返回“随安装包提供的 mpv”。
+- 真实片源渲染（内置 mpv + 自带配置，窗口最小化，截图用 `screenshot-to-file … video`）：
+  - 杜比视界：`colormatrix=dolbyvision`，`hwdec=d3d11va`，`vo=gpu-next`，画面色彩正常，没有偏紫或偏绿；
+  - HDR10：`bt.2020-ncl` / PQ，肤色和饱和色都正常。
+- 本机没有 NSIS，安装程序和 macOS 包交给 CI 验证（推送 `feat/**` 分支时会跑）。
