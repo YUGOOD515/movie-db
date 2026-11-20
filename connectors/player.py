@@ -1,16 +1,19 @@
 """调用本机播放器播放 AList 链接，并尽量记录观看进度。
 
-- MPC-HC（Windows 默认）：通过它的 Web 接口读取进度、跳转到上次位置；
-- IINA / mpv（macOS、Linux 默认）：通过 mpv 的 JSON IPC 读取进度，用 ``--start`` 从上次位置播放；
+自动选择时优先使用安装包内置的 mpv；找不到时按平台默认顺序回退。
+
+- mpv / IINA：通过 mpv 的 JSON IPC 读取进度（Windows 用命名管道，macOS / Linux 用 Unix 套接字），用 ``--start`` 从上次位置播放；
+- MPC-HC：通过它的 Web 接口读取进度、跳转到上次位置；
 - VLC、系统默认程序：只负责打开，不记录进度。
 
-``PLAYER`` 选择播放器（留空自动选择本机已安装的），``PLAYER_PATH`` 指定程序路径；
+``PLAYER`` 选择播放器（留空自动选择），``PLAYER_PATH`` 指定程序路径；
 MPC-HC 沿用 ``MPC_PATH`` 与 ``MPC_WEB_URL``。
 """
 
 import json
 import logging
 import os
+import platform
 import shutil
 import socket
 import subprocess
@@ -23,10 +26,13 @@ from urllib.parse import unquote, urlparse
 
 import requests
 
+from services import paths
+
 
 logger = logging.getLogger(__name__)
 IS_WINDOWS = os.name == "nt"
 IS_MACOS = sys.platform == "darwin"
+BUNDLED_MPV_MIN_MACOS = (15, 0)
 DEFAULT_MPC_PATH = r"C:\Program Files\MPC-HC\mpc-hc64.exe"
 PLAYER_NAMES = {"mpc-hc": "MPC-HC", "iina": "IINA", "mpv": "mpv", "vlc": "VLC", "system": "系统默认程序"}
 # 能记录观看进度的播放器
@@ -180,6 +186,42 @@ def label(kind: str) -> str:
     return PLAYER_NAMES.get(kind, "自定义播放器")
 
 
+def _macos_version() -> str:
+    return platform.mac_ver()[0]
+
+
+def _parse_macos_version(raw: str) -> tuple[int, int] | None:
+    parts = (raw or "").strip().split(".")
+    if not parts or not parts[0]:
+        return None
+    try:
+        major = int(parts[0])
+        minor = int(parts[1]) if len(parts) > 1 else 0
+    except ValueError:
+        return None
+    return (major, minor)
+
+
+def bundled_mpv() -> str | None:
+    """返回安装包内置 mpv 的路径；文件不存在或 macOS 版本过低时返回 None。"""
+    if IS_MACOS:
+        version = _parse_macos_version(_macos_version())
+        if version is not None and version < BUNDLED_MPV_MIN_MACOS:
+            return None
+    target = Path(paths.BUNDLED_MPV)
+    return str(target) if target.is_file() else None
+
+
+def is_bundled(path: str | None) -> bool:
+    """判断路径是否指向安装包内置的 mpv。"""
+    if not path:
+        return False
+    try:
+        return Path(path).resolve() == Path(paths.BUNDLED_MPV).resolve()
+    except (OSError, ValueError, RuntimeError):
+        return False
+
+
 def _auto_order() -> tuple[str, ...]:
     if IS_WINDOWS:
         return ("mpc-hc", "mpv", "vlc")
@@ -254,6 +296,8 @@ def resolve_player(overrides: dict | None = None) -> tuple[str, str | None]:
             raise PlayerNotFound("播放器程序路径无效，请在设置 → 播放器中检查。")
         return _guess_kind(path), path
     if choice in ("", "auto"):
+        if bundled := bundled_mpv():
+            return "mpv", bundled
         for kind in _auto_order():
             path = _find(kind, env)
             if path:
@@ -263,6 +307,9 @@ def resolve_player(overrides: dict | None = None) -> tuple[str, str | None]:
         raise PlayerNotFound(f"不认识的播放器：{choice}")
     if choice == "system":
         return "system", None
+    if choice == "mpv" and not custom:
+        if bundled := bundled_mpv():
+            return "mpv", bundled
     path = _find(choice, env)
     if not path:
         raise PlayerNotFound(f"没有找到 {PLAYER_NAMES[choice]}，请在设置 → 播放器中填写程序路径。")
@@ -286,6 +333,10 @@ def _ipc_path(generation: int) -> str:
     return str(Path(tempfile.gettempdir()) / f"moviedb-mpv-{os.getpid()}-{generation}.sock")
 
 
+def _pipe_name(generation: int) -> str:
+    return rf"\\.\pipe\moviedb-mpv-{os.getpid()}-{generation}"
+
+
 def play_video(
     video_url: str,
     start_position_ms: int = 0,
@@ -302,12 +353,16 @@ def play_video(
         monitor = _monitor_mpc_playback
         args = (generation, video_url, max(int(start_position_ms), 0), progress_callback)
     elif kind in ("mpv", "iina"):
-        ipc = None if IS_WINDOWS else _ipc_path(generation)
         if kind == "mpv":
+            ipc = _pipe_name(generation) if IS_WINDOWS else _ipc_path(generation)
             command = [path, "--force-window=immediate", f"--start={start_seconds:.3f}"]
-            command += [f"--input-ipc-server={ipc}"] if ipc else []
+            config_dir = Path(paths.BUNDLED_MPV_CONFIG)
+            if is_bundled(path) and config_dir.is_dir():
+                command.append(f"--config-dir={config_dir}")
+            command.append(f"--input-ipc-server={ipc}")
             command += [f"--sub-file={sub}" for sub in subs]
         else:  # iina-cli：mpv 选项加 --mpv- 前缀；sub-files 用系统路径分隔符拼接本机字幕路径
+            ipc = None if IS_WINDOWS else _ipc_path(generation)
             command = [path, f"--mpv-start={start_seconds:.3f}"]
             command += [f"--mpv-input-ipc-server={ipc}"] if ipc else []
             if subs:
@@ -335,18 +390,55 @@ def play_video(
 
 class _MpvClient:
     def __init__(self, path: str):
-        self._socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self._socket.settimeout(MPC_REQUEST_TIMEOUT)
-        self._socket.connect(path)
-        self._reader = self._socket.makefile("r", encoding="utf-8")
+        self._pipe = None
+        self._buffer = bytearray()
+        self._socket = None
+        self._reader = None
         self._request = 0
+        if IS_WINDOWS:
+            self._pipe = open(path, "r+b", buffering=0)
+        else:
+            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            try:
+                sock.settimeout(MPC_REQUEST_TIMEOUT)
+                sock.connect(path)
+                self._reader = sock.makefile("r", encoding="utf-8")
+                self._socket = sock
+            except BaseException:
+                sock.close()
+                raise
+
+    def _send(self, payload: bytes) -> None:
+        if self._pipe is not None:
+            view = memoryview(payload)
+            while view:
+                written = self._pipe.write(view)
+                if not written:
+                    raise ConnectionError("播放器已关闭")
+                view = view[written:]
+        else:
+            self._socket.sendall(payload)
+
+    def _readline(self) -> str:
+        if self._pipe is None:
+            return self._reader.readline()
+        while True:
+            newline = self._buffer.find(b"\n")
+            if newline != -1:
+                line = bytes(self._buffer[:newline + 1])
+                del self._buffer[:newline + 1]
+                return line.decode("utf-8")
+            chunk = self._pipe.read(4096)
+            if not chunk:
+                return ""
+            self._buffer.extend(chunk)
 
     def get(self, name: str):
         self._request += 1
         message = {"command": ["get_property", name], "request_id": self._request}
-        self._socket.sendall((json.dumps(message) + "\n").encode("utf-8"))
+        self._send((json.dumps(message) + "\n").encode("utf-8"))
         while True:
-            line = self._reader.readline()
+            line = self._readline()
             if not line:
                 raise ConnectionError("播放器已关闭")
             reply = json.loads(line)
@@ -354,7 +446,9 @@ class _MpvClient:
                 return reply.get("data") if reply.get("error") == "success" else None
 
     def close(self) -> None:
-        for item in (self._reader, self._socket):
+        for item in (self._reader, self._socket, self._pipe):
+            if item is None:
+                continue
             try:
                 item.close()
             except OSError:
@@ -393,7 +487,8 @@ def _monitor_mpv_playback(generation: int, ipc_path: str, progress_callback) -> 
     finally:
         if client is not None:
             client.close()
-        try:
-            Path(ipc_path).unlink(missing_ok=True)
-        except OSError:
-            pass
+        if not IS_WINDOWS:
+            try:
+                Path(ipc_path).unlink(missing_ok=True)
+            except OSError:
+                pass

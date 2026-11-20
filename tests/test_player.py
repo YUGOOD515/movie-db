@@ -1,10 +1,12 @@
 """播放器：自动选择、指定程序路径、各播放器的启动参数与 mpv / IINA 的进度读取。"""
 
 import json
+import multiprocessing.connection
 import os
 import socket
-import threading
 import tempfile
+import threading
+import time
 from pathlib import Path
 from unittest.mock import patch
 
@@ -12,7 +14,7 @@ import pytest
 
 from connectors import player
 from connectors.drives.base import Entry, Link
-from services import media_source, playback, setup_wizard
+from services import media_source, paths, playback, setup_wizard
 
 
 @pytest.fixture
@@ -20,6 +22,7 @@ def no_players(monkeypatch):
     for name in ("PLAYER", "PLAYER_PATH", "MPC_PATH"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setattr(player, "_candidates", lambda kind, env=os.environ: [])
+    monkeypatch.setattr(player, "bundled_mpv", lambda: None)
 
 
 def _executable(folder: Path, name: str) -> str:
@@ -76,7 +79,7 @@ def test_launch_arguments(monkeypatch, kind, expected):
     command = popen.call_args.args[0]
     assert command[0] == "/bin/" + kind and command[-1] == "https://media.test/a.mkv"
     assert command[1:1 + len(expected)] == expected
-    tracked = kind in player.TRACKS_PROGRESS and not player.IS_WINDOWS
+    tracked = kind == "mpv" or (kind == "iina" and not player.IS_WINDOWS)
     assert any("ipc-server=" in part for part in command) == tracked
     assert thread.called == tracked
 
@@ -307,3 +310,215 @@ def test_prepare_subtitles_does_not_wait_for_slow_download(monkeypatch, tmp_path
         assert media_source.prepare_subtitles("/baidu/Movies/Avatar.mkv", wait=0.3) == [str(tmp_path / "Avatar.chs.srt")]
     finally:
         release.set()
+
+
+def test_auto_prefers_bundled_mpv_over_mpc_hc(monkeypatch, tmp_path):
+    for name in ("PLAYER", "PLAYER_PATH", "MPC_PATH"):
+        monkeypatch.delenv(name, raising=False)
+    bundled = _executable(tmp_path, "mpv.exe")
+    mpc = _executable(tmp_path, "mpc-hc64.exe")
+    monkeypatch.setattr(paths, "BUNDLED_MPV", Path(bundled))
+    monkeypatch.setattr(player, "IS_MACOS", False)
+    monkeypatch.setattr(player, "_candidates", lambda kind, env=os.environ: [mpc] if kind == "mpc-hc" else [])
+    monkeypatch.setattr(player, "_auto_order", lambda: ("mpc-hc", "mpv", "vlc"))
+    assert player.resolve_player() == ("mpv", bundled)
+    assert player.resolve_player({"PLAYER": "auto"}) == ("mpv", bundled)
+
+
+def test_auto_uses_platform_order_when_no_bundled_mpv(monkeypatch, tmp_path):
+    for name in ("PLAYER", "PLAYER_PATH", "MPC_PATH"):
+        monkeypatch.delenv(name, raising=False)
+    found = {"mpc-hc": _executable(tmp_path, "mpc-hc64.exe"), "mpv": _executable(tmp_path, "mpv.exe")}
+    monkeypatch.setattr(paths, "BUNDLED_MPV", tmp_path / "missing-mpv.exe")
+    monkeypatch.setattr(player, "IS_MACOS", False)
+    monkeypatch.setattr(player, "_candidates", lambda kind, env=os.environ: [found.get(kind, "")])
+    monkeypatch.setattr(player, "_auto_order", lambda: ("mpc-hc", "mpv", "vlc"))
+    assert player.resolve_player() == ("mpc-hc", found["mpc-hc"])
+
+
+def test_player_path_overrides_bundled_mpv(monkeypatch, tmp_path):
+    for name in ("PLAYER", "PLAYER_PATH", "MPC_PATH"):
+        monkeypatch.delenv(name, raising=False)
+    bundled = _executable(tmp_path, "bundled-mpv.exe")
+    custom = _executable(tmp_path, "my-mpv.exe")
+    monkeypatch.setattr(paths, "BUNDLED_MPV", Path(bundled))
+    monkeypatch.setattr(player, "IS_MACOS", False)
+    monkeypatch.setattr(player, "_candidates", lambda kind, env=os.environ: [])
+    assert player.resolve_player({"PLAYER_PATH": custom}) == ("mpv", custom)
+    assert player.resolve_player({"PLAYER": "auto", "PLAYER_PATH": custom}) == ("mpv", custom)
+    assert player.resolve_player({"PLAYER": "mpv", "PLAYER_PATH": custom}) == ("mpv", custom)
+    assert player.resolve_player({"PLAYER_PATH": "   "}) == ("mpv", bundled)
+    assert player.resolve_player({"PLAYER": "mpv", "PLAYER_PATH": "   "}) == ("mpv", bundled)
+
+
+def test_explicit_mpv_prefers_bundled_then_falls_back_to_candidates(monkeypatch, tmp_path):
+    for name in ("PLAYER", "PLAYER_PATH", "MPC_PATH"):
+        monkeypatch.delenv(name, raising=False)
+    bundled = _executable(tmp_path, "bundled-mpv.exe")
+    system_mpv = _executable(tmp_path, "system-mpv.exe")
+    monkeypatch.setattr(player, "IS_MACOS", False)
+    monkeypatch.setattr(player, "_candidates", lambda kind, env=os.environ: [system_mpv] if kind == "mpv" else [])
+    monkeypatch.setattr(paths, "BUNDLED_MPV", Path(bundled))
+    assert player.resolve_player({"PLAYER": "mpv"}) == ("mpv", bundled)
+    monkeypatch.setattr(paths, "BUNDLED_MPV", tmp_path / "missing-mpv.exe")
+    assert player.resolve_player({"PLAYER": "mpv"}) == ("mpv", system_mpv)
+
+
+def test_explicit_mpc_hc_ignores_bundled_mpv(monkeypatch, tmp_path):
+    for name in ("PLAYER", "PLAYER_PATH", "MPC_PATH"):
+        monkeypatch.delenv(name, raising=False)
+    bundled = _executable(tmp_path, "bundled-mpv.exe")
+    mpc = _executable(tmp_path, "mpc-hc64.exe")
+    monkeypatch.setattr(paths, "BUNDLED_MPV", Path(bundled))
+    monkeypatch.setattr(player, "IS_MACOS", False)
+    monkeypatch.setattr(player, "_candidates", lambda kind, env=os.environ: [mpc] if kind == "mpc-hc" else [])
+    assert player.resolve_player({"PLAYER": "mpc-hc"}) == ("mpc-hc", mpc)
+
+
+@pytest.mark.parametrize(("version", "allowed"), [
+    ("14.6", False),
+    ("15.0", True),
+    ("26.1", True),
+    ("", True),
+])
+def test_bundled_mpv_checks_macos_version(monkeypatch, tmp_path, version, allowed):
+    bundled = _executable(tmp_path, "mpv")
+    monkeypatch.setattr(paths, "BUNDLED_MPV", Path(bundled))
+    monkeypatch.setattr(player, "IS_MACOS", True)
+    monkeypatch.setattr(player, "_macos_version", lambda: version)
+    assert player.bundled_mpv() == (bundled if allowed else None)
+
+
+def test_is_bundled_matches_same_file_and_handles_missing(monkeypatch, tmp_path):
+    mpv_dir = tmp_path / "mpv"
+    mpv_dir.mkdir()
+    bundled = _executable(mpv_dir, "mpv.exe")
+    other = _executable(tmp_path, "mpv.exe")
+    monkeypatch.setattr(paths, "BUNDLED_MPV", Path(bundled))
+    assert player.is_bundled(bundled) is True
+    assert player.is_bundled(str(mpv_dir / ".." / "mpv" / "mpv.exe")) is True
+    assert player.is_bundled(other) is False
+    assert player.is_bundled(None) is False
+    assert player.is_bundled("") is False
+    assert player.is_bundled(str(tmp_path / "missing" / "mpv.exe")) is False
+
+
+def test_bundled_mpv_config_dir_launch_argument(monkeypatch, tmp_path):
+    bundled = _executable(tmp_path, "mpv.exe")
+    user_mpv = _executable(tmp_path, "user-mpv.exe")
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    monkeypatch.setattr(paths, "BUNDLED_MPV", Path(bundled))
+    monkeypatch.setattr(paths, "BUNDLED_MPV_CONFIG", config_dir)
+
+    monkeypatch.setattr(player, "resolve_player", lambda: ("mpv", bundled))
+    with patch.object(player, "_popen") as popen, patch.object(player.threading, "Thread"):
+        player.play_video("https://media.test/a.mkv", start_position_ms=10_000, subtitles=["/sub/a.srt"])
+    command = popen.call_args.args[0]
+    assert command[0] == bundled
+    assert command[1:4] == ["--force-window=immediate", "--start=10.000", f"--config-dir={config_dir}"]
+    assert command[4].startswith("--input-ipc-server=")
+    assert command[5:] == ["--sub-file=/sub/a.srt", "https://media.test/a.mkv"]
+
+    monkeypatch.setattr(paths, "BUNDLED_MPV_CONFIG", tmp_path / "missing-config")
+    with patch.object(player, "_popen") as popen, patch.object(player.threading, "Thread"):
+        player.play_video("https://media.test/a.mkv", start_position_ms=10_000)
+    command = popen.call_args.args[0]
+    assert not any(arg.startswith("--config-dir=") for arg in command)
+    assert command[3].startswith("--input-ipc-server=")
+
+    monkeypatch.setattr(paths, "BUNDLED_MPV_CONFIG", config_dir)
+    monkeypatch.setattr(player, "resolve_player", lambda: ("mpv", user_mpv))
+    with patch.object(player, "_popen") as popen, patch.object(player.threading, "Thread"):
+        player.play_video("https://media.test/a.mkv", start_position_ms=10_000)
+    command = popen.call_args.args[0]
+    assert not any(arg.startswith("--config-dir=") for arg in command)
+
+
+def test_windows_mpv_uses_named_pipe_and_starts_monitor(monkeypatch):
+    monkeypatch.setattr(player, "IS_WINDOWS", True)
+    monkeypatch.setattr(player, "resolve_player", lambda: ("mpv", r"C:\mpv\mpv.exe"))
+    callback = lambda *_: None  # noqa: E731
+    with patch.object(player, "_popen") as popen, patch.object(player.threading, "Thread") as thread:
+        player.play_video("https://media.test/a.mkv", progress_callback=callback)
+    generation = player._current_playback_generation()
+    expected_pipe = rf"\\.\pipe\moviedb-mpv-{os.getpid()}-{generation}"
+    command = popen.call_args.args[0]
+    assert f"--input-ipc-server={expected_pipe}" in command
+    assert thread.called
+    assert thread.call_args.kwargs["target"] is player._monitor_mpv_playback
+    assert thread.call_args.kwargs["args"] == (generation, expected_pipe, callback)
+    thread.return_value.start.assert_called_once()
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows 命名管道 IPC 测试仅在 Windows 运行")
+def test_mpv_windows_named_pipe_reports_progress(monkeypatch):
+    generation = player._next_playback_generation()
+    pipe_name = rf"\\.\pipe\moviedb-test-mpv-{os.getpid()}-{generation}"
+    listener = multiprocessing.connection.Listener(address=pipe_name, family="AF_PIPE")
+    values = {"time-pos": 12.5, "duration": 100.0}
+    closed_at = []
+
+    def serve():
+        try:
+            with listener:
+                conn = listener.accept()
+                with conn:
+                    for count in range(5):
+                        raw = conn.recv_bytes()
+                        for line in raw.decode("utf-8").splitlines():
+                            request = json.loads(line)
+                            if count >= 4:  # 模拟播放器退出，关闭管道
+                                return
+                            event = json.dumps({"event": "property-change"}) + "\n"
+                            conn.send_bytes(event.encode("utf-8"))
+                            name = request["command"][1]
+                            reply = {
+                                "request_id": request["request_id"],
+                                "error": "success",
+                                "data": values[name],
+                            }
+                            conn.send_bytes((json.dumps(reply) + "\n").encode("utf-8"))
+        finally:
+            closed_at.append(time.monotonic())
+
+    server_thread = threading.Thread(target=serve, daemon=True)
+    server_thread.start()
+    monkeypatch.setattr(player, "IPC_POLL_INTERVAL", 0.01)
+    saved = []
+    monitor_thread = threading.Thread(
+        target=player._monitor_mpv_playback,
+        args=(generation, pipe_name, lambda position, duration: saved.append((position, duration))),
+        daemon=True,
+    )
+    monitor_thread.start()
+    monitor_thread.join(5)
+    finished_at = time.monotonic()
+    server_thread.join(2)
+    assert not monitor_thread.is_alive()
+    assert saved == [(12_500, 100_000)]
+    assert closed_at and finished_at - closed_at[0] < 5
+
+
+def test_windows_monitor_does_not_unlink_pipe_path(monkeypatch):
+    monkeypatch.setattr(player, "IS_WINDOWS", True)
+    closed = []
+
+    class FakeClient:
+        def __init__(self, path):
+            self.path = path
+
+        def get(self, name):
+            raise ConnectionError("播放器已关闭")
+
+        def close(self):
+            closed.append(self.path)
+
+    unlinked = []
+    monkeypatch.setattr(player, "_MpvClient", FakeClient)
+    monkeypatch.setattr(Path, "unlink", lambda self, missing_ok=False: unlinked.append(self))
+    generation = player._next_playback_generation()
+    pipe_path = rf"\\.\pipe\moviedb-mpv-{os.getpid()}-{generation}"
+    player._monitor_mpv_playback(generation, pipe_path, lambda *_: None)
+    assert closed == [pipe_path]
+    assert unlinked == []
