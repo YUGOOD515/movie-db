@@ -51,6 +51,20 @@ def test_season_and_quality_folders_preserve_show_and_all_versions():
     assert len(media_grouping.samples(groups[0])) == 4
 
 
+def test_same_title_movies_with_different_years_are_split():
+    files = [video("/r/电影/Dune.2021.2160p.WEB-DL.mkv"), video("/r/电影/Dune.1984.1080p.BluRay.mkv"),
+             video("/r/电影/Dune.2021.1080p.mkv"), video("/r/电影/Dune.4K.mkv")]
+    groups = media_grouping.partition("/r", files)
+    names = sorted(sorted(f["name"] for f in g["files"]) for g in groups)
+    # 无年份的文件并入第一组同名电影；相差一年以内的版本仍算同一部。
+    assert names == [["Dune.1984.1080p.BluRay.mkv"], ["Dune.2021.1080p.mkv", "Dune.2021.2160p.WEB-DL.mkv", "Dune.4K.mkv"]] or \
+        names == [["Dune.1984.1080p.BluRay.mkv", "Dune.4K.mkv"], ["Dune.2021.1080p.mkv", "Dune.2021.2160p.WEB-DL.mkv"]]
+    near = media_grouping.partition("/r", [video("/r/M/Movie.2019.mkv"), video("/r/M/Movie.2020.REMUX.mkv")])
+    assert len(near) == 1
+    show = media_grouping.partition("/r", [video("/r/S/Show.2019.S01E01.mkv"), video("/r/S/Show.2021.S02E01.mkv")])
+    assert len(show) == 1
+
+
 def test_mixed_movie_and_series_get_independent_types():
     root, files = special_files()
     groups = media_grouping.partition(root, files)

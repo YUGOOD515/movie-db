@@ -42,6 +42,13 @@ class NameCleaningTest(unittest.TestCase):
         self.assertEqual(hints["year"], 2026)
         self.assertEqual(folder_hints("末日地堡 第二季")["season"], 2)
         self.assertEqual(folder_hints("White.Snake.2019.4K.60FPS.H265.10bit.WEB")["queries"][0], "White Snake")
+        # 紧贴中文的四位数两种写法都搜；另有年份时以最后一个为准。
+        hints = folder_hints("请回答1988")
+        self.assertIn("请回答1988", hints["queries"])
+        self.assertIsNone(hints["year"])
+        self.assertEqual(folder_hints("请回答1988 (2015)")["year"], 2015)
+        self.assertEqual(folder_hints("霸王别姬1993.mp4")["queries"][0], "霸王别姬")
+        self.assertEqual(folder_hints("Blade.Runner.2049.2017.2160p")["year"], 2017)
 
     def test_positions_and_english_titles(self):
         self.assertEqual(guess_position("/s/Show.S02E05.1080p.mkv"), (2, 5))

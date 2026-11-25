@@ -99,7 +99,11 @@ def folder_hints(name: str) -> dict:
     """
     raw = unicodedata.normalize("NFKC", name or "").strip()
     raw = re.sub(r"(?i)\.(mkv|mp4|avi|ts|m2ts|mov|wmv|flv|webm|m4v|mpg|mpeg|rmvb)$", "", raw)
-    year_match = YEAR.search(raw)
+    years = list(YEAR.finditer(raw))
+    # 紧贴在中文后面的四位数可能是片名的一部分（请回答1988），也可能是年份（霸王别姬1993）：
+    # 两种写法都去搜；有多个年份时取最后一个（请回答1988 (2015)），只有这一个时不当年份用。
+    glued = [match for match in years if match.start() and re.match(rf"[{CJK}]", raw[match.start() - 1])]
+    year_match = years[-1] if len(years) > 1 else None if glued else (years[0] if years else None)
     season_match = SEASON_HINT.search(raw)
     season = next((_number(group) for group in (season_match.groups() if season_match else ()) if group), None)
 
@@ -132,6 +136,7 @@ def folder_hints(name: str) -> dict:
             without_note = re.sub(r"\s*[(（][^)）]*[)）]\s*$", "", title).strip()
             if without_note and without_note != title:
                 variants.append(without_note)
+            variants.extend(title + match.group(1) for match in glued if raw[:match.start()].endswith(title))
     # 纯英文的点号命名（White.Snake.2019.1080p）直接交给 guessit。
     if not re.search(rf"[{CJK}{KANA}]", raw):
         try:

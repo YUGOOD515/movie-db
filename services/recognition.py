@@ -27,7 +27,7 @@ from services.name_cleaning import (
     english_title, folder_hints, guess_position, has_episode_marker, normalize,
 )
 
-VERSION = 6
+VERSION = 7
 READY = 0.8          # 高于此置信度且季集完整时，预选为“可直接确认”
 AI_THRESHOLD = 0.75  # 规则结果低于此值时才请求 AI
 AI_CEILING = 0.9

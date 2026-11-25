@@ -38,18 +38,37 @@ def movie_edition(name):
     return bool(_MOVIE.search(name)) and not bool(_EPISODE.search(name))
 
 
+def _movie_year(name):
+    """不带集号的文件才看年份：同名电影（1984 / 2021 版《沙丘》）靠它区分，剧集不受影响。"""
+    stem = PurePosixPath(name).stem
+    return None if _EPISODE.search(stem) else folder_hints(stem)["year"]
+
+
 def _title_keys(members):
-    """同一目录内合并少量拼写差异，保留续集编号和国家版本差异。"""
-    keys, found = [], []
+    """同一目录内合并少量拼写差异，保留续集编号、国家版本和年份明显不同的同名电影。"""
+    parsed = []
     for item in members:
         title = identity(item["name"], filename=True)
-        similar = next((key for key in keys if key == title or (
+        parsed.append((title, _movie_year(item["name"]) if title else None))
+
+    def same_title(title, key):
+        return key == title or (
             len(title) >= 5 and title[:4] == key[:4]
             and re.findall(r"\d+", title) == re.findall(r"\d+", key)
-            and SequenceMatcher(None, title, key).ratio() >= 0.88)), None)
-        if title and similar is None:
-            keys.append(title)
-        found.append(similar or title)
+            and SequenceMatcher(None, title, key).ratio() >= 0.88)
+
+    # 先登记带年份的片名，没写年份的文件再并入同名的第一组，结果不受文件顺序影响。
+    keys = []
+    for title, year in sorted((value for value in parsed if value[0]), key=lambda value: value[1] is None):
+        # 年份差一年按同一部处理：不同来源对上映年份常有出入。
+        if not any(same_title(title, key) and (year is None or known is None or abs(year - known) <= 1)
+                   for key, known in keys):
+            keys.append((title, year))
+    found = []
+    for title, year in parsed:
+        key = next(((key, known) for key, known in keys if same_title(title, key)
+                    and (year is None or known is None or abs(year - known) <= 1)), None) if title else None
+        found.append("" if key is None else key[0] if key[1] is None else f"{key[0]} ({key[1]})")
     return found
 
 
