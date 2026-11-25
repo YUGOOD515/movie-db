@@ -1,6 +1,6 @@
 [project]
 name = "2026-08-26-moviedb"
-version = "0.8.0"
+version = "0.9.0"
 description = "本地影视资源管理网页：TMDB 元数据、多平台评分、网盘播放与云端只读快照"
 license = "AGPL-3.0-or-later"
 readme = "README.md"

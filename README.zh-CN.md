@@ -9,11 +9,11 @@
 ## 功能
 
 - **媒体库**：首页“最新入库”轮播、最近观看、未观看与高分推荐；按类别、年份、评分、语言筛选；收藏夹与自定义片单；浅色 / 深色主题。
-- **详情页**：TMDB 剧照、片名 Logo、演员与简介；IMDb、豆瓣、烂番茄、Metacritic、Letterboxd、Trakt 评分；由 ffprobe 读取的画质信息（4K、HDR10 / 杜比视界、编码、声道）；按季浏览单集。
+- **详情页**：TMDB 剧照、片名 Logo、演员与简介；IMDb、豆瓣、烂番茄、Metacritic、Letterboxd、Trakt 评分；由 ffprobe 读取的画质信息（4K、HDR10 / 杜比视界、编码、声道）；按季浏览单集；海报和剧照可保存原图。
 - **内置网盘层**：直接支持夸克、UC、阿里云盘、百度网盘、115 网盘（扫码登录），123 云盘、WebDAV（账号密码），OneDrive、Google Drive（网页授权）和本机目录，也可连接已有 AList / OpenList；凭据自动续期，已有的 AList / OpenList 存储可一键导入。只读列目录和播放，不上传或删除。
 - **智能识别待关联**：扫描所选网盘目录，清洗伪装文件名、搜索 TMDB 并推测季集；拿不准的交给 AI（任意 OpenAI 兼容接口，推荐 DeepSeek）。结果分为“可确认 / 待核对 / 未识别”，一键批量入库。
 - **关联界面**：逐个文件核对 TMDB 单集，用可视化的文件名规则编辑器修正季集，支持按文件夹设季号、连续编号顺延、同一集多个版本。
-- **本机播放**：默认用安装包自带的 mpv，也可以改用 MPC-HC、IINA、VLC 或系统默认程序，打开 MovieDB `/stream` 地址；支持跳转、单连接和并发分段转发。AList / OpenList、夸克和 UC 默认启用有上限的后台预读，多次播放器请求共用同一份缓存；mpv、MPC-HC、IINA 记录进度并续播。
+- **本机播放**：默认用安装包自带的 mpv，也可以改用 MPC-HC、IINA、VLC 或系统默认程序，打开 MovieDB `/stream` 地址；支持跳转、单连接和并发分段转发。AList / OpenList、夸克和 UC 默认启用有上限的后台预读，多次播放器请求共用同一份缓存；同目录或字幕子目录里的外挂字幕（.srt / .ass 等）自动一起加载；mpv、MPC-HC、IINA 记录进度并续播。
 - **桌面应用**：Windows 安装包或免安装 zip，macOS 提供 Apple 芯片与 Intel 两种 .dmg；自带 Python、全部依赖、ffprobe 和 mpv 播放器；界面显示在独立的原生窗口里（系统自带的 WebView2 / WKWebView，不附带浏览器内核）。
 - **引导与设置**：首次使用全屏引导，设置页逐项检测连接状态。
 - **远程访问（可选）**：经 Cloudflare Tunnel 远程使用；电脑离线时自动切换到 Cloudflare Workers 上的只读快照。
